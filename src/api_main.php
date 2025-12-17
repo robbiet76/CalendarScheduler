@@ -2,53 +2,44 @@
 
 require_once __DIR__ . '/bootstrap.php';
 
-class GcsApiMain
-{
-    public static function handle(): void
-    {
-        $action = $_POST['action'] ?? '';
+/*
+ * IMPORTANT:
+ * FPP does not reliably support redirect-after-POST for plugin pages.
+ * We must handle the action and then render the content page directly.
+ */
 
-        if ($action === 'save') {
-            self::handleSave();
-        } elseif ($action === 'sync') {
-            self::handleSync();
-        }
+$action = $_POST['action'] ?? '';
 
-        // IMPORTANT:
-        // FPP requires redirect directly to the content page
-        header('Location: plugin.php?plugin=GoogleCalendarScheduler&page=src/content_main.php');
-        exit;
-    }
+if ($action === 'save') {
+    $cfg = GcsConfig::load();
 
-    private static function handleSave(): void
-    {
-        $cfg = GcsConfig::load();
+    $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
+    $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
 
-        $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
-        $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
+    GcsConfig::save($cfg);
 
-        GcsConfig::save($cfg);
-
-        GcsLog::info('Settings saved', [
-            'dryRun' => $cfg['runtime']['dry_run'],
-        ]);
-    }
-
-    private static function handleSync(): void
-    {
-        $cfg = GcsConfig::load();
-        $dryRun = !empty($cfg['runtime']['dry_run']);
-
-        GcsLog::info('Starting sync', ['dryRun' => $dryRun]);
-
-        $horizonDays = FppSchedulerHorizon::getDays();
-        GcsLog::info('Using FPP scheduler horizon', ['days' => $horizonDays]);
-
-        $sync = new SchedulerSync($cfg, $horizonDays, $dryRun);
-        $result = $sync->run();
-
-        GcsLog::info('Sync completed', $result);
-    }
+    GcsLog::info('Settings saved', [
+        'dryRun' => $cfg['runtime']['dry_run'],
+    ]);
 }
 
-GcsApiMain::handle();
+if ($action === 'sync') {
+    $cfg = GcsConfig::load();
+    $dryRun = !empty($cfg['runtime']['dry_run']);
+
+    GcsLog::info('Starting sync', ['dryRun' => $dryRun]);
+
+    $horizonDays = FppSchedulerHorizon::getDays();
+    GcsLog::info('Using FPP scheduler horizon', ['days' => $horizonDays]);
+
+    $sync = new SchedulerSync($cfg, $horizonDays, $dryRun);
+    $result = $sync->run();
+
+    GcsLog::info('Sync completed', $result);
+}
+
+/*
+ * Render the plugin UI directly after handling POST.
+ * This guarantees the UI remains visible.
+ */
+require __DIR__ . '/content_main.php';
