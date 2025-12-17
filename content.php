@@ -1,20 +1,23 @@
 <?php
 /**
  * GoogleCalendarScheduler
- * Plugin content entry point
+ * Content entry point for FPP
  *
- * NO $menu guard — required for this FPP version
+ * This file:
+ * - Handles POST actions if present
+ * - Always renders the UI
+ *
+ * IMPORTANT:
+ * Do NOT add $menu guards or redirects in this FPP version.
  */
 
 require_once __DIR__ . '/src/bootstrap.php';
 require_once __DIR__ . '/src/FppSchedulerHorizon.php';
 require_once __DIR__ . '/src/SchedulerSync.php';
 
-/*
- * Handle POST actions
- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
+// Handle POST actions (Save / Sync)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $action = $_POST['action'];
 
     if ($action === 'save') {
         $cfg = GcsConfig::load();
@@ -45,7 +48,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-/*
- * Render UI
- */
+// ALWAYS render UI
 require_once __DIR__ . '/src/content_main.php';

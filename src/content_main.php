@@ -17,7 +17,7 @@ $cfg = GcsConfig::load();
 <hr/>
 
 <form method="post"
-      action="plugin.php?plugin=GoogleCalendarScheduler&page=content.php">
+      action="plugin.php?plugin=GoogleCalendarScheduler">
 
     <input type="hidden" name="action" value="save"/>
 
