@@ -44,7 +44,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             // --- Parse ICS ---
             $parser = new IcsParser();
-            $events = $parser->parse($ics);
+            $events = $parser->parse(
+                $ics,
+                new DateTime('now'),
+                $horizonDays
+            );
 
             GcsLog::info('Parser returned', [
                 'eventCount' => count($events),
