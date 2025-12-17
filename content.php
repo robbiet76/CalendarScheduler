@@ -3,19 +3,18 @@
  * GoogleCalendarScheduler
  * Content entry point for FPP
  *
- * This file:
- * - Handles POST actions if present
- * - Always renders the UI
- *
- * IMPORTANT:
- * Do NOT add $menu guards or redirects in this FPP version.
+ * FINAL FIX:
+ * - Explicit output buffering
+ * - Prevent FPP from discarding rendered UI after POST
  */
+
+ob_start();
 
 require_once __DIR__ . '/src/bootstrap.php';
 require_once __DIR__ . '/src/FppSchedulerHorizon.php';
 require_once __DIR__ . '/src/SchedulerSync.php';
 
-// Handle POST actions (Save / Sync)
+// Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
 
@@ -48,5 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// ALWAYS render UI
+// Render UI
 require_once __DIR__ . '/src/content_main.php';
+
+// FORCE output
+$out = ob_get_clean();
+echo $out;
