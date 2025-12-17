@@ -44,18 +44,16 @@ if ($action === 'sync') {
         'days' => $horizonDays,
     ]);
 
-    // 🔑 NEW ORCHESTRATOR
     $runner = new SchedulerRunner($cfg, $horizonDays, $dryRun);
     $result = $runner->run();
 
     GcsLog::info('Sync completed', $result);
 }
 
-/**
+/*
  * IMPORTANT:
  * No redirect.
  * No echo.
  * Just exit cleanly.
  */
 return;
-

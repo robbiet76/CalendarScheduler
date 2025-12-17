@@ -4,82 +4,35 @@
  * content.php
  *
  * Handles POST actions and renders UI.
+ *
+ * IMPORTANT:
+ *  - All POST actions are delegated to src/api_main.php
+ *  - No scheduler logic lives here
+ *  - UI rendering continues after POST handling
  */
 
 require_once __DIR__ . '/src/bootstrap.php';
-require_once __DIR__ . '/src/FppSchedulerHorizon.php';
-require_once __DIR__ . '/src/IcsFetcher.php';
-require_once __DIR__ . '/src/IcsParser.php';
-require_once __DIR__ . '/src/SchedulerSync.php';
 
 $cfg = GcsConfig::load();
 
+/*
+ * Delegate POST actions (save / sync) to api_main.php
+ * api_main.php is responsible for:
+ *  - reading $_POST['action']
+ *  - running SchedulerRunner
+ *  - logging
+ *  - NOT producing output
+ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    $action = (string)$_POST['action'];
-
-    try {
-        if ($action === 'save') {
-            $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
-            $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
-
-            GcsConfig::save($cfg);
-            $cfg = GcsConfig::load();
-
-            GcsLog::info('Settings saved', [
-                'dryRun' => !empty($cfg['runtime']['dry_run']),
-            ]);
-        }
-
-        if ($action === 'sync') {
-            $dryRun = !empty($cfg['runtime']['dry_run']);
-
-            GcsLog::info('Starting sync', ['dryRun' => $dryRun]);
-
-            $horizonDays = FppSchedulerHorizon::getDays();
-            GcsLog::info('Using FPP scheduler horizon', ['days' => $horizonDays]);
-
-            // --- Fetch ICS ---
-            $fetcher = new IcsFetcher();
-            $ics = $fetcher->fetch($cfg['calendar']['ics_url']);
-
-            // --- Parse ICS ---
-            $now = new DateTime('now');
-            $horizonEnd = (clone $now)->modify('+' . $horizonDays . ' days');
-
-            $parser = new IcsParser();
-            $events = $parser->parse(
-                $ics,
-                $now,
-                $horizonEnd
-            );
-
-            GcsLog::info('Parser returned', [
-                'eventCount' => count($events),
-            ]);
-
-            // --- Sync ---
-            $sync = new SchedulerSync(
-                $dryRun,
-                $horizonDays,
-                $cfg
-            );
-
-            $result = $sync->sync($events);
-
-            GcsLog::info('Sync completed', $result);
-
-            $cfg = GcsConfig::load();
-        }
-    }
-    catch (Throwable $e) {
-        GcsLog::error('Sync crashed', [
-            'exception' => get_class($e),
-            'message'   => $e->getMessage(),
-            'file'      => $e->getFile(),
-            'line'      => $e->getLine(),
-        ]);
-    }
+    require_once __DIR__ . '/src/api_main.php';
 }
 
-// Always render UI
-require __DIR__ . '/src/content_main.php';
+/*
+ * ---------------------------------------------------------------------
+ * UI rendering continues below (unchanged)
+ * ---------------------------------------------------------------------
+ *
+ * NOTE:
+ * Do NOT exit or redirect here.
+ * FPP will re-render this page automatically.
+ */
