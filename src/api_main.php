@@ -12,6 +12,9 @@ require_once __DIR__ . '/bootstrap.php';
 
 $action = $_POST['action'] ?? '';
 
+/**
+ * Save settings
+ */
 if ($action === 'save') {
     $cfg = GcsConfig::load();
 
@@ -25,17 +28,25 @@ if ($action === 'save') {
     ]);
 }
 
+/**
+ * Run scheduler sync (dry-run or live)
+ */
 if ($action === 'sync') {
     $cfg = GcsConfig::load();
     $dryRun = !empty($cfg['runtime']['dry_run']);
 
-    GcsLog::info('Starting sync', ['dryRun' => $dryRun]);
+    GcsLog::info('Starting sync', [
+        'dryRun' => $dryRun,
+    ]);
 
     $horizonDays = FppSchedulerHorizon::getDays();
-    GcsLog::info('Using FPP scheduler horizon', ['days' => $horizonDays]);
+    GcsLog::info('Using FPP scheduler horizon', [
+        'days' => $horizonDays,
+    ]);
 
-    $sync = new SchedulerSync($cfg, $horizonDays, $dryRun);
-    $result = $sync->run();
+    // 🔑 NEW ORCHESTRATOR
+    $runner = new SchedulerRunner($cfg, $horizonDays, $dryRun);
+    $result = $runner->run();
 
     GcsLog::info('Sync completed', $result);
 }
@@ -47,3 +58,4 @@ if ($action === 'sync') {
  * Just exit cleanly.
  */
 return;
+
