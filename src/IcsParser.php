@@ -1,3 +1,5 @@
+// VS Code local edit test
+
 <?php
 
 class IcsParser
