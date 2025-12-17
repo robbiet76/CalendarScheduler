@@ -8,9 +8,6 @@
 
 require_once __DIR__ . '/src/bootstrap.php';
 require_once __DIR__ . '/src/FppSchedulerHorizon.php';
-require_once __DIR__ . '/src/IcsFetcher.php';
-require_once __DIR__ . '/src/IcsParser.php';
-require_once __DIR__ . '/src/SchedulerSync.php';
 
 $cfg = GcsConfig::load();
 
@@ -38,48 +35,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $horizonDays = FppSchedulerHorizon::getDays();
             GcsLog::info('Using FPP scheduler horizon', ['days' => $horizonDays]);
 
-            // --- Fetch ICS ---
-            $fetcher = new IcsFetcher();
-            $ics = $fetcher->fetch($cfg['calendar']['ics_url']);
-
-            // --- Parse ICS ---
-            $now = new DateTime('now');
-            $horizonEnd = (clone $now)->modify('+' . $horizonDays . ' days');
-
-            $parser = new IcsParser();
-            $events = $parser->parse(
-                $ics,
-                $now,
-                $horizonEnd
-            );
-
-            GcsLog::info('Parser returned', [
-                'eventCount' => count($events),
-            ]);
-
-            // --- Sync ---
-            $sync = new SchedulerSync(
-                $dryRun,
-                $horizonDays,
-                $cfg
-            );
-
-            $result = $sync->sync($events);
+            // ✅ NEW: run full scheduler pipeline
+            $runner = new SchedulerRunner($cfg, $horizonDays, $dryRun);
+            $result = $runner->run();
 
             GcsLog::info('Sync completed', $result);
-
-            $cfg = GcsConfig::load();
         }
-    }
-    catch (Throwable $e) {
-        GcsLog::error('Sync crashed', [
-            'exception' => get_class($e),
-            'message'   => $e->getMessage(),
-            'file'      => $e->getFile(),
-            'line'      => $e->getLine(),
+
+    } catch (Throwable $e) {
+        GcsLog::error('Sync failed', [
+            'error' => $e->getMessage(),
         ]);
     }
 }
-
-// Always render UI
-require __DIR__ . '/src/content_main.php';
