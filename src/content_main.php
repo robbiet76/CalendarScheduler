@@ -1,5 +1,8 @@
 <?php
-require_once __DIR__ . '/bootstrap.php';
+/*
+ * UI rendering only.
+ * NO actions, NO POST handling.
+ */
 
 $cfg = GcsConfig::load();
 ?>
@@ -45,6 +48,5 @@ $cfg = GcsConfig::load();
       action="plugin.php?plugin=GoogleCalendarScheduler&page=src/api_main.php">
 
     <input type="hidden" name="action" value="sync"/>
-
     <button type="submit">Sync Now (Dry-run)</button>
 </form>

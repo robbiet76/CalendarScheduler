@@ -1,12 +1,10 @@
 <?php
+/*
+ * Action handler only.
+ * NO UI rendering.
+ */
 
 require_once __DIR__ . '/bootstrap.php';
-
-/*
- * IMPORTANT:
- * FPP does not reliably support redirect-after-POST for plugin pages.
- * We must handle the action and then render the content page directly.
- */
 
 $action = $_POST['action'] ?? '';
 
@@ -39,7 +37,7 @@ if ($action === 'sync') {
 }
 
 /*
- * Render the plugin UI directly after handling POST.
- * This guarantees the UI remains visible.
+ * ALWAYS return control to content.php
  */
-require __DIR__ . '/content_main.php';
+header('Location: plugin.php?plugin=GoogleCalendarScheduler&page=content.php');
+exit;
