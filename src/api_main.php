@@ -1,7 +1,11 @@
 <?php
-/*
- * Action handler only.
- * NO UI rendering.
+/**
+ * POST action handler only.
+ * DO NOT render UI.
+ * DO NOT redirect.
+ * DO NOT output anything.
+ *
+ * FPP will automatically re-render content.php after this script exits.
  */
 
 require_once __DIR__ . '/bootstrap.php';
@@ -36,8 +40,10 @@ if ($action === 'sync') {
     GcsLog::info('Sync completed', $result);
 }
 
-/*
- * ALWAYS return control to content.php
+/**
+ * IMPORTANT:
+ * No redirect.
+ * No echo.
+ * Just exit cleanly.
  */
-header('Location: plugin.php?plugin=GoogleCalendarScheduler&page=content.php');
-exit;
+return;
