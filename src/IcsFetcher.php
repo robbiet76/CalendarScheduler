@@ -1,30 +1,32 @@
 <?php
 
-final class GcsIcsFetcher {
-    public static function fetch(string $url): string {
-        if (!$url) {
-            throw new RuntimeException('ICS URL is empty');
+class IcsFetcher
+{
+    public function fetch(string $url): string
+    {
+        if (empty($url)) {
+            GcsLogger::instance()->error('ICS URL is empty');
+            return '';
         }
 
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT => 15,
-            CURLOPT_USERAGENT => 'FPP-GoogleCalendarScheduler'
+        $context = stream_context_create([
+            'http' => [
+                'timeout' => 10,
+            ],
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+            ],
         ]);
 
-        $data = curl_exec($ch);
-        $err  = curl_error($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $data = @file_get_contents($url, false, $context);
 
-        curl_close($ch);
-
-        if ($data === false || $code !== 200) {
-            throw new RuntimeException(
-                'Failed to fetch ICS',
-                $code ?: 500
-            );
+        if ($data === false) {
+            $err = error_get_last();
+            GcsLogger::instance()->error('ICS fetch failed', [
+                'error' => $err['message'] ?? 'unknown',
+            ]);
+            return '';
         }
 
         return $data;

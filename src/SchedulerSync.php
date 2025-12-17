@@ -1,11 +1,5 @@
 <?php
 
-/**
- * SchedulerSync
- *
- * Applies consolidated scheduler intents to FPP scheduler
- * (or simulates changes in dry-run mode).
- */
 class SchedulerSync
 {
     private bool $dryRun;
@@ -21,26 +15,21 @@ class SchedulerSync
      */
     public function sync(array $intents): array
     {
-        // Existing implementation remains unchanged
-        $adds = 0;
-        $updates = 0;
-        $deletes = 0;
+        $count = 0;
 
-        // Placeholder — your real logic already exists here
-        // This wrapper does NOT alter behavior
+        foreach ($intents as $intent) {
+            $count++;
+            GcsLogger::instance()->info('Scheduler intent (dry-run)', $intent);
+        }
 
         return [
-            'adds'    => $adds,
-            'updates' => $updates,
-            'deletes' => $deletes,
-            'dryRun'  => $this->dryRun,
+            'adds'         => 0,
+            'updates'      => 0,
+            'deletes'      => 0,
+            'dryRun'       => $this->dryRun,
+            'intents_seen' => $count,
         ];
     }
 }
 
-/**
- * Compatibility alias expected by api_main.php
- */
-class GcsSchedulerSync extends SchedulerSync
-{
-}
+class GcsSchedulerSync extends SchedulerSync {}

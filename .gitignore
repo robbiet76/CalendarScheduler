@@ -1,0 +1,14 @@
+# Logs
+*.log
+
+# FPP runtime/config
+plugin.googleCalendarScheduler.json
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.bak
+
+# Snapshots / backups
+*.SNAPSHOT_*
+*.BROKEN_*
