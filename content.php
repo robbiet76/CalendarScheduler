@@ -1,22 +1,17 @@
 <?php
 /**
  * GoogleCalendarScheduler
- * FPP plugin content entry point
+ * Plugin content entry point
  *
- * IMPORTANT:
- * content.php MUST only render when $menu === 'content'
+ * NO $menu guard — required for this FPP version
  */
-
-if (!isset($menu) || $menu !== 'content') {
-    return;
-}
 
 require_once __DIR__ . '/src/bootstrap.php';
 require_once __DIR__ . '/src/FppSchedulerHorizon.php';
 require_once __DIR__ . '/src/SchedulerSync.php';
 
 /*
- * Handle POST actions first
+ * Handle POST actions
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -51,6 +46,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /*
- * Always render UI when menu === content
+ * Render UI
  */
 require_once __DIR__ . '/src/content_main.php';
