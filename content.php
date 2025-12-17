@@ -43,11 +43,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $ics = $fetcher->fetch($cfg['calendar']['ics_url']);
 
             // --- Parse ICS ---
+            $now = new DateTime('now');
+            $horizonEnd = (clone $now)->modify('+' . $horizonDays . ' days');
+
             $parser = new IcsParser();
             $events = $parser->parse(
                 $ics,
-                new DateTime('now'),
-                $horizonDays
+                $now,
+                $horizonEnd
             );
 
             GcsLog::info('Parser returned', [
