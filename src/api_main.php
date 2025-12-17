@@ -15,8 +15,8 @@ class GcsApiMain
         }
 
         // IMPORTANT:
-        // Always redirect back to the plugin UI page
-        header('Location: plugin.php?plugin=GoogleCalendarScheduler');
+        // Redirect back to the plugin content page explicitly
+        header('Location: plugin.php?plugin=GoogleCalendarScheduler&page=content.php');
         exit;
     }
 
