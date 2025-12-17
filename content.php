@@ -3,12 +3,8 @@
  * GoogleCalendarScheduler
  * content.php
  *
- * This file is included inside /opt/fpp/www/plugin.php AFTER headers.
- * Any fatal or exit() here will blank the page.
- *
- * Therefore:
- * - Never allow sync code to terminate execution
- * - Catch *everything*
+ * Handles POST actions and renders UI.
+ * Sync execution is protected to prevent blank page.
  */
 
 require_once __DIR__ . '/src/bootstrap.php';
@@ -41,8 +37,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $horizonDays = FppSchedulerHorizon::getDays();
             GcsLog::info('Using FPP scheduler horizon', ['days' => $horizonDays]);
 
-            // CRITICAL: isolate sync execution
-            $sync = new SchedulerSync($cfg, $horizonDays, $dryRun);
+            // ✅ FIX: argument order corrected
+            $sync = new SchedulerSync(
+                $dryRun,
+                $horizonDays,
+                $cfg
+            );
+
             $result = $sync->run();
 
             GcsLog::info('Sync completed', $result);
@@ -51,7 +52,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
     catch (Throwable $e) {
-        // This prevents a blank page
         GcsLog::error('Sync crashed', [
             'exception' => get_class($e),
             'message'   => $e->getMessage(),
@@ -61,5 +61,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// ALWAYS render UI
+// Always render UI
 require __DIR__ . '/src/content_main.php';
