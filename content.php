@@ -37,14 +37,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $horizonDays = FppSchedulerHorizon::getDays();
             GcsLog::info('Using FPP scheduler horizon', ['days' => $horizonDays]);
 
-            // ✅ FIX: argument order corrected
             $sync = new SchedulerSync(
                 $dryRun,
                 $horizonDays,
                 $cfg
             );
 
-            $result = $sync->run();
+            // ✅ FIX: correct method name
+            $result = $sync->sync();
 
             GcsLog::info('Sync completed', $result);
 
