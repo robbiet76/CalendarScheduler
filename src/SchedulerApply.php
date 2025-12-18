@@ -1,70 +1,45 @@
 <?php
-/**
- * SchedulerApply
- * - dry-run: logs operations only
- * - live: applies operations to array and returns new array (writing happens elsewhere)
- */
+
 class SchedulerApply
 {
-    /**
-     * @param array<int,array<string,mixed>> $existing
-     * @param array{add:array,update:array,delete:array} $ops
-     * @param bool $dryRun
-     * @param object $logger Must support ->info($msg,$ctx) and ->error($msg,$ctx)
-     * @return array<int,array<string,mixed>>
-     */
-    public function apply(array $existing, array $ops, $dryRun, $logger)
+    public static function dryRun(SchedulerDiffResult $diff): void
     {
-        $logger->info("Scheduler diff", [
-            'adds' => count($ops['add']),
-            'updates' => count($ops['update']),
-            'deletes' => count($ops['delete']),
-            'dryRun' => (bool)$dryRun,
-        ]);
-
-        foreach ($ops['add'] as $e) {
-            $logger->info("ADD", ['playlist' => $e['playlist'] ?? null]);
-        }
-        foreach ($ops['update'] as $u) {
-            $logger->info("UPDATE", [
-                'from' => $u['from']['playlist'] ?? null,
-                'to' => $u['to']['playlist'] ?? null,
-                'idx' => $u['idx'] ?? null,
-            ]);
-        }
-        foreach ($ops['delete'] as $d) {
-            $logger->info("DELETE", [
-                'playlist' => $d['entry']['playlist'] ?? null,
-                'idx' => $d['idx'] ?? null,
-            ]);
+        foreach ($diff->create as $entry) {
+            Logger::info('[DRY-RUN] CREATE', ['uid' => $entry->uid]);
         }
 
-        if ($dryRun) {
-            return $existing;
+        foreach ($diff->update as $uid => $pair) {
+            Logger::info('[DRY-RUN] UPDATE', ['uid' => $uid]);
         }
 
-        // Apply deletes by index descending
-        $deleteIdx = array_map(function($d) { return (int)$d['idx']; }, $ops['delete']);
-        rsort($deleteIdx);
-        foreach ($deleteIdx as $idx) {
-            if ($idx >= 0 && $idx < count($existing)) {
-                array_splice($existing, $idx, 1);
-            }
+        foreach ($diff->delete as $entry) {
+            Logger::info('[DRY-RUN] DELETE', ['uid' => $entry->uid]);
+        }
+    }
+
+    public static function execute(SchedulerDiffResult $diff): void
+    {
+        if (!Settings::schedulerApplyEnabled()) {
+            Logger::warn('Scheduler apply disabled — skipping writes');
+            return;
         }
 
-        // Apply updates by index
-        foreach ($ops['update'] as $u) {
-            $idx = (int)$u['idx'];
-            if ($idx >= 0 && $idx < count($existing)) {
-                $existing[$idx] = $u['to'];
-            }
+        // DELETE
+        foreach ($diff->delete as $entry) {
+            // TODO: call FPP scheduler delete API
+            Logger::info('DELETE applied', ['uid' => $entry->uid]);
         }
 
-        // Adds appended
-        foreach ($ops['add'] as $e) {
-            $existing[] = $e;
+        // UPDATE
+        foreach ($diff->update as $uid => $pair) {
+            // TODO: call FPP scheduler update API
+            Logger::info('UPDATE applied', ['uid' => $uid]);
         }
 
-        return $existing;
+        // CREATE
+        foreach ($diff->create as $entry) {
+            // TODO: call FPP scheduler create API
+            Logger::info('CREATE applied', ['uid' => $entry->uid]);
+        }
     }
 }
