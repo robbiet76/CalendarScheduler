@@ -16,9 +16,10 @@ require_once __DIR__ . '/IcsFetcher.php';
 require_once __DIR__ . '/IcsParser.php';
 
 /*
- * Scheduling pipeline
+ * Scheduler pipeline (order matters)
  */
 require_once __DIR__ . '/TargetResolver.php';
 require_once __DIR__ . '/IntentConsolidator.php';
+require_once __DIR__ . '/FppScheduleMapper.php';
 require_once __DIR__ . '/SchedulerRunner.php';
 require_once __DIR__ . '/SchedulerSync.php';
