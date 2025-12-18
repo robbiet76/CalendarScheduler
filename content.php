@@ -57,7 +57,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 'days' => $horizonDays,
             ]);
 
-            // Phase 6.6: orchestrated scheduler pipeline
             $runner = new SchedulerRunner($cfg, $horizonDays, $dryRun);
             $result = $runner->run();
 
@@ -76,14 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
  * --------------------------------------------------------------------
  * UI rendering
  * --------------------------------------------------------------------
- * Everything below this point is unchanged from cc6f086.
- * This MUST always execute to keep the FPP UI stable.
  */
 ?>
-
-<!-- ============================= -->
-<!-- Google Calendar Scheduler UI -->
-<!-- ============================= -->
 
 <div class="settings">
     <h2>Google Calendar Scheduler</h2>

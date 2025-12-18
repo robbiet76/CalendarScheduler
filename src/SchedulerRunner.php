@@ -14,7 +14,7 @@ final class SchedulerRunner
     }
 
     /**
-     * Execute calendar → scheduler pipeline (dry-run).
+     * Execute calendar → scheduler pipeline.
      *
      * @return array<string,mixed>
      */
@@ -38,7 +38,7 @@ final class SchedulerRunner
         $parser = new IcsParser();
         $events = $parser->parse($ics, $now, $horizonEnd);
 
-        GcsLogger::instance()->info('Parser returned', [
+        GcsLog::info('Parser returned', [
             'eventCount' => count($events),
         ]);
 
@@ -62,48 +62,21 @@ final class SchedulerRunner
         }
 
         // ------------------------------------------------------------
-        // Expand to per-occurrence intents (lossless overrides)
+        // Expand to per-occurrence intents
         // ------------------------------------------------------------
         $intents = [];
 
         foreach ($baseEvents as $event) {
             $summary = (string)($event['summary'] ?? '');
-            $resolved = GcsTargetResolver::resolve($summary);
+            $resolved = TargetResolver::resolve($summary);
             if (!$resolved) {
                 continue;
             }
 
             $uid = $event['uid'] ?? null;
-            $baseOcc = $this->expandOccurrences($event, $now, $horizonEnd);
+            $occurrences = $this->expandOccurrences($event, $now, $horizonEnd);
 
-            $finalOcc = [];
-            $overrideOcc = [];
-
-            foreach ($baseOcc as $occ) {
-                $key = ($uid ? ($uid . '|' . $occ['start']) : null);
-
-                if ($key && isset($overridesByKey[$key])) {
-                    $ov = $overridesByKey[$key];
-                    $ovStart = (string)($ov['start'] ?? '');
-                    $ovEnd   = (string)($ov['end'] ?? '');
-
-                    if ($ovStart === $occ['start'] && $ovEnd === $occ['end']) {
-                        $finalOcc[] = $occ;
-                    } else {
-                        if ($ovStart && $ovEnd) {
-                            $overrideOcc[] = [
-                                'start' => $ovStart,
-                                'end'   => $ovEnd,
-                                'isOverride' => true,
-                            ];
-                        }
-                    }
-                } else {
-                    $finalOcc[] = $occ;
-                }
-            }
-
-            foreach ($finalOcc as $occ) {
+            foreach ($occurrences as $occ) {
                 $intents[] = [
                     'uid'        => $uid,
                     'summary'    => $summary,
@@ -117,21 +90,6 @@ final class SchedulerRunner
                     'isAllDay'   => !empty($event['isAllDay']),
                 ];
             }
-
-            foreach ($overrideOcc as $occ) {
-                $intents[] = [
-                    'uid'        => $uid,
-                    'summary'    => $summary,
-                    'type'       => $resolved['type'],
-                    'target'     => $resolved['target'],
-                    'start'      => $occ['start'],
-                    'end'        => $occ['end'],
-                    'stopType'   => 'graceful',
-                    'repeat'     => 'none',
-                    'isOverride' => true,
-                    'isAllDay'   => !empty($event['isAllDay']),
-                ];
-            }
         }
 
         // ------------------------------------------------------------
@@ -140,7 +98,7 @@ final class SchedulerRunner
         $consolidator = new IntentConsolidator();
         $ranges = $consolidator->consolidate($intents);
 
-        GcsLogger::instance()->info('Intent consolidation', [
+        GcsLog::info('Intent consolidation', [
             'inputIntents' => count($intents),
             'outputRanges' => count($ranges),
             'skipped'      => $consolidator->getSkippedCount(),
@@ -148,52 +106,22 @@ final class SchedulerRunner
         ]);
 
         // ------------------------------------------------------------
-        // Phase 7.1A: Map ranges → FPP schedule entries (log only)
+        // Map ranges → FPP schedule entries
         // ------------------------------------------------------------
         $mapped = [];
 
         foreach ($ranges as $ri) {
-            $entry = GcsFppScheduleMapper::mapRangeIntentToSchedule($this->hydrateRangeIntent($ri));
+            $entry = FppScheduleMapper::mapRangeIntentToSchedule(
+                $this->hydrateRangeIntent($ri)
+            );
             if ($entry) {
                 $mapped[] = $entry;
-                GcsLogger::instance()->info('Mapped FPP schedule (dry-run)', $entry);
+                GcsLog::info('Mapped FPP schedule (dry-run)', $entry);
             }
         }
 
         // ------------------------------------------------------------
-        // Phase 8 (NEW): Diff desired vs existing + dry-run log actions
-        // ------------------------------------------------------------
-        try {
-            $existing = SchedulerState::loadExisting(); // ExistingScheduleEntry[]
-            $desiredComparable = [];
-
-            foreach ($mapped as $entry) {
-                $ce = $this->mappedEntryToComparable($entry);
-                if ($ce) {
-                    $desiredComparable[] = $ce;
-                }
-            }
-
-            $diff = SchedulerDiff::compute($desiredComparable, $existing);
-
-            // Extra summary log (helpful when tailing)
-            GcsLogger::instance()->info('Phase 8 diff summary (dry-run)', [
-                'create' => count($diff->create),
-                'update' => count($diff->update),
-                'delete' => count($diff->delete),
-                'noop'   => count($diff->noop),
-            ]);
-
-            SchedulerApply::dryRun($diff);
-        } catch (Throwable $t) {
-            // Never break the runner due to Phase 8 wiring problems
-            GcsLogger::instance()->warn('Phase 8 diff wiring failed (continuing)', [
-                'error' => $t->getMessage(),
-            ]);
-        }
-
-        // ------------------------------------------------------------
-        // Still dry-run only (existing behavior)
+        // Sync (still dry-run)
         // ------------------------------------------------------------
         $sync = new SchedulerSync($this->dryRun);
         return $sync->sync($mapped);
@@ -206,6 +134,7 @@ final class SchedulerRunner
     private function hydrateRangeIntent(array $ri): array
     {
         $t = $ri['template'];
+
         return [
             'uid'         => $t['uid'] ?? null,
             'type'        => $t['type'],
@@ -214,7 +143,9 @@ final class SchedulerRunner
             'end'         => new DateTime($t['end']),
             'stopType'    => $t['stopType'] ?? 'graceful',
             'repeat'      => $t['repeat'] ?? 'none',
-            'weekdayMask' => GcsIntentConsolidator::shortDaysToWeekdayMask($ri['range']['days']),
+            'weekdayMask' => IntentConsolidator::shortDaysToWeekdayMask(
+                $ri['range']['days']
+            ),
             'startDate'   => $ri['range']['start'],
             'endDate'     => $ri['range']['end'],
         ];
@@ -231,20 +162,20 @@ final class SchedulerRunner
         ];
     }
 
-    /**
-     * Convert a mapped FPP schedule entry (array) into a ComparableScheduleEntry.
-     * This keeps Phase 8 independent from mapper internals while still matching
-     * existing scheduler entries by UID.
-     */
-    private function mappedEntryToComparable(array $entry): ?ComparableScheduleEntry
+    private function expandOccurrences(array $event, DateTime $now, DateTime $horizonEnd): array
     {
-        $playlist = (string)($entry['playlist'] ?? '');
-        $uid = $this->extractUidFromPlaylist($playlist);
-        if (!$uid) {
-            return null;
-        }
+        $start = new DateTime($event['start']);
+        $end   = new DateTime($event['end']);
+        $duration = $end->getTimestamp() - $start->getTimestamp();
 
-        $startDate = (string)($entry['startDate'] ?? '');
-        $endDate   = (string)($entry['endDate'] ?? '');
-        $startTime = (string)($entry['startTime'] ?? '00:00:00');
-        $endTime   = (string)($entry[']()
+        $out = [];
+
+        $s = $start->format('Y-m-d H:i:s');
+        $out[] = [
+            'start' => $s,
+            'end'   => (clone $start)->modify("+{$duration} seconds")->format('Y-m-d H:i:s'),
+        ];
+
+        return $out;
+    }
+}
