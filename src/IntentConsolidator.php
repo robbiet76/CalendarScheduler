@@ -7,11 +7,28 @@
  *
  * IMPORTANT:
  * - Different start/end TIMES must never be merged into the same range.
- * - Overrides should naturally remain separate because their time usually differs,
- *   but we still include isOverride in grouping identity for safety.
+ * - Overrides with different times remain isolated (lossless).
  */
 class IntentConsolidator
 {
+    // Weekday bit masks (Sunday = 0, matches PHP DateTime::format('w'))
+    public const WD_SUN = 1 << 0; // 1
+    public const WD_MON = 1 << 1; // 2
+    public const WD_TUE = 1 << 2; // 4
+    public const WD_WED = 1 << 3; // 8
+    public const WD_THU = 1 << 4; // 16
+    public const WD_FRI = 1 << 5; // 32
+    public const WD_SAT = 1 << 6; // 64
+
+    public const WD_ALL =
+        self::WD_SUN |
+        self::WD_MON |
+        self::WD_TUE |
+        self::WD_WED |
+        self::WD_THU |
+        self::WD_FRI |
+        self::WD_SAT;
+
     private int $skipped = 0;
     private int $rangeCount = 0;
 
@@ -39,7 +56,7 @@ class IntentConsolidator
             $startTime = $start->format('H:i:s');
             $endTime   = $end->format('H:i:s');
 
-            // Stable identity MUST include time + override flag (lossless)
+            // Stable identity MUST include time + override flag
             $key = implode('|', [
                 (string)($intent['type'] ?? ''),
                 (string)$intent['target'],
@@ -51,17 +68,15 @@ class IntentConsolidator
                 (!empty($intent['isOverride']) ? '1' : '0'),
             ]);
 
-            // Cache time fields for later
-            $intent['_startTime'] = $startTime;
-            $intent['_endTime']   = $endTime;
-
             $groups[$key][] = $intent;
         }
 
         $result = [];
 
         foreach ($groups as $items) {
-            usort($items, fn($a, $b) => strcmp((string)$a['start'], (string)$b['start']));
+            usort($items, fn($a, $b) =>
+                strcmp((string)$a['start'], (string)$b['start'])
+            );
 
             $range = null;
 
@@ -108,23 +123,79 @@ class IntentConsolidator
 
     private function finalizeRange(array $range): array
     {
-        $daysMap = ['Su','Mo','Tu','We','Th','Fr','Sa'];
-        $days = '';
-
-        foreach ($daysMap as $i => $label) {
-            if (!empty($range['days'][$i])) {
-                $days .= $label;
-            }
-        }
-
         return [
             'template' => $range['template'],
             'range' => [
                 'start' => $range['startDate']->format('Y-m-d'),
                 'end'   => $range['endDate']->format('Y-m-d'),
-                'days'  => $days,
+                'days'  => self::weekdayMaskToShortDays(
+                    self::daysArrayToMask($range['days'])
+                ),
             ]
         ];
+    }
+
+    private static function daysArrayToMask(array $days): int
+    {
+        $mask = 0;
+        foreach ($days as $dow => $_) {
+            $mask |= (1 << (int)$dow);
+        }
+        return $mask;
+    }
+
+    // ============================================================
+    // Static helpers used by FppScheduleMapper
+    // ============================================================
+
+    /**
+     * Convert "SuMoTuWeThFrSa" → weekday bitmask
+     */
+    public static function shortDaysToWeekdayMask(string $days): int
+    {
+        $map = [
+            'Su' => self::WD_SUN,
+            'Mo' => self::WD_MON,
+            'Tu' => self::WD_TUE,
+            'We' => self::WD_WED,
+            'Th' => self::WD_THU,
+            'Fr' => self::WD_FRI,
+            'Sa' => self::WD_SAT,
+        ];
+
+        $mask = 0;
+        foreach ($map as $abbr => $bit) {
+            if (strpos($days, $abbr) !== false) {
+                $mask |= $bit;
+            }
+        }
+
+        return $mask;
+    }
+
+    /**
+     * Convert weekday bitmask → "SuMoTuWeThFrSa"
+     */
+    public static function weekdayMaskToShortDays(int $mask): string
+    {
+        $map = [
+            self::WD_SUN => 'Su',
+            self::WD_MON => 'Mo',
+            self::WD_TUE => 'Tu',
+            self::WD_WED => 'We',
+            self::WD_THU => 'Th',
+            self::WD_FRI => 'Fr',
+            self::WD_SAT => 'Sa',
+        ];
+
+        $out = '';
+        foreach ($map as $bit => $abbr) {
+            if ($mask & $bit) {
+                $out .= $abbr;
+            }
+        }
+
+        return $out;
     }
 
     public function getSkippedCount(): int
@@ -139,8 +210,9 @@ class IntentConsolidator
 }
 
 /**
- * Compatibility alias expected elsewhere
+ * Compatibility alias
  */
 class GcsIntentConsolidator extends IntentConsolidator
 {
 }
+
