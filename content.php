@@ -2,8 +2,6 @@
 /**
  * GoogleCalendarScheduler
  * content.php
- *
- * Handles POST actions and renders UI.
  */
 
 require_once __DIR__ . '/src/bootstrap.php';
@@ -23,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         if ($action === 'save') {
             $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
-            $cfg['runtime']['dry_run']  = isset($_POST['dry_run']) ? true : false;
+            $cfg['runtime']['dry_run']  = isset($_POST['dry_run']);
 
             GcsConfig::save($cfg);
             $cfg = GcsConfig::load();
@@ -34,8 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         if ($action === 'sync') {
-            // IMPORTANT: use persisted config ONLY
-            $dryRun = !empty($cfg['runtime']['dry_run']);
+            // IMPORTANT: dry_run explicitly passed by the sync form
+            $dryRun = isset($_POST['dry_run']);
 
             GcsLog::info('Starting sync', [
                 'dryRun' => $dryRun,
@@ -58,17 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         ]);
     }
 }
-
-/*
- * --------------------------------------------------------------------
- * UI rendering
- * --------------------------------------------------------------------
- */
 ?>
 
 <div class="settings">
     <h2>Google Calendar Scheduler</h2>
 
+    <!-- SAVE SETTINGS -->
     <form method="post">
         <input type="hidden" name="action" value="save">
 
@@ -98,8 +91,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <hr>
 
+    <!-- SYNC -->
     <form method="post">
         <input type="hidden" name="action" value="sync">
+
+        <!-- carry dry_run explicitly -->
+        <input
+            type="hidden"
+            name="dry_run"
+            value="1"
+            <?php if (empty($cfg['runtime']['dry_run'])) echo 'disabled'; ?>
+        >
+
         <button type="submit" class="buttons">Sync Calendar</button>
     </form>
 </div>
