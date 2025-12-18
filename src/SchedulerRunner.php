@@ -48,10 +48,10 @@ final class SchedulerRunner
         }
 
         // ------------------------------------------------------------
-        // Split base events vs overrides (RECURRENCE-ID)
+        // Split base events vs overrides
         // ------------------------------------------------------------
         $baseEvents = [];
-        $overridesByKey = []; // uid|recurrenceId (where recurrenceId == base occurrence start)
+        $overridesByKey = [];
 
         foreach ($events as $e) {
             if (!empty($e['isOverride']) && !empty($e['uid']) && !empty($e['recurrenceId'])) {
@@ -62,7 +62,7 @@ final class SchedulerRunner
         }
 
         // ------------------------------------------------------------
-        // Expand to per-occurrence intents (lossless override handling)
+        // Expand to per-occurrence intents (lossless overrides)
         // ------------------------------------------------------------
         $intents = [];
 
@@ -74,13 +74,8 @@ final class SchedulerRunner
             }
 
             $uid = $event['uid'] ?? null;
-
-            // Base occurrences after RRULE/EXDATE
             $baseOcc = $this->expandOccurrences($event, $now, $horizonEnd);
 
-            // Apply overrides in a lossless way:
-            // - If override does NOT change start/end → fold (ignore override)
-            // - If override changes time → remove base occurrence for that date and emit separate one-off intent
             $finalOcc = [];
             $overrideOcc = [];
 
@@ -89,30 +84,25 @@ final class SchedulerRunner
 
                 if ($key && isset($overridesByKey[$key])) {
                     $ov = $overridesByKey[$key];
-
                     $ovStart = (string)($ov['start'] ?? '');
                     $ovEnd   = (string)($ov['end'] ?? '');
 
-                    // Lossless merge-only: if identical timing, treat as no-op override
                     if ($ovStart === $occ['start'] && $ovEnd === $occ['end']) {
                         $finalOcc[] = $occ;
                     } else {
-                        // Time changed: remove base occurrence for that date and add override as separate occurrence
-                        if ($ovStart !== '' && $ovEnd !== '') {
+                        if ($ovStart && $ovEnd) {
                             $overrideOcc[] = [
                                 'start' => $ovStart,
                                 'end'   => $ovEnd,
                                 'isOverride' => true,
                             ];
                         }
-                        // base occurrence intentionally skipped
                     }
                 } else {
                     $finalOcc[] = $occ;
                 }
             }
 
-            // Convert base occurrences → intents
             foreach ($finalOcc as $occ) {
                 $intents[] = [
                     'uid'        => $uid,
@@ -128,7 +118,6 @@ final class SchedulerRunner
                 ];
             }
 
-            // Convert override occurrences → intents (separate one-offs)
             foreach ($overrideOcc as $occ) {
                 $intents[] = [
                     'uid'        => $uid,
@@ -146,28 +135,58 @@ final class SchedulerRunner
         }
 
         // ------------------------------------------------------------
-        // Phase 7: Consolidate per-occurrence intents
+        // Consolidate intents into ranges
         // ------------------------------------------------------------
         $consolidator = new IntentConsolidator();
-        $consolidated = $consolidator->consolidate($intents);
+        $ranges = $consolidator->consolidate($intents);
 
         GcsLogger::instance()->info('Intent consolidation', [
             'inputIntents' => count($intents),
-            'outputRanges' => count($consolidated),
+            'outputRanges' => count($ranges),
             'skipped'      => $consolidator->getSkippedCount(),
             'rangeCount'   => $consolidator->getRangeCount(),
         ]);
 
         // ------------------------------------------------------------
-        // Dry-run sync (still no scheduler writes)
+        // Phase 7.1A: Map ranges → FPP schedule entries (log only)
+        // ------------------------------------------------------------
+        $mapped = [];
+
+        foreach ($ranges as $ri) {
+            $entry = GcsFppScheduleMapper::mapRangeIntentToSchedule($this->hydrateRangeIntent($ri));
+            if ($entry) {
+                $mapped[] = $entry;
+                GcsLogger::instance()->info('Mapped FPP schedule (dry-run)', $entry);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // Still dry-run only
         // ------------------------------------------------------------
         $sync = new SchedulerSync($this->dryRun);
-        return $sync->sync($consolidated);
+        return $sync->sync($mapped);
     }
 
     // ============================================================
     // Helpers
     // ============================================================
+
+    private function hydrateRangeIntent(array $ri): array
+    {
+        $t = $ri['template'];
+        return [
+            'uid'         => $t['uid'] ?? null,
+            'type'        => $t['type'],
+            'target'      => $t['target'],
+            'start'       => new DateTime($t['start']),
+            'end'         => new DateTime($t['end']),
+            'stopType'    => $t['stopType'] ?? 'graceful',
+            'repeat'      => $t['repeat'] ?? 'none',
+            'weekdayMask' => GcsIntentConsolidator::shortDaysToWeekdayMask($ri['range']['days']),
+            'startDate'   => $ri['range']['start'],
+            'endDate'     => $ri['range']['end'],
+        ];
+    }
 
     private function emptyResult(): array
     {
@@ -180,11 +199,6 @@ final class SchedulerRunner
         ];
     }
 
-    /**
-     * Expand an event into per-occurrence start/end pairs (strings).
-     *
-     * @return array<int,array{start:string,end:string}>
-     */
     private function expandOccurrences(array $event, DateTime $now, DateTime $horizonEnd): array
     {
         $start = new DateTime($event['start']);
@@ -198,7 +212,6 @@ final class SchedulerRunner
 
         $rrule = $event['rrule'] ?? null;
 
-        // Non-recurring
         if (!$rrule || empty($rrule['FREQ'])) {
             $s = $start->format('Y-m-d H:i:s');
             if (isset($exSet[$s])) {
@@ -220,12 +233,8 @@ final class SchedulerRunner
 
             while (true) {
                 $i++;
-                if ($count !== null && $i > $count) {
-                    break;
-                }
-                if ($cur > $horizonEnd) {
-                    break;
-                }
+                if ($count !== null && $i > $count) break;
+                if ($cur > $horizonEnd) break;
 
                 $s = $cur->format('Y-m-d H:i:s');
                 if (!isset($exSet[$s])) {
