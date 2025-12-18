@@ -33,6 +33,11 @@ require_once __DIR__ . '/SchedulerState.php';
 require_once __DIR__ . '/SchedulerDiff.php';
 
 /*
+ * Phase 8.3 – Scheduler Apply (dry-run guarded; no writes yet)
+ */
+require_once __DIR__ . '/SchedulerApply.php';
+
+/*
  * Runner + Sync
  */
 require_once __DIR__ . '/SchedulerRunner.php';
