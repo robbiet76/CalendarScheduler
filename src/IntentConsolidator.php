@@ -3,11 +3,12 @@
 /**
  * IntentConsolidator
  *
- * Groups per-occurrence scheduler intents into:
- * - Date ranges
- * - Weekday masks
+ * Groups per-occurrence scheduler intents into date ranges.
  *
- * This dramatically reduces scheduler entry count.
+ * IMPORTANT:
+ * - Different start/end TIMES must never be merged into the same range.
+ * - Overrides should naturally remain separate because their time usually differs,
+ *   but we still include isOverride in grouping identity for safety.
  */
 class IntentConsolidator
 {
@@ -24,7 +25,6 @@ class IntentConsolidator
             return [];
         }
 
-        // Group by stable identity
         $groups = [];
 
         foreach ($intents as $intent) {
@@ -33,12 +33,27 @@ class IntentConsolidator
                 continue;
             }
 
+            $start = new DateTime((string)$intent['start']);
+            $end   = new DateTime((string)$intent['end']);
+
+            $startTime = $start->format('H:i:s');
+            $endTime   = $end->format('H:i:s');
+
+            // Stable identity MUST include time + override flag (lossless)
             $key = implode('|', [
-                $intent['type'] ?? '',
-                $intent['target'],
-                $intent['stopType'] ?? '',
-                $intent['repeat'] ?? '',
+                (string)($intent['type'] ?? ''),
+                (string)$intent['target'],
+                (string)($intent['stopType'] ?? ''),
+                (string)($intent['repeat'] ?? ''),
+                (!empty($intent['isAllDay']) ? '1' : '0'),
+                $startTime,
+                $endTime,
+                (!empty($intent['isOverride']) ? '1' : '0'),
             ]);
+
+            // Cache time fields for later
+            $intent['_startTime'] = $startTime;
+            $intent['_endTime']   = $endTime;
 
             $groups[$key][] = $intent;
         }
@@ -46,20 +61,17 @@ class IntentConsolidator
         $result = [];
 
         foreach ($groups as $items) {
-            usort($items, fn($a, $b) =>
-                strcmp($a['start'], $b['start'])
-            );
+            usort($items, fn($a, $b) => strcmp((string)$a['start'], (string)$b['start']));
 
             $range = null;
 
             foreach ($items as $intent) {
-                $start = new DateTime($intent['start']);
-                $end   = new DateTime($intent['end']);
-                $dow   = (int)$start->format('w');
+                $start = new DateTime((string)$intent['start']);
+                $dow   = (int)$start->format('w'); // 0=Sun..6=Sat
 
                 if ($range === null) {
                     $range = [
-                        'template' => $intent,
+                        'template'  => $intent,
                         'startDate' => $start,
                         'endDate'   => $start,
                         'days'      => [$dow => true],
@@ -77,7 +89,7 @@ class IntentConsolidator
                     $this->rangeCount++;
 
                     $range = [
-                        'template' => $intent,
+                        'template'  => $intent,
                         'startDate' => $start,
                         'endDate'   => $start,
                         'days'      => [$dow => true],
@@ -127,7 +139,7 @@ class IntentConsolidator
 }
 
 /**
- * Compatibility alias expected by api_main.php
+ * Compatibility alias expected elsewhere
  */
 class GcsIntentConsolidator extends IntentConsolidator
 {

@@ -33,7 +33,7 @@ final class SchedulerRunner
         }
 
         // ------------------------------------------------------------
-        // Parse ICS (recurrence metadata already handled)
+        // Parse ICS
         // ------------------------------------------------------------
         $parser = new IcsParser();
         $events = $parser->parse($ics, $now, $horizonEnd);
@@ -51,7 +51,7 @@ final class SchedulerRunner
         // Split base events vs overrides (RECURRENCE-ID)
         // ------------------------------------------------------------
         $baseEvents = [];
-        $overridesByKey = []; // uid|start
+        $overridesByKey = []; // uid|recurrenceId (where recurrenceId == base occurrence start)
 
         foreach ($events as $e) {
             if (!empty($e['isOverride']) && !empty($e['uid']) && !empty($e['recurrenceId'])) {
@@ -62,7 +62,7 @@ final class SchedulerRunner
         }
 
         // ------------------------------------------------------------
-        // Expand to per-occurrence intents
+        // Expand to per-occurrence intents (lossless override handling)
         // ------------------------------------------------------------
         $intents = [];
 
@@ -73,26 +73,49 @@ final class SchedulerRunner
                 continue;
             }
 
-            $occurrences = $this->expandOccurrences($event, $now, $horizonEnd);
-
-            // Apply overrides (R5)
             $uid = $event['uid'] ?? null;
-            if ($uid) {
-                foreach ($occurrences as &$occ) {
-                    $key = $uid . '|' . $occ['start'];
-                    if (isset($overridesByKey[$key])) {
-                        $ov = $overridesByKey[$key];
-                        $occ['start'] = (string)$ov['start'];
-                        $occ['end']   = (string)$ov['end'];
-                        $occ['isOverride'] = true;
+
+            // Base occurrences after RRULE/EXDATE
+            $baseOcc = $this->expandOccurrences($event, $now, $horizonEnd);
+
+            // Apply overrides in a lossless way:
+            // - If override does NOT change start/end → fold (ignore override)
+            // - If override changes time → remove base occurrence for that date and emit separate one-off intent
+            $finalOcc = [];
+            $overrideOcc = [];
+
+            foreach ($baseOcc as $occ) {
+                $key = ($uid ? ($uid . '|' . $occ['start']) : null);
+
+                if ($key && isset($overridesByKey[$key])) {
+                    $ov = $overridesByKey[$key];
+
+                    $ovStart = (string)($ov['start'] ?? '');
+                    $ovEnd   = (string)($ov['end'] ?? '');
+
+                    // Lossless merge-only: if identical timing, treat as no-op override
+                    if ($ovStart === $occ['start'] && $ovEnd === $occ['end']) {
+                        $finalOcc[] = $occ;
+                    } else {
+                        // Time changed: remove base occurrence for that date and add override as separate occurrence
+                        if ($ovStart !== '' && $ovEnd !== '') {
+                            $overrideOcc[] = [
+                                'start' => $ovStart,
+                                'end'   => $ovEnd,
+                                'isOverride' => true,
+                            ];
+                        }
+                        // base occurrence intentionally skipped
                     }
+                } else {
+                    $finalOcc[] = $occ;
                 }
-                unset($occ);
             }
 
-            foreach ($occurrences as $occ) {
+            // Convert base occurrences → intents
+            foreach ($finalOcc as $occ) {
                 $intents[] = [
-                    'uid'        => $event['uid'] ?? null,
+                    'uid'        => $uid,
                     'summary'    => $summary,
                     'type'       => $resolved['type'],
                     'target'     => $resolved['target'],
@@ -100,7 +123,23 @@ final class SchedulerRunner
                     'end'        => $occ['end'],
                     'stopType'   => 'graceful',
                     'repeat'     => 'none',
-                    'isOverride' => !empty($occ['isOverride']),
+                    'isOverride' => false,
+                    'isAllDay'   => !empty($event['isAllDay']),
+                ];
+            }
+
+            // Convert override occurrences → intents (separate one-offs)
+            foreach ($overrideOcc as $occ) {
+                $intents[] = [
+                    'uid'        => $uid,
+                    'summary'    => $summary,
+                    'type'       => $resolved['type'],
+                    'target'     => $resolved['target'],
+                    'start'      => $occ['start'],
+                    'end'        => $occ['end'],
+                    'stopType'   => 'graceful',
+                    'repeat'     => 'none',
+                    'isOverride' => true,
                     'isAllDay'   => !empty($event['isAllDay']),
                 ];
             }
@@ -142,9 +181,9 @@ final class SchedulerRunner
     }
 
     /**
-     * Expand an event into per-occurrence start/end pairs.
+     * Expand an event into per-occurrence start/end pairs (strings).
      *
-     * @return array<int,array{start:string,end:string,isOverride?:bool}>
+     * @return array<int,array{start:string,end:string}>
      */
     private function expandOccurrences(array $event, DateTime $now, DateTime $horizonEnd): array
     {
@@ -154,7 +193,7 @@ final class SchedulerRunner
 
         $exSet = [];
         foreach (($event['exDates'] ?? []) as $ex) {
-            $exSet[$ex] = true;
+            $exSet[(string)$ex] = true;
         }
 
         $rrule = $event['rrule'] ?? null;
@@ -175,7 +214,7 @@ final class SchedulerRunner
         $count = isset($rrule['COUNT']) ? (int)$rrule['COUNT'] : null;
         $interval = isset($rrule['INTERVAL']) ? max(1, (int)$rrule['INTERVAL']) : 1;
 
-        if ($rrule['FREQ'] === 'DAILY') {
+        if (strtoupper((string)$rrule['FREQ']) === 'DAILY') {
             $i = 0;
             $cur = clone $start;
 
