@@ -1,16 +1,29 @@
 <?php
 
+/**
+ * Value object representing scheduler diff results.
+ */
 final class SchedulerDiffResult
 {
-    /** @var ComparableScheduleEntry[] */
-    public array $create = [];
+    /** @var array<int,array<string,mixed>> */
+    public array $adds;
 
-    /** @var array<string,array{existing:ExistingScheduleEntry,desired:ComparableScheduleEntry}> */
-    public array $update = [];
+    /** @var array<int,array<string,mixed>> */
+    public array $updates;
 
-    /** @var ExistingScheduleEntry[] */
-    public array $delete = [];
+    /** @var array<int,array<string,mixed>> */
+    public array $deletes;
 
-    /** @var ComparableScheduleEntry[] */
-    public array $noop = [];
+    /**
+     * @param array<int,array<string,mixed>> $adds
+     * @param array<int,array<string,mixed>> $updates
+     * @param array<int,array<string,mixed>> $deletes
+     */
+    public function __construct(array $adds = [], array $updates = [], array $deletes = [])
+    {
+        $this->adds = $adds;
+        $this->updates = $updates;
+        $this->deletes = $deletes;
+    }
 }
+

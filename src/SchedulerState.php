@@ -1,12 +1,13 @@
 <?php
 
+/**
+ * Loads existing FPP scheduler state.
+ */
 final class SchedulerState
 {
     private const SCHEDULE_PATH = '/home/fpp/media/config/schedule.json';
 
     /**
-     * Load current FPP scheduler state.
-     *
      * @return array<int,array<string,mixed>>
      */
     public static function load(): array
