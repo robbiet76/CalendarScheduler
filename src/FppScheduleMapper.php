@@ -1,189 +1,119 @@
 <?php
 
-class GcsFppScheduleMapper
+/**
+ * Maps consolidated range intents into native FPP scheduler entries.
+ *
+ * PHASE 11 CONTRACT:
+ * - Every entry MUST include a GCS identity tag
+ * - Identity is NOT optional
+ * - Mapper fails closed if tag is missing
+ */
+final class GcsFppScheduleMapper
 {
-    const DAY_SUN      = 0;
-    const DAY_MON      = 1;
-    const DAY_TUE      = 2;
-    const DAY_WED      = 3;
-    const DAY_THU      = 4;
-    const DAY_FRI      = 5;
-    const DAY_SAT      = 6;
-    const DAY_EVERYDAY = 7;
-    const DAY_WEEKDAYS = 8;
-    const DAY_WEEKENDS = 9;
-    const DAY_MASK     = 10;
-
+    /**
+     * Map a consolidated range intent into an FPP scheduler entry.
+     *
+     * @param array<string,mixed> $ri
+     * @return array<string,mixed>|null
+     */
     public static function mapRangeIntentToSchedule(array $ri): ?array
     {
-        $start = $ri['start'] ?? null;
-        $end   = $ri['end'] ?? null;
-        if (!($start instanceof DateTime) || !($end instanceof DateTime)) {
+        // -----------------------------------------------------------------
+        // Enforce identity contract
+        // -----------------------------------------------------------------
+        $tag = $ri['tag'] ?? null;
+        if (!is_string($tag) || $tag === '') {
+            GcsLog::warn('Skipping schedule entry without GCS tag', [
+                'uid'     => $ri['uid'] ?? null,
+                'type'    => $ri['type'] ?? null,
+                'target'  => $ri['target'] ?? null,
+            ]);
             return null;
         }
 
-        $weekdayMask = intval($ri['weekdayMask'] ?? 0);
-        $dayFields   = self::encodeDayFields($weekdayMask);
+        // -----------------------------------------------------------------
+        // Required base fields
+        // -----------------------------------------------------------------
+        $type   = (string)($ri['type'] ?? '');
+        $start  = $ri['start'] ?? null;
+        $end    = $ri['end'] ?? null;
 
-        $repeat   = self::mapRepeat($ri['repeat'] ?? 'none');
-        $stopType = self::mapStopType($ri['stopType'] ?? 'graceful');
-        $tag      = self::buildTag($ri);
+        if (!$start instanceof DateTime || !$end instanceof DateTime) {
+            GcsLog::warn('Skipping schedule entry with invalid start/end', [
+                'tag' => $tag,
+            ]);
+            return null;
+        }
 
-        $type = (string)($ri['type'] ?? '');
-
-        // Base entry common fields
+        // -----------------------------------------------------------------
+        // Build common scheduler fields
+        // -----------------------------------------------------------------
         $entry = [
-            'enabled'         => !empty($ri['enabled']) ? 1 : 0,
-            'sequence'        => 0,
-            'day'             => $dayFields['day'],
-            'startTime'       => $start->format('H:i:s'),
-            'startTimeOffset' => 0,
-            'endTime'         => $end->format('H:i:s'),
-            'endTimeOffset'   => 0,
-            'repeat'          => $repeat,
-            'startDate'       => (string)$ri['startDate'],
-            'endDate'         => (string)$ri['endDate'],
-            'stopType'        => $stopType,
+            'enabled'     => !empty($ri['enabled']) ? 1 : 0,
+            'startTime'   => $start->format('H:i'),
+            'endTime'     => $end->format('H:i'),
+            'startDate'   => (string)($ri['startDate'] ?? ''),
+            'endDate'     => (string)($ri['endDate'] ?? ''),
+            'weekdayMask' => (int)($ri['weekdayMask'] ?? 0),
+            'stopType'    => (string)($ri['stopType'] ?? 'graceful'),
+            'repeat'      => (string)($ri['repeat'] ?? 'none'),
+            'tag'         => $tag, // 🔒 IDENTITY GUARANTEED HERE
         ];
 
-        if (isset($dayFields['dayMask'])) {
-            $entry['dayMask'] = $dayFields['dayMask'];
-        }
+        // -----------------------------------------------------------------
+        // Type-specific mapping
+        // -----------------------------------------------------------------
+        switch ($type) {
 
-        // ------------------------------------------------------------
-        // Playlist
-        // ------------------------------------------------------------
-        if ($type === 'playlist') {
-            $entry['sequence'] = 0;
-            $entry['playlist'] = (string)$ri['target'] . $tag;
-            return $entry;
-        }
+            case 'playlist':
+                $target = (string)($ri['target'] ?? '');
+                if ($target === '') {
+                    GcsLog::warn('Playlist entry missing target', [
+                        'tag' => $tag,
+                    ]);
+                    return null;
+                }
 
-        // ------------------------------------------------------------
-        // Sequence
-        // ------------------------------------------------------------
-        if ($type === 'sequence') {
-            // FPP uses sequence=1 but still stores the sequence name in "playlist"
-            $entry['sequence'] = 1;
-            $entry['playlist'] = (string)$ri['target'] . $tag;
-            return $entry;
-        }
+                $entry['type']   = 'playlist';
+                $entry['target'] = $target;
+                break;
 
-        // ------------------------------------------------------------
-        // Command (Phase 10)
-        // ------------------------------------------------------------
-        if ($type === 'command') {
-            $cmd = isset($ri['command']) ? trim((string)$ri['command']) : '';
-            if ($cmd === '') {
-                return null;
-            }
+            case 'sequence':
+                $target = (string)($ri['target'] ?? '');
+                if ($target === '') {
+                    GcsLog::warn('Sequence entry missing target', [
+                        'tag' => $tag,
+                    ]);
+                    return null;
+                }
 
-            $args = (isset($ri['args']) && is_array($ri['args'])) ? $ri['args'] : [];
+                $entry['type']   = 'sequence';
+                $entry['target'] = $target;
+                break;
 
-            // Keep stable identity tag in playlist field (ignored by FPP when command is set)
-            $entry['sequence'] = 0;
-            $entry['playlist'] = $tag;
+            case 'command':
+                $command = (string)($ri['command'] ?? '');
+                if ($command === '') {
+                    GcsLog::warn('Command entry missing command', [
+                        'tag' => $tag,
+                    ]);
+                    return null;
+                }
 
-            $entry['command'] = $cmd;
-            $entry['args'] = $args;
-            $entry['multisyncCommand'] = !empty($ri['multisyncCommand']);
+                $entry['type']    = 'command';
+                $entry['command'] = $command;
+                $entry['args']    = is_array($ri['args'] ?? null) ? $ri['args'] : [];
+                $entry['multisyncCommand'] = !empty($ri['multisyncCommand']) ? 1 : 0;
+                break;
 
-            return $entry;
-        }
-
-        // Unknown type
-        return null;
-    }
-
-    public static function isPluginManaged(array $entry): bool
-    {
-        $p = (string)($entry['playlist'] ?? '');
-        return (strpos($p, '|GCS:v1|') !== false);
-    }
-
-    public static function pluginKey(array $entry): ?string
-    {
-        $p = (string)($entry['playlist'] ?? '');
-        $pos = strpos($p, '|GCS:v1|');
-        if ($pos === false) {
-            return null;
-        }
-        return substr($p, $pos);
-    }
-
-    private static function buildTag(array $ri): string
-    {
-        $uid = (string)($ri['uid'] ?? '');
-        $range = (string)($ri['startDate'] ?? '') . '..' . (string)($ri['endDate'] ?? '');
-        $days = GcsIntentConsolidator::weekdayMaskToShortDays(intval($ri['weekdayMask'] ?? 0));
-
-        return '|GCS:v1|uid=' . $uid . '|range=' . $range . '|days=' . $days;
-    }
-
-    private static function encodeDayFields(int $weekdayMask): array
-    {
-        $weekdayMask = $weekdayMask & 127;
-
-        $weekdaysMask = (GcsIntentConsolidator::WD_MON
-                       | GcsIntentConsolidator::WD_TUE
-                       | GcsIntentConsolidator::WD_WED
-                       | GcsIntentConsolidator::WD_THU
-                       | GcsIntentConsolidator::WD_FRI);
-
-        $weekendsMask = (GcsIntentConsolidator::WD_SUN | GcsIntentConsolidator::WD_SAT);
-
-        if ($weekdayMask === GcsIntentConsolidator::WD_ALL) {
-            return ['day' => self::DAY_EVERYDAY];
-        }
-
-        if ($weekdayMask === $weekdaysMask) {
-            return ['day' => self::DAY_WEEKDAYS];
-        }
-
-        if ($weekdayMask === $weekendsMask) {
-            return ['day' => self::DAY_WEEKENDS];
-        }
-
-        return ['day' => self::DAY_MASK, 'dayMask' => $weekdayMask];
-    }
-
-    private static function mapStopType(string $stopType): int
-    {
-        $s = strtolower(trim($stopType));
-
-        // 0 = graceful
-        // 1 = hard
-        // 2 = graceful_loop
-        switch ($s) {
-            case 'hard':
-                return 1;
-            case 'graceful_loop':
-                return 2;
-            case 'graceful':
             default:
-                return 0;
-        }
-    }
-
-    private static function mapRepeat($repeat): int
-    {
-        if (is_int($repeat)) {
-            return $repeat;
+                GcsLog::warn('Unknown scheduler entry type', [
+                    'type' => $type,
+                    'tag'  => $tag,
+                ]);
+                return null;
         }
 
-        if (is_string($repeat)) {
-            $r = strtolower(trim($repeat));
-            if ($r === 'none' || $r === '') {
-                return 0;
-            }
-            if ($r === 'immediate') {
-                return 1;
-            }
-            if (ctype_digit($r)) {
-                return intval($r);
-            }
-        }
-
-        return 0;
+        return $entry;
     }
 }
