@@ -1,29 +1,59 @@
 <?php
 
-/**
- * Value object representing scheduler diff results.
- */
-final class SchedulerDiffResult
+final class GcsSchedulerDiffResult
 {
     /** @var array<int,array<string,mixed>> */
-    public array $adds;
-
+    private array $toCreate = [];
     /** @var array<int,array<string,mixed>> */
-    public array $updates;
-
+    private array $toUpdate = [];
     /** @var array<int,array<string,mixed>> */
-    public array $deletes;
+    private array $toDelete = [];
 
     /**
-     * @param array<int,array<string,mixed>> $adds
-     * @param array<int,array<string,mixed>> $updates
-     * @param array<int,array<string,mixed>> $deletes
+     * @param array<int,array<string,mixed>> $create
+     * @param array<int,array<string,mixed>> $update
+     * @param array<int,array<string,mixed>> $delete
      */
-    public function __construct(array $adds = [], array $updates = [], array $deletes = [])
+    public function __construct(array $create, array $update, array $delete)
     {
-        $this->adds = $adds;
-        $this->updates = $updates;
-        $this->deletes = $deletes;
+        $this->toCreate = $create;
+        $this->toUpdate = $update;
+        $this->toDelete = $delete;
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    public function getToCreate(): array
+    {
+        return $this->toCreate;
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    public function getToUpdate(): array
+    {
+        return $this->toUpdate;
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    public function getToDelete(): array
+    {
+        return $this->toDelete;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public function toArray(): array
+    {
+        return [
+            'create' => $this->toCreate,
+            'update' => $this->toUpdate,
+            'delete' => $this->toDelete,
+        ];
     }
 }
-

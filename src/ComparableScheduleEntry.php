@@ -1,42 +1,23 @@
 <?php
 
-final class ComparableScheduleEntry
+final class GcsComparableScheduleEntry
 {
-    public string $uid;
-    public string $start;
-    public string $end;
-    public string $target;
-    public string $stopType;
-    public ?int $repeat;
-    public bool $enabled;
+    /** @var array<string,mixed> */
+    private array $entry;
 
-    public function __construct(
-        string $uid,
-        string $start,
-        string $end,
-        string $target,
-        string $stopType,
-        ?int $repeat,
-        bool $enabled
-    ) {
-        $this->uid = $uid;
-        $this->start = $start;
-        $this->end = $end;
-        $this->target = $target;
-        $this->stopType = $stopType;
-        $this->repeat = $repeat;
-        $this->enabled = $enabled;
+    /**
+     * @param array<string,mixed> $entry
+     */
+    public function __construct(array $entry)
+    {
+        $this->entry = $entry;
     }
 
-    public function equals(self $other): bool
+    /**
+     * @return array<string,mixed>
+     */
+    public function toArray(): array
     {
-        return
-            $this->uid === $other->uid &&
-            $this->start === $other->start &&
-            $this->end === $other->end &&
-            $this->target === $other->target &&
-            $this->stopType === $other->stopType &&
-            $this->repeat === $other->repeat &&
-            $this->enabled === $other->enabled;
+        return $this->entry;
     }
 }

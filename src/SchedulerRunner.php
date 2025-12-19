@@ -1,6 +1,6 @@
 <?php
 
-final class SchedulerRunner
+final class GcsSchedulerRunner
 {
     private array $cfg;
     private int $horizonDays;
@@ -21,12 +21,12 @@ final class SchedulerRunner
     public function run(): array
     {
         $now = new DateTime('now');
-        $horizonEnd = (clone $now)->modify("+{$this->horizonDays} days");
+        $horizonEnd = (clone $now)->modify('+' . $this->horizonDays . ' days');
 
         // ------------------------------------------------------------
         // Fetch ICS
         // ------------------------------------------------------------
-        $fetcher = new IcsFetcher();
+        $fetcher = new GcsIcsFetcher();
         $ics = $fetcher->fetch($this->cfg['calendar']['ics_url'] ?? '');
         if ($ics === '') {
             return $this->emptyResult();
@@ -35,235 +35,169 @@ final class SchedulerRunner
         // ------------------------------------------------------------
         // Parse ICS
         // ------------------------------------------------------------
-        $parser = new IcsParser();
+        $parser = new GcsIcsParser();
         $events = $parser->parse($ics, $now, $horizonEnd);
 
         GcsLog::info('Parser returned', [
             'eventCount' => count($events),
         ]);
 
-        if (!$events) {
-            return (new SchedulerSync($this->dryRun))->sync([]);
-        }
-
         // ------------------------------------------------------------
-        // Expand to intents
+        // Build scheduler intents (strict normalization)
         // ------------------------------------------------------------
         $intents = [];
 
-        foreach ($events as $event) {
-            $summary = (string)($event['summary'] ?? '');
-            $start = new DateTime((string)$event['start']);
-            $end   = new DateTime((string)$event['end']);
+        foreach ($events as $ev) {
+            // Normalize event fields we care about
+            $uid         = $this->normalizeString($ev['uid'] ?? null);
+            $summary     = $this->normalizeString($ev['summary'] ?? null);
+            $description = $this->normalizeString($ev['description'] ?? null);
+            $start       = $this->normalizeString($ev['start'] ?? null);
+            $end         = $this->normalizeString($ev['end'] ?? null);
+            $isAllDay    = (bool)($ev['isAllDay'] ?? false);
 
-            // Defaults (Phase 8 behavior)
-            $intent = [
-                'uid'      => $event['uid'] ?? null,
-                'type'     => null,    // determined below
-                'target'   => null,    // for playlist/sequence
-                'start'    => $start->format('Y-m-d H:i:s'),
-                'end'      => $end->format('Y-m-d H:i:s'),
-                'stopType' => 'graceful',
-                'repeat'   => 'none',
-                'enabled'  => true,
+            if ($uid === '' || $start === '' || $end === '') {
+                continue;
+            }
 
-                // Phase 10 command fields (only used when type=command)
-                'command'          => null,
-                'args'             => [],
-                'multisyncCommand' => false,
+            // Resolver expects SUMMARY STRING only
+            $resolved = GcsTargetResolver::resolve($summary);
+            if ($resolved === null) {
+                continue;
+            }
+
+            // Optional YAML metadata (Phase 9/10)
+            $yaml = [];
+            if ($description !== '') {
+                $yaml = GcsYamlMetadata::parse($description);
+            }
+
+            $type   = $this->normalizeString($resolved['type'] ?? null);
+            $target = $this->normalizeString($resolved['target'] ?? null);
+
+            if ($type === '') {
+                continue;
+            }
+
+            $intents[] = [
+                'uid'        => $uid,
+                'summary'    => $summary,
+                'type'       => $type,
+                'target'     => $target,
+                'enabled'    => 1,
+                'stopType'   => (string)($yaml['stopType'] ?? $resolved['stopType'] ?? 'graceful'),
+                'repeat'     => (string)($yaml['repeat'] ?? $resolved['repeat'] ?? 'none'),
+                'isAllDay'   => $isAllDay,
+                'isOverride' => (bool)($yaml['override'] ?? false),
+                'start'      => $start,
+                'end'        => $end,
+                'tag'        => 'gcs:v1:' . $uid,
             ];
-
-            // Parse YAML first (it may override type)
-            $yaml = YamlMetadata::parse($event['description'] ?? null);
-            if ($yaml) {
-                // Apply safe overrides (never override target from YAML)
-                foreach ($yaml as $k => $v) {
-                    if ($k === 'target') {
-                        continue;
-                    }
-                    $intent[$k] = $v;
-                }
-            }
-
-            $yamlType = isset($intent['type']) ? (string)$intent['type'] : '';
-
-            // --------------------------------------------------------
-            // Resolve type/target
-            // --------------------------------------------------------
-
-            // If YAML forces command, we do NOT resolve by summary
-            if ($yamlType === 'command') {
-                $cmd = isset($intent['command']) ? trim((string)$intent['command']) : '';
-                if ($cmd === '') {
-                    GcsLog::error('Command event missing required YAML "command" field', [
-                        'summary' => $summary,
-                        'uid' => $intent['uid'] ?? null,
-                    ]);
-                    continue;
-                }
-
-                // Ensure args is an array; preserve nulls/strings exactly
-                if (!isset($intent['args']) || !is_array($intent['args'])) {
-                    $intent['args'] = [];
-                }
-
-                // Normalize multisyncCommand
-                $intent['multisyncCommand'] = !empty($intent['multisyncCommand']);
-
-                $intent['type'] = 'command';
-                $intent['target'] = ''; // unused for commands
-                $intent['command'] = $cmd;
-
-            } else {
-                // Normal path: resolve from summary (playlist first, then sequence)
-                $resolved = GcsTargetResolver::resolve($summary);
-                if (!$resolved) {
-                    // If YAML tried to force playlist/sequence but we can't resolve, log and skip.
-                    if ($yamlType === 'playlist' || $yamlType === 'sequence') {
-                        GcsLog::error('YAML type override specified but target not found', [
-                            'type' => $yamlType,
-                            'summary' => $summary,
-                            'uid' => $intent['uid'] ?? null,
-                        ]);
-                    }
-                    continue;
-                }
-
-                // If YAML overrides to sequence/playlist, apply it if valid
-                if ($yamlType === 'playlist' || $yamlType === 'sequence') {
-                    $override = $this->applyTypeOverride($yamlType, $summary);
-                    if ($override) {
-                        $resolved = $override;
-                        GcsLog::info('Applied YAML type override', [
-                            'type' => $resolved['type'],
-                            'target' => $resolved['target'],
-                        ]);
-                    } else {
-                        GcsLog::error('Invalid YAML type override; keeping resolver result', [
-                            'type' => $yamlType,
-                            'summary' => $summary,
-                        ]);
-                    }
-                }
-
-                $intent['type']   = $resolved['type'];
-                $intent['target'] = $resolved['target'];
-            }
-
-            // Fill defaults if YAML omitted them
-            if (!isset($intent['repeat'])) {
-                $intent['repeat'] = 'none';
-            }
-            if (!isset($intent['stopType'])) {
-                $intent['stopType'] = 'graceful';
-            }
-            if (!isset($intent['enabled'])) {
-                $intent['enabled'] = true;
-            }
-
-            $intents[] = $intent;
         }
 
         // ------------------------------------------------------------
-        // Consolidate
+        // Consolidate intents into ranges
         // ------------------------------------------------------------
-        $consolidator = new IntentConsolidator();
+        $consolidator = new GcsIntentConsolidator();
         $ranges = $consolidator->consolidate($intents);
+
+        GcsLog::info('Intent consolidation', [
+            'inputIntents' => count($intents),
+            'outputRanges' => count($ranges),
+            'skipped'      => $consolidator->getSkippedCount(),
+            'rangeCount'   => $consolidator->getRangeCount(),
+        ]);
 
         // ------------------------------------------------------------
         // Map to FPP schedule entries
         // ------------------------------------------------------------
         $mapped = [];
 
-        foreach ($ranges as $ri) {
-            $entry = GcsFppScheduleMapper::mapRangeIntentToSchedule(
-                $this->hydrateRangeIntent($ri)
+        foreach ($ranges as $rangeItem) {
+            $template = $rangeItem['template'] ?? null;
+            $range    = $rangeItem['range'] ?? null;
+
+            if (!is_array($template) || !is_array($range)) {
+                continue;
+            }
+
+            $weekdayMask = GcsIntentConsolidator::shortDaysToWeekdayMask(
+                (string)($range['days'] ?? '')
             );
 
-            if ($entry) {
+            $entry = GcsFppScheduleMapper::mapRangeIntentToSchedule([
+                'uid'         => $template['uid'],
+                'summary'     => $template['summary'],
+                'type'        => $template['type'],
+                'target'      => $template['target'],
+                'enabled'     => $template['enabled'],
+                'stopType'    => $template['stopType'],
+                'repeat'      => $template['repeat'],
+                'isAllDay'    => $template['isAllDay'],
+                'isOverride'  => $template['isOverride'],
+                'start'       => new DateTime($template['start']),
+                'end'         => new DateTime($template['end']),
+                'startDate'   => (string)($range['start'] ?? ''),
+                'endDate'     => (string)($range['end'] ?? ''),
+                'weekdayMask' => $weekdayMask,
+                'tag'         => $template['tag'],
+            ]);
+
+            if ($entry !== null) {
                 $mapped[] = $entry;
-                GcsLog::info('Mapped FPP schedule (dry-run)', $entry);
             }
         }
 
         // ------------------------------------------------------------
-        // Sync (diff + apply)
+        // Diff + apply (GCS-only identity)
         // ------------------------------------------------------------
-        return (new SchedulerSync($this->dryRun))->sync($mapped);
-    }
+        $state = GcsSchedulerState::load($this->horizonDays);
 
-    // ------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------
+        $diff = new GcsSchedulerDiff($mapped, $state);
+        $diffResult = $diff->compute();
 
-    private function hydrateRangeIntent(array $ri): array
-    {
-        $t = $ri['template'];
+        $apply = new GcsSchedulerApply($this->dryRun);
+        $applySummary = $apply->apply($diffResult);
 
         return [
-            'uid'         => $t['uid'] ?? null,
-            'type'        => $t['type'],
-            'target'      => $t['target'] ?? '',
-            'start'       => new DateTime($t['start']),
-            'end'         => new DateTime($t['end']),
-            'stopType'    => $t['stopType'] ?? 'graceful',
-            'repeat'      => $t['repeat'] ?? 'none',
-            'enabled'     => array_key_exists('enabled', $t) ? (bool)$t['enabled'] : true,
-
-            // Command fields (only relevant for type=command)
-            'command'          => $t['command'] ?? null,
-            'args'             => (isset($t['args']) && is_array($t['args'])) ? $t['args'] : [],
-            'multisyncCommand' => !empty($t['multisyncCommand']),
-
-            'weekdayMask' => IntentConsolidator::shortDaysToWeekdayMask(
-                $ri['range']['days']
-            ),
-            'startDate'   => $ri['range']['start'],
-            'endDate'     => $ri['range']['end'],
+            'dryRun'         => $this->dryRun,
+            'eventCount'     => count($events),
+            'intentCount'    => count($intents),
+            'rangeCount'     => count($ranges),
+            'mappedCount'    => count($mapped),
+            'diff'           => $diffResult->toArray(),
+            'apply'          => $applySummary,
         ];
     }
 
     /**
-     * Apply a YAML type override by validating that the summary exists as that type.
-     * Returns ['type'=>..., 'target'=>...] or null if invalid.
+     * Normalize any external value to a safe string.
+     *
+     * @param mixed $value
      */
-    private function applyTypeOverride(string $type, string $summary): ?array
+    private function normalizeString($value): string
     {
-        $base = trim($summary);
-        if ($base === '') {
-            return null;
+        if (is_string($value)) {
+            return $value;
         }
 
-        if ($type === 'playlist') {
-            // Use resolver's existence check implicitly by asking it to resolve;
-            // but force it by checking playlist path the same way TargetResolver does.
-            $dirBased  = "/home/fpp/media/playlists/$base/playlist.json";
-            $fileBased = "/home/fpp/media/playlists/$base.json";
-            if (is_file($dirBased) || is_file($fileBased)) {
-                return ['type' => 'playlist', 'target' => $base];
-            }
-            return null;
+        if (is_array($value) && isset($value['value']) && is_string($value['value'])) {
+            return $value['value'];
         }
 
-        if ($type === 'sequence') {
-            $seq = (substr($base, -5) === '.fseq') ? $base : $base . '.fseq';
-            if (is_file("/home/fpp/media/sequences/$seq")) {
-                return ['type' => 'sequence', 'target' => $seq];
-            }
-            return null;
-        }
-
-        return null;
+        return '';
     }
 
     private function emptyResult(): array
     {
         return [
-            'adds'         => 0,
-            'updates'      => 0,
-            'deletes'      => 0,
-            'dryRun'       => $this->dryRun,
-            'intents_seen' => 0,
+            'dryRun'      => $this->dryRun,
+            'eventCount'  => 0,
+            'intentCount' => 0,
+            'rangeCount'  => 0,
+            'mappedCount' => 0,
+            'diff'        => [],
+            'apply'       => [],
         ];
     }
 }

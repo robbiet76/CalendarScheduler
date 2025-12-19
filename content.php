@@ -39,12 +39,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 'dryRun' => $dryRun,
             ]);
 
-            $horizonDays = FppSchedulerHorizon::getDays();
+            $horizonDays = GcsFppSchedulerHorizon::getDays();
             GcsLog::info('Using FPP scheduler horizon', [
                 'days' => $horizonDays,
             ]);
 
-            $runner = new SchedulerRunner($cfg, $horizonDays, $dryRun);
+            $runner = new GcsSchedulerRunner($cfg, $horizonDays, $dryRun);
             $result = $runner->run();
 
             GcsLog::info('Sync completed', $result);

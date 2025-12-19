@@ -1,84 +1,66 @@
 <?php
 
-/**
- * Computes differences between desired scheduler entries and existing FPP state.
- */
-final class SchedulerDiff
+final class GcsSchedulerDiff
 {
+    /** @var array<int,array<string,mixed>> */
+    private array $desired;
+
+    private GcsSchedulerState $state;
+
     /**
      * @param array<int,array<string,mixed>> $desired
-     * @param array<int,array<string,mixed>> $existing
      */
-    public function diff(array $desired, array $existing): SchedulerDiffResult
+    public function __construct(array $desired, GcsSchedulerState $state)
     {
-        $adds = [];
-        $updates = [];
-        $deletes = [];
-
-        // Index existing entries by playlist identity
-        $existingByKey = [];
-
-        foreach ($existing as $e) {
-            if (!isset($e['playlist'])) {
-                continue;
-            }
-            $existingByKey[$e['playlist']] = $e;
-        }
-
-        // Adds + updates
-        foreach ($desired as $d) {
-            if (!isset($d['playlist'])) {
-                continue;
-            }
-
-            $key = $d['playlist'];
-
-            if (!isset($existingByKey[$key])) {
-                $adds[] = $d;
-                continue;
-            }
-
-            $existingEntry = $existingByKey[$key];
-
-            if ($this->isDifferent($d, $existingEntry)) {
-                $updates[] = [
-                    'from' => $existingEntry,
-                    'to'   => $d,
-                ];
-            }
-
-            unset($existingByKey[$key]);
-        }
-
-        // Remaining existing entries are deletes (Phase 8.6)
-        foreach ($existingByKey as $e) {
-            $deletes[] = $e;
-        }
-
-        return new SchedulerDiffResult($adds, $updates, $deletes);
+        $this->desired = $desired;
+        $this->state   = $state;
     }
 
-    /**
-     * Determine whether two scheduler entries differ meaningfully.
-     */
-    private function isDifferent(array $a, array $b): bool
+    public function compute(): GcsSchedulerDiffResult
     {
-        $fields = [
-            'startTime',
-            'endTime',
-            'dayMask',
-            'startDate',
-            'endDate',
-            'repeat',
-            'stopType',
-        ];
-
-        foreach ($fields as $f) {
-            if (($a[$f] ?? null) !== ($b[$f] ?? null)) {
-                return true;
+        $existingByUid = [];
+        foreach ($this->state->getEntries() as $entry) {
+            $uid = $entry->getGcsUid();
+            if ($uid !== null) {
+                $existingByUid[$uid] = $entry;
             }
         }
 
-        return false;
+        $toCreate = [];
+        $toUpdate = [];
+        $seen     = [];
+
+        foreach ($this->desired as $desiredEntry) {
+            $uid = GcsSchedulerIdentity::extractUid($desiredEntry);
+            if ($uid === null) {
+                // Desired entry without GCS identity is ignored
+                continue;
+            }
+
+            $seen[$uid] = true;
+
+            if (!isset($existingByUid[$uid])) {
+                $toCreate[] = $desiredEntry;
+                continue;
+            }
+
+            $existing = $existingByUid[$uid];
+
+            if (!GcsSchedulerComparator::isEquivalent($existing, $desiredEntry)) {
+                $toUpdate[] = [
+                    'existing' => $existing,
+                    'desired'  => $desiredEntry,
+                ];
+            }
+        }
+
+        $toDelete = [];
+        foreach ($existingByUid as $uid => $entry) {
+            if (!isset($seen[$uid])) {
+                $toDelete[] = $entry;
+            }
+        }
+
+        return new GcsSchedulerDiffResult($toCreate, $toUpdate, $toDelete);
     }
 }

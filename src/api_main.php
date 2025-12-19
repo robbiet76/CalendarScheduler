@@ -31,10 +31,10 @@ if ($action === 'sync') {
 
     GcsLog::info('Starting sync', ['dryRun' => $dryRun]);
 
-    $horizonDays = FppSchedulerHorizon::getDays();
+    $horizonDays = GcsFppSchedulerHorizon::getDays();
     GcsLog::info('Using FPP scheduler horizon', ['days' => $horizonDays]);
 
-    $sync = new SchedulerSync($cfg, $horizonDays, $dryRun);
+    $sync = new GcsSchedulerSync($cfg, $horizonDays, $dryRun);
     $result = $sync->run();
 
     GcsLog::info('Sync completed', $result);

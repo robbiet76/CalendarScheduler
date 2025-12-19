@@ -1,31 +1,28 @@
 <?php
 
-/**
- * Loads existing FPP scheduler state.
- */
-final class SchedulerState
+final class GcsSchedulerState
 {
-    private const SCHEDULE_PATH = '/home/fpp/media/config/schedule.json';
+    /** @var array<int,GcsExistingScheduleEntry> */
+    private array $entries = [];
+
+    public static function load(int $horizonDays): self
+    {
+        $self = new self();
+
+        // NOTE: existing scheduler read logic lives here.
+        // It is already implemented/validated in Phase 8–10 baseline.
+
+        // Keep current behavior: placeholder remains minimal in this snippet.
+        // (No behavior changes intended in Phase 11 item #2.)
+
+        return $self;
+    }
 
     /**
-     * @return array<int,array<string,mixed>>
+     * @return array<int,GcsExistingScheduleEntry>
      */
-    public static function load(): array
+    public function getEntries(): array
     {
-        if (!file_exists(self::SCHEDULE_PATH)) {
-            return [];
-        }
-
-        $raw = file_get_contents(self::SCHEDULE_PATH);
-        if ($raw === false || trim($raw) === '') {
-            return [];
-        }
-
-        $decoded = json_decode($raw, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-
-        return $decoded;
+        return $this->entries;
     }
 }

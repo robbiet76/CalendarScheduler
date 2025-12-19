@@ -1,46 +1,41 @@
 <?php
 
-final class ExistingScheduleEntry
+final class GcsExistingScheduleEntry
 {
-    public string $schedulerId;
-    public string $uid;
-    public string $start;
-    public string $end;
-    public string $target;
-    public string $stopType;
-    public ?int $repeat;
-    public bool $enabled;
+    /** @var array<string,mixed> */
+    private array $raw;
 
-    public function __construct(
-        string $schedulerId,
-        string $uid,
-        string $start,
-        string $end,
-        string $target,
-        string $stopType,
-        ?int $repeat,
-        bool $enabled
-    ) {
-        $this->schedulerId = $schedulerId;
-        $this->uid = $uid;
-        $this->start = $start;
-        $this->end = $end;
-        $this->target = $target;
-        $this->stopType = $stopType;
-        $this->repeat = $repeat;
-        $this->enabled = $enabled;
+    /**
+     * @param array<string,mixed> $raw
+     */
+    public function __construct(array $raw)
+    {
+        $this->raw = $raw;
     }
 
-    public function toComparable(): ComparableScheduleEntry
+    /**
+     * Extract GCS UID from scheduler tag.
+     */
+    public function getGcsUid(): ?string
     {
-        return new ComparableScheduleEntry(
-            $this->uid,
-            $this->start,
-            $this->end,
-            $this->target,
-            $this->stopType,
-            $this->repeat,
-            $this->enabled
-        );
+        $tag = $this->raw['tag'] ?? null;
+        if (!is_string($tag)) {
+            return null;
+        }
+
+        if (strpos($tag, GcsSchedulerIdentity::TAG_PREFIX) !== 0) {
+            return null;
+        }
+
+        $uid = substr($tag, strlen(GcsSchedulerIdentity::TAG_PREFIX));
+        return $uid !== '' ? $uid : null;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public function raw(): array
+    {
+        return $this->raw;
     }
 }

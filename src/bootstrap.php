@@ -35,14 +35,24 @@ require_once __DIR__ . '/IcsParser.php';
  */
 require_once __DIR__ . '/TargetResolver.php';
 require_once __DIR__ . '/IntentConsolidator.php';
-require_once __DIR__ . '/YamlMetadata.php';      // <-- ADD THIS
+require_once __DIR__ . '/YamlMetadata.php';
 require_once __DIR__ . '/FppScheduleMapper.php';
+
+/*
+ * --------------------------------------------------------------------
+ * Scheduler identity + comparison (Phase 11)
+ * --------------------------------------------------------------------
+ */
+require_once __DIR__ . '/SchedulerIdentity.php';
+require_once __DIR__ . '/SchedulerComparator.php';
 
 /*
  * --------------------------------------------------------------------
  * Scheduler state + diff + apply
  * --------------------------------------------------------------------
  */
+require_once __DIR__ . '/ExistingScheduleEntry.php';
+require_once __DIR__ . '/ComparableScheduleEntry.php';
 require_once __DIR__ . '/SchedulerState.php';
 require_once __DIR__ . '/SchedulerDiffResult.php';
 require_once __DIR__ . '/SchedulerDiff.php';

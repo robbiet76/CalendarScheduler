@@ -9,7 +9,7 @@
  * - Different start/end TIMES must never be merged into the same range.
  * - Overrides with different times remain isolated (lossless).
  */
-class IntentConsolidator
+class GcsIntentConsolidator
 {
     // Weekday bit masks (Sunday = 0, matches PHP DateTime::format('w'))
     public const WD_SUN = 1 << 0; // 1
@@ -208,11 +208,3 @@ class IntentConsolidator
         return $this->rangeCount;
     }
 }
-
-/**
- * Compatibility alias
- */
-class GcsIntentConsolidator extends IntentConsolidator
-{
-}
-

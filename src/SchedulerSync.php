@@ -1,50 +1,51 @@
 <?php
 
-/**
- * Orchestrates scheduler diff + apply.
- */
-final class SchedulerSync
+final class GcsSchedulerSync
 {
+    private array $cfg;
+    private int $horizonDays;
     private bool $dryRun;
 
-    public function __construct(bool $dryRun)
+    public function __construct(array $cfg, int $horizonDays, bool $dryRun)
     {
+        $this->cfg = $cfg;
+        $this->horizonDays = $horizonDays;
         $this->dryRun = $dryRun;
     }
 
     /**
-     * @param array<int,array<string,mixed>> $desired
+     * Execute full pipeline.
+     *
      * @return array<string,mixed>
      */
-    public function sync(array $desired): array
+    public function run(): array
     {
-        // Load existing scheduler state
-        $existing = SchedulerState::load();
+        // Load scheduler state
+        $state = GcsSchedulerState::load($this->horizonDays);
 
         GcsLog::info('SchedulerState loaded (stub)', [
-            'count' => count($existing),
+            'count' => count($state->getEntries()),
         ]);
 
-        // Diff desired vs existing
-        $diffEngine = new SchedulerDiff();
-        $diff = $diffEngine->diff($desired, $existing);
+        // TODO: will be used by SchedulerRunner orchestration
+        // For now keep legacy logs for continuity
+
+        $diff = new GcsSchedulerDiff([], $state);
+        $diffResult = $diff->compute();
 
         GcsLog::info('SchedulerDiff summary' . ($this->dryRun ? ' (dry-run)' : ''), [
-            'adds'    => count($diff->adds),
-            'updates' => count($diff->updates),
-            'deletes' => count($diff->deletes),
+            'create' => count($diffResult->getToCreate()),
+            'update' => count($diffResult->getToUpdate()),
+            'delete' => count($diffResult->getToDelete()),
         ]);
 
-        // Apply (or simulate)
-        $applier = new SchedulerApply($this->dryRun);
-        $applier->apply($diff);
+        $apply = new GcsSchedulerApply($this->dryRun);
+        $applySummary = $apply->apply($diffResult);
 
         return [
-            'adds'         => count($diff->adds),
-            'updates'      => count($diff->updates),
-            'deletes'      => count($diff->deletes),
-            'dryRun'       => $this->dryRun,
-            'intents_seen' => count($desired),
+            'dryRun' => $this->dryRun,
+            'diff'   => $diffResult->toArray(),
+            'apply'  => $applySummary,
         ];
     }
 }
