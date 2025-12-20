@@ -1,61 +1,53 @@
 <?php
 
 /**
- * YAML metadata parser and schema validator.
+ * YAML metadata parser with schema validation and warning aggregation.
  *
  * PHASE 11 CONTRACT:
  * - Schema is explicit and locked
  * - Unknown keys generate warnings
  * - Invalid value types generate warnings
- * - No silent ignores
- * - Behavior remains backward compatible
+ * - Warnings are aggregated and summarized per sync
  */
 final class GcsYamlMetadata
 {
-    /**
-     * Allowed schema and expected value types.
-     *
-     * NOTE:
-     * - This is intentionally conservative.
-     * - New keys must be explicitly added here.
-     */
     private const SCHEMA = [
-        // Core scheduler controls
-        'type'       => 'string', // playlist | sequence | command
-        'stopType'   => 'string', // graceful | hard
-        'repeat'     => 'string', // none | 5 | 10 | 15 | etc.
+        'type'       => 'string',
+        'stopType'   => 'string',
+        'repeat'     => 'string',
         'override'   => 'bool',
 
-        // Command-only fields
         'command'          => 'string',
         'args'             => 'array',
         'multisyncCommand' => 'bool',
     ];
 
+    /** @var array<int,array<string,mixed>> */
+    private static array $warnings = [];
+
     /**
      * Parse YAML metadata from an event description.
      *
      * @param string|null $text
+     * @param array<string,string>|null $context
      * @return array<string,mixed>
      */
-    public static function parse(?string $text): array
+    public static function parse(?string $text, ?array $context = null): array
     {
         if ($text === null || trim($text) === '') {
             return [];
         }
 
-        // Look for fenced YAML block or inline YAML
         $yamlText = self::extractYaml($text);
         if ($yamlText === null) {
             return [];
         }
 
-        // Parse YAML safely (no ext-yaml dependency)
         $parsed = self::parseSimpleYaml($yamlText);
         if (!is_array($parsed)) {
-            GcsLog::warn('Invalid YAML metadata (parse failed)', [
+            self::warn('yaml_parse_failed', [
                 'yaml' => $yamlText,
-            ]);
+            ], $context);
             return [];
         }
 
@@ -63,19 +55,19 @@ final class GcsYamlMetadata
 
         foreach ($parsed as $key => $value) {
             if (!array_key_exists($key, self::SCHEMA)) {
-                GcsLog::warn('Unknown YAML key ignored', [
+                self::warn('unknown_key', [
                     'key' => $key,
-                ]);
+                ], $context);
                 continue;
             }
 
             $expected = self::SCHEMA[$key];
             if (!self::isValidType($value, $expected)) {
-                GcsLog::warn('Invalid YAML value type', [
+                self::warn('invalid_type', [
                     'key'      => $key,
                     'expected' => $expected,
                     'actual'   => gettype($value),
-                ]);
+                ], $context);
                 continue;
             }
 
@@ -86,20 +78,55 @@ final class GcsYamlMetadata
     }
 
     /**
-     * Extract YAML from description text.
-     *
-     * Supports:
-     * - ```yaml fenced blocks
-     * - Inline YAML starting with "fpp:"
+     * Emit a summary warning at end of sync.
+     * Safe to call multiple times.
      */
+    public static function flushWarnings(): void
+    {
+        if (empty(self::$warnings)) {
+            return;
+        }
+
+        $byType = [];
+        foreach (self::$warnings as $w) {
+            $byType[$w['code']] = ($byType[$w['code']] ?? 0) + 1;
+        }
+
+        GcsLog::warn('YAML metadata warnings summary', [
+            'total' => count(self::$warnings),
+            'byType' => $byType,
+        ]);
+
+        self::$warnings = [];
+    }
+
+    // -----------------------------------------------------------------
+    // Internals
+    // -----------------------------------------------------------------
+
+    private static function warn(string $code, array $details, ?array $context): void
+    {
+        $entry = [
+            'code' => $code,
+            'details' => $details,
+        ];
+
+        if ($context) {
+            $entry['event'] = $context;
+        }
+
+        self::$warnings[] = $entry;
+
+        // Emit immediate warning with context
+        GcsLog::warn('YAML metadata warning', $entry);
+    }
+
     private static function extractYaml(string $text): ?string
     {
-        // Fenced YAML block
         if (preg_match('/```yaml(.*?)```/s', $text, $m)) {
             return trim($m[1]);
         }
 
-        // Inline YAML (legacy support)
         $pos = strpos($text, 'fpp:');
         if ($pos !== false) {
             return substr($text, $pos);
@@ -108,14 +135,6 @@ final class GcsYamlMetadata
         return null;
     }
 
-    /**
-     * Extremely small YAML parser sufficient for our schema.
-     *
-     * Supports:
-     * - key: value
-     * - key:
-     *     - list items
-     */
     private static function parseSimpleYaml(string $yaml): array
     {
         $lines = preg_split('/\r?\n/', $yaml);
@@ -128,7 +147,6 @@ final class GcsYamlMetadata
                 continue;
             }
 
-            // List item
             if ($currentKey !== null && preg_match('/^\s*-\s*(.+)$/', $line, $m)) {
                 if (!isset($data[$currentKey]) || !is_array($data[$currentKey])) {
                     $data[$currentKey] = [];
@@ -137,13 +155,11 @@ final class GcsYamlMetadata
                 continue;
             }
 
-            // key: value
             if (preg_match('/^([a-zA-Z0-9_]+)\s*:\s*(.*)$/', $line, $m)) {
                 $key = $m[1];
                 $val = $m[2];
 
                 if ($val === '') {
-                    // Start of list or nested block
                     $data[$key] = [];
                     $currentKey = $key;
                 } else {
@@ -156,12 +172,6 @@ final class GcsYamlMetadata
         return $data;
     }
 
-    /**
-     * Cast scalar YAML values into native PHP types.
-     *
-     * @param string $val
-     * @return mixed
-     */
     private static function castValue(string $val)
     {
         $v = trim($val);
@@ -179,9 +189,6 @@ final class GcsYamlMetadata
         return $v;
     }
 
-    /**
-     * Validate a value against an expected schema type.
-     */
     private static function isValidType($value, string $expected): bool
     {
         return match ($expected) {
