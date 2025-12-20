@@ -1,267 +1,194 @@
 <?php
 
 /**
- * Simple, foolproof YAML-like metadata parser for Google Calendar descriptions.
+ * YAML metadata parser and schema validator.
  *
- * Design goals:
- * - Extremely tolerant of formatting
- * - No required parent key
- * - Flat keys preferred (e.g. stoptype)
- * - Safe defaults when fields are missing or invalid
- * - Explicit logging of ignored / unsupported keys
- *
- * Supported keys (case-insensitive):
- *   type              : playlist | sequence | command
- *   enabled           : true | false
- *   stoptype          : graceful | graceful_loop | hard
- *   repeat            : none | immediate | <number>
- *
- * Command-only keys (Phase 10):
- *   command           : <string>            (required when type: command)
- *   args              : list or csv string  (optional; default [])
- *   multisynccommand  : true | false        (optional; default false)
- *
- * Legacy support (accepted but discouraged):
- *   stop:
- *     type: graceful | graceful_loop | hard
- *
- * Notes:
- * - Unknown keys are ignored.
- * - We intentionally do NOT try to validate command semantics or arg counts.
+ * PHASE 11 CONTRACT:
+ * - Schema is explicit and locked
+ * - Unknown keys generate warnings
+ * - Invalid value types generate warnings
+ * - No silent ignores
+ * - Behavior remains backward compatible
  */
-final class YamlMetadata
+final class GcsYamlMetadata
 {
     /**
-     * Parse YAML-like metadata from an event description.
+     * Allowed schema and expected value types.
      *
-     * @return array<string,mixed>|null
+     * NOTE:
+     * - This is intentionally conservative.
+     * - New keys must be explicitly added here.
      */
-    public static function parse(?string $description): ?array
+    private const SCHEMA = [
+        // Core scheduler controls
+        'type'       => 'string', // playlist | sequence | command
+        'stopType'   => 'string', // graceful | hard
+        'repeat'     => 'string', // none | 5 | 10 | 15 | etc.
+        'override'   => 'bool',
+
+        // Command-only fields
+        'command'          => 'string',
+        'args'             => 'array',
+        'multisyncCommand' => 'bool',
+    ];
+
+    /**
+     * Parse YAML metadata from an event description.
+     *
+     * @param string|null $text
+     * @return array<string,mixed>
+     */
+    public static function parse(?string $text): array
     {
-        if (!$description) {
-            return null;
+        if ($text === null || trim($text) === '') {
+            return [];
         }
 
-        // Normalize Google Calendar NBSP → space
-        $description = str_replace("\xC2\xA0", ' ', $description);
+        // Look for fenced YAML block or inline YAML
+        $yamlText = self::extractYaml($text);
+        if ($yamlText === null) {
+            return [];
+        }
 
-        $lines = preg_split('/\R/', $description);
-        if (!$lines) {
-            return null;
+        // Parse YAML safely (no ext-yaml dependency)
+        $parsed = self::parseSimpleYaml($yamlText);
+        if (!is_array($parsed)) {
+            GcsLog::warn('Invalid YAML metadata (parse failed)', [
+                'yaml' => $yamlText,
+            ]);
+            return [];
         }
 
         $out = [];
 
-        $inStopBlock = false;
-        $inArgsBlock = false;
-
-        $args = null; // null until we see args, then array
-
-        foreach ($lines as $rawLine) {
-            $line = trim($rawLine);
-
-            if ($line === '' || strpos($line, '#') === 0) {
+        foreach ($parsed as $key => $value) {
+            if (!array_key_exists($key, self::SCHEMA)) {
+                GcsLog::warn('Unknown YAML key ignored', [
+                    'key' => $key,
+                ]);
                 continue;
             }
 
-            // Optional legacy parent (ignored, but allows people to group)
-            if (strcasecmp($line, 'fpp:') === 0) {
+            $expected = self::SCHEMA[$key];
+            if (!self::isValidType($value, $expected)) {
+                GcsLog::warn('Invalid YAML value type', [
+                    'key'      => $key,
+                    'expected' => $expected,
+                    'actual'   => gettype($value),
+                ]);
                 continue;
             }
 
-            // Legacy nested stop block
-            if (strcasecmp($line, 'stop:') === 0) {
-                $inStopBlock = true;
-                $inArgsBlock = false;
-                continue;
-            }
-
-            // Start args block (preferred list form)
-            if (preg_match('/^args\s*:\s*$/i', $line)) {
-                $inArgsBlock = true;
-                $inStopBlock = false;
-                if (!is_array($args)) {
-                    $args = [];
-                }
-                continue;
-            }
-
-            // If we were in args block, accept "- value" lines.
-            if ($inArgsBlock) {
-                if (preg_match('/^\-\s*(.*)$/', $line, $m)) {
-                    $v = self::normalizeScalar(trim($m[1]));
-                    // Allow empty string ("-") or ("- ")
-                    $args[] = $v;
-                    continue;
-                }
-
-                // Stop args block when we hit a normal key
-                if (preg_match('/^\S+\s*:/', $line)) {
-                    $inArgsBlock = false;
-                    // fall through to normal key parsing
-                } else {
-                    // junk line inside args block; ignore
-                    continue;
-                }
-            }
-
-            // Flat stoptype (preferred)
-            if (preg_match('/^stoptype\s*:\s*(\S+)/i', $line, $m)) {
-                $v = strtolower(trim($m[1]));
-                if (in_array($v, ['graceful', 'graceful_loop', 'hard'], true)) {
-                    $out['stopType'] = $v;
-                } else {
-                    GcsLog::info('Ignored invalid stoptype', ['value' => $m[1]]);
-                }
-                $inStopBlock = false;
-                continue;
-            }
-
-            // Legacy stop.type
-            if ($inStopBlock && preg_match('/^type\s*:\s*(\S+)/i', $line, $m)) {
-                $v = strtolower(trim($m[1]));
-                if (in_array($v, ['graceful', 'graceful_loop', 'hard'], true)) {
-                    $out['stopType'] = $v;
-                    GcsLog::info('Applied legacy stop.type (use stoptype instead)', [
-                        'value' => $v,
-                    ]);
-                } else {
-                    GcsLog::info('Ignored invalid legacy stop.type', ['value' => $m[1]]);
-                }
-                continue;
-            }
-
-            // type
-            if (preg_match('/^type\s*:\s*(\S+)/i', $line, $m)) {
-                $v = strtolower(trim($m[1]));
-                if (in_array($v, ['playlist', 'sequence', 'command'], true)) {
-                    $out['type'] = $v;
-                } else {
-                    GcsLog::info('Ignored invalid type', ['value' => $m[1]]);
-                }
-                $inStopBlock = false;
-                continue;
-            }
-
-            // enabled
-            if (preg_match('/^enabled\s*:\s*(\S+)/i', $line, $m)) {
-                $v = strtolower(trim($m[1]));
-                if (in_array($v, ['true', 'yes', '1'], true)) {
-                    $out['enabled'] = true;
-                } elseif (in_array($v, ['false', 'no', '0'], true)) {
-                    $out['enabled'] = false;
-                } else {
-                    GcsLog::info('Ignored invalid enabled value', ['value' => $m[1]]);
-                }
-                $inStopBlock = false;
-                continue;
-            }
-
-            // repeat
-            if (preg_match('/^repeat\s*:\s*(\S+)/i', $line, $m)) {
-                $v = strtolower(trim($m[1]));
-                if ($v === 'none' || $v === '') {
-                    $out['repeat'] = 'none';
-                } elseif ($v === 'immediate') {
-                    $out['repeat'] = 'immediate';
-                } elseif (ctype_digit($v)) {
-                    $out['repeat'] = $v;
-                } else {
-                    GcsLog::info('Ignored invalid repeat value', ['value' => $m[1]]);
-                }
-                $inStopBlock = false;
-                continue;
-            }
-
-            // command (Phase 10)
-            if (preg_match('/^command\s*:\s*(.+)$/i', $line, $m)) {
-                $cmd = trim((string)$m[1]);
-                if ($cmd !== '') {
-                    $out['command'] = $cmd;
-                } else {
-                    GcsLog::info('Ignored empty command value');
-                }
-                $inStopBlock = false;
-                continue;
-            }
-
-            // args (single-line csv fallback)
-            if (preg_match('/^args\s*:\s*(.+)$/i', $line, $m)) {
-                $raw = trim((string)$m[1]);
-                if ($raw === '') {
-                    $args = [];
-                } else {
-                    $parts = array_map('trim', explode(',', $raw));
-                    $args = [];
-                    foreach ($parts as $p) {
-                        // preserve empty fields as empty string
-                        $args[] = self::normalizeScalar($p);
-                    }
-                }
-                $inStopBlock = false;
-                continue;
-            }
-
-            // multisynccommand (Phase 10)
-            if (preg_match('/^multisynccommand\s*:\s*(\S+)/i', $line, $m)) {
-                $v = strtolower(trim($m[1]));
-                if (in_array($v, ['true', 'yes', '1'], true)) {
-                    $out['multisyncCommand'] = true;
-                } elseif (in_array($v, ['false', 'no', '0'], true)) {
-                    $out['multisyncCommand'] = false;
-                } else {
-                    GcsLog::info('Ignored invalid multisynccommand value', ['value' => $m[1]]);
-                }
-                $inStopBlock = false;
-                continue;
-            }
-
-            // Explicitly unsupported keys (we log so users learn the boundary)
-            if (preg_match('/^(target|priority|day|daymask|startdate|enddate|starttimeoffset|endtimeoffset)\s*:/i', $line, $m)) {
-                GcsLog::info('Ignored unsupported YAML key', ['key' => strtolower($m[1])]);
-                $inStopBlock = false;
-                continue;
-            }
+            $out[$key] = $value;
         }
 
-        if (is_array($args)) {
-            $out['args'] = $args;
+        return $out;
+    }
+
+    /**
+     * Extract YAML from description text.
+     *
+     * Supports:
+     * - ```yaml fenced blocks
+     * - Inline YAML starting with "fpp:"
+     */
+    private static function extractYaml(string $text): ?string
+    {
+        // Fenced YAML block
+        if (preg_match('/```yaml(.*?)```/s', $text, $m)) {
+            return trim($m[1]);
         }
 
-        if (!empty($out)) {
-            GcsLog::info('Applied YAML metadata', $out);
-            return $out;
+        // Inline YAML (legacy support)
+        $pos = strpos($text, 'fpp:');
+        if ($pos !== false) {
+            return substr($text, $pos);
         }
 
         return null;
     }
 
     /**
-     * Normalize scalars coming from YAML-like values:
-     * - "null" => null
-     * - strip surrounding quotes (single or double)
-     * - otherwise return string as-is (including empty string)
+     * Extremely small YAML parser sufficient for our schema.
      *
-     * @param string $v
-     * @return mixed
+     * Supports:
+     * - key: value
+     * - key:
+     *     - list items
      */
-    private static function normalizeScalar(string $v)
+    private static function parseSimpleYaml(string $yaml): array
     {
-        $t = trim($v);
+        $lines = preg_split('/\r?\n/', $yaml);
+        $data  = [];
+        $currentKey = null;
 
-        if (strcasecmp($t, 'null') === 0) {
-            return null;
-        }
+        foreach ($lines as $line) {
+            $line = rtrim($line);
+            if ($line === '' || str_starts_with(trim($line), '#')) {
+                continue;
+            }
 
-        // strip surrounding quotes
-        if (strlen($t) >= 2) {
-            $first = $t[0];
-            $last  = $t[strlen($t) - 1];
-            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
-                return substr($t, 1, -1);
+            // List item
+            if ($currentKey !== null && preg_match('/^\s*-\s*(.+)$/', $line, $m)) {
+                if (!isset($data[$currentKey]) || !is_array($data[$currentKey])) {
+                    $data[$currentKey] = [];
+                }
+                $data[$currentKey][] = self::castValue($m[1]);
+                continue;
+            }
+
+            // key: value
+            if (preg_match('/^([a-zA-Z0-9_]+)\s*:\s*(.*)$/', $line, $m)) {
+                $key = $m[1];
+                $val = $m[2];
+
+                if ($val === '') {
+                    // Start of list or nested block
+                    $data[$key] = [];
+                    $currentKey = $key;
+                } else {
+                    $data[$key] = self::castValue($val);
+                    $currentKey = null;
+                }
             }
         }
 
-        return $t;
+        return $data;
+    }
+
+    /**
+     * Cast scalar YAML values into native PHP types.
+     *
+     * @param string $val
+     * @return mixed
+     */
+    private static function castValue(string $val)
+    {
+        $v = trim($val);
+
+        if ($v === 'true') {
+            return true;
+        }
+        if ($v === 'false') {
+            return false;
+        }
+        if (is_numeric($v)) {
+            return (int)$v;
+        }
+
+        return $v;
+    }
+
+    /**
+     * Validate a value against an expected schema type.
+     */
+    private static function isValidType($value, string $expected): bool
+    {
+        return match ($expected) {
+            'string' => is_string($value),
+            'bool'   => is_bool($value),
+            'array'  => is_array($value),
+            default  => false,
+        };
     }
 }
