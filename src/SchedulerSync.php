@@ -32,11 +32,12 @@ final class GcsSchedulerSync
      */
     public function sync(array $desiredEntries): array
     {
-        // Load scheduler state
-        $state = GcsSchedulerState::load($this->horizonDays);
+        // Load scheduler state (real FPP schedule entries within horizon)
+        $state = GcsSchedulerState::load($this->horizonDays, $this->cfg);
 
-        GcsLog::info('SchedulerState loaded (stub)', [
+        GcsLog::info('SchedulerState loaded', [
             'count' => count($state->getEntries()),
+            'horizonDays' => $this->horizonDays,
         ]);
 
         // Compute diff (desired vs existing state)
@@ -44,12 +45,14 @@ final class GcsSchedulerSync
         $diffResult = $diff->compute();
 
         GcsLog::info('SchedulerDiff summary' . ($this->dryRun ? ' (dry-run)' : ''), [
+            'desired' => count($desiredEntries),
+            'existing' => count($state->getEntries()),
             'create' => count($diffResult->getToCreate()),
             'update' => count($diffResult->getToUpdate()),
             'delete' => count($diffResult->getToDelete()),
         ]);
 
-        // Apply
+        // Apply (dry-run safe)
         $apply = new GcsSchedulerApply($this->dryRun);
         $applySummary = $apply->apply($diffResult);
 
