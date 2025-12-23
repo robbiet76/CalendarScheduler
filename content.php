@@ -7,30 +7,15 @@
 require_once __DIR__ . '/src/bootstrap.php';
 require_once __DIR__ . '/src/FppSchedulerHorizon.php';
 
-// Experimental scaffolding (no runtime behavior)
+// Experimental scaffolding (no runtime behavior unless gated)
 require_once __DIR__ . '/src/experimental/ExecutionContext.php';
 require_once __DIR__ . '/src/experimental/ScopedLogger.php';
 require_once __DIR__ . '/src/experimental/ExecutionController.php';
 require_once __DIR__ . '/src/experimental/HealthProbe.php';
 require_once __DIR__ . '/src/experimental/CalendarReader.php';
-require_once __DIR__ . '/src/experimental/DiffPreviewer.php'; // ✅ FIX
+require_once __DIR__ . '/src/experimental/DiffPreviewer.php';
 
 $cfg = GcsConfig::load();
-
-/*
- * --------------------------------------------------------------------
- * EXPERIMENTAL MANUAL HOOK (DISABLED)
- * --------------------------------------------------------------------
- *
- * TEMPORARY FOR MILESTONE 11.5:
- * - Uncomment only for manual testing
- * - MUST be re-commented immediately after verification
- *
- * Example:
- *   ExecutionController::run($cfg);
- *
- */
-// ExecutionController::run($cfg);
 
 /*
  * --------------------------------------------------------------------
@@ -55,6 +40,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         if ($action === 'sync') {
+            // --------------------------------------------------------
+            // Experimental execution (config-gated, read-only)
+            // --------------------------------------------------------
+            ExecutionController::maybeRun($cfg);
+
+            // --------------------------------------------------------
+            // Normal sync flow (unchanged)
+            // --------------------------------------------------------
             $dryRun = !empty($cfg['runtime']['dry_run']);
 
             GcsLog::info('Starting sync', [
