@@ -17,7 +17,7 @@ final class ScopedLogger
      *
      * TEMPORARILY ENABLED FOR TESTING.
      */
-    private const ENABLED = true;
+    private const ENABLED = false;
 
     /**
      * Write an experimental log entry.
