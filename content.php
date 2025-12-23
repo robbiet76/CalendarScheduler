@@ -12,20 +12,22 @@ require_once __DIR__ . '/src/experimental/ExecutionContext.php';
 require_once __DIR__ . '/src/experimental/ScopedLogger.php';
 require_once __DIR__ . '/src/experimental/ExecutionController.php';
 require_once __DIR__ . '/src/experimental/HealthProbe.php';
+require_once __DIR__ . '/src/experimental/CalendarReader.php';
 
 /*
  * --------------------------------------------------------------------
  * EXPERIMENTAL MANUAL HOOK (DISABLED)
  * --------------------------------------------------------------------
  *
- * This hook is intentionally commented out.
- * It must only be enabled temporarily for Milestone 11.2 testing.
+ * TEMPORARY FOR MILESTONE 11.4 STEP C:
+ * - Uncomment to run read-only calendar ingestion
+ * - MUST be re-commented immediately after verification
  *
- * Example manual test sequence (DO NOT LEAVE ENABLED):
- *   ExecutionController::run();
+ * Example:
+ *   ExecutionController::run($cfg);
  *
  */
-// ExecutionController::run();
+// ExecutionController::run($cfg);
 
 $cfg = GcsConfig::load();
 
@@ -52,7 +54,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         if ($action === 'sync') {
-            // IMPORTANT: dry-run comes ONLY from persisted config
             $dryRun = !empty($cfg['runtime']['dry_run']);
 
             GcsLog::info('Starting sync', [
@@ -81,7 +82,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <div class="settings">
     <h2>Google Calendar Scheduler</h2>
 
-    <!-- SAVE SETTINGS -->
     <form method="post">
         <input type="hidden" name="action" value="save">
 
@@ -111,7 +111,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <hr>
 
-    <!-- SYNC -->
     <form method="post">
         <input type="hidden" name="action" value="sync">
         <button type="submit" class="buttons">Sync Calendar</button>
