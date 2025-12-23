@@ -6,19 +6,18 @@ declare(strict_types=1);
  *
  * Logging wrapper for experimental paths.
  *
- * IMPORTANT:
- * - Logging is OFF by default.
- * - Enablement is explicit and local to this file.
- * - No runtime behavior changes unless ENABLED is set to true.
+ * TEMPORARY STATE (Milestone 11.3 Step B):
+ * - ENABLED is set to true for verification only.
+ * - This file MUST be reverted immediately after testing.
  */
 final class ScopedLogger
 {
     /**
      * Experimental logging enable switch.
      *
-     * MUST remain false unless explicitly testing.
+     * TEMPORARILY ENABLED FOR TESTING.
      */
-    private const ENABLED = false;
+    private const ENABLED = true;
 
     /**
      * Write an experimental log entry.
@@ -31,7 +30,6 @@ final class ScopedLogger
             return;
         }
 
-        // Experimental logging path (opt-in only)
         GcsLog::info('[Experimental] ' . $message);
     }
 }
