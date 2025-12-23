@@ -6,10 +6,15 @@ declare(strict_types=1);
  *
  * Read-only diff preview helper.
  *
- * TEMPORARY IMPLEMENTATION (Milestone 11.5 Step C):
- * - Computes diff summary only
- * - NO apply
- * - NO mutation
+ * Responsibilities:
+ * - Run scheduler pipeline in dry-run mode
+ * - Extract diff summary only
+ *
+ * IMPORTANT:
+ * - No apply
+ * - No mutation
+ * - No logging
+ * - No side effects
  */
 final class DiffPreviewer
 {
@@ -21,23 +26,19 @@ final class DiffPreviewer
      */
     public static function preview(array $config): array
     {
-        // Load current scheduler state (read-only)
-        $state = GcsSchedulerState::load();
-
-        // Build desired intent from calendar (read-only)
+        // Run scheduler in dry-run mode to compute diff
         $dryRun = true;
         $horizonDays = GcsFppSchedulerHorizon::getDays();
 
         $runner = new GcsSchedulerRunner($config, $horizonDays, $dryRun);
         $result = $runner->run();
 
-        // Extract diff summary only
         $diff = $result['diff'] ?? [];
 
         return [
-            'create' => count($diff['create'] ?? []),
-            'update' => count($diff['update'] ?? []),
-            'delete' => count($diff['delete'] ?? []),
+            'create' => isset($diff['create']) ? count($diff['create']) : 0,
+            'update' => isset($diff['update']) ? count($diff['update']) : 0,
+            'delete' => isset($diff['delete']) ? count($diff['delete']) : 0,
         ];
     }
 }
