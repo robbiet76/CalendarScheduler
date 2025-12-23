@@ -7,7 +7,7 @@
 require_once __DIR__ . '/src/bootstrap.php';
 require_once __DIR__ . '/src/FppSchedulerHorizon.php';
 
-// Experimental scaffolding (explicitly required, inert)
+// Experimental scaffolding (explicitly required)
 require_once __DIR__ . '/src/experimental/ExecutionContext.php';
 require_once __DIR__ . '/src/experimental/ScopedLogger.php';
 require_once __DIR__ . '/src/experimental/ExecutionController.php';
@@ -19,12 +19,9 @@ $cfg = GcsConfig::load();
 
 /*
  * --------------------------------------------------------------------
- * EXPERIMENTAL ENDPOINT (INERT — 11.7 STEP A)
+ * EXPERIMENTAL ENDPOINT (11.7 STEP B — CONFIG-GATED, READ-ONLY)
  * --------------------------------------------------------------------
  * GET ?experimental=diff
- *
- * This stub intentionally does NOT execute anything.
- * It only reports that the endpoint exists but is disabled.
  */
 if (
     $_SERVER['REQUEST_METHOD'] === 'GET'
@@ -33,12 +30,34 @@ if (
 ) {
     header('Content-Type: application/json');
 
-    echo json_encode([
-        'ok' => false,
-        'error' => 'experimental_disabled',
-    ], JSON_PRETTY_PRINT);
+    // Gate by config
+    if (empty($cfg['experimental']['enabled'])) {
+        echo json_encode([
+            'ok'    => false,
+            'error' => 'experimental_disabled',
+        ], JSON_PRETTY_PRINT);
+        exit;
+    }
 
-    exit;
+    // Read-only diff preview
+    try {
+        $diff = DiffPreviewer::preview($cfg);
+
+        echo json_encode([
+            'ok'                  => true,
+            'experimentalEnabled' => true,
+            'diff'                => $diff,
+        ], JSON_PRETTY_PRINT);
+        exit;
+
+    } catch (Throwable $e) {
+        echo json_encode([
+            'ok'    => false,
+            'error' => 'experimental_error',
+            'msg'   => $e->getMessage(),
+        ], JSON_PRETTY_PRINT);
+        exit;
+    }
 }
 
 /*
@@ -117,14 +136,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             </label>
         </div>
 
-        <button type="submit" class="buttons">Save Settings</button>
-    </form>
-
-    <hr>
-
-    <!-- SYNC -->
-    <form method="post">
-        <input type="hidden" name="action" value="sync">
-        <button type="submit" class="buttons">Sync Calendar</button>
-    </form>
-</div>
+        <button type="submit" class="buttons"
