@@ -14,13 +14,15 @@ require_once __DIR__ . '/src/experimental/ExecutionController.php';
 require_once __DIR__ . '/src/experimental/HealthProbe.php';
 require_once __DIR__ . '/src/experimental/CalendarReader.php';
 
+$cfg = GcsConfig::load();
+
 /*
  * --------------------------------------------------------------------
  * EXPERIMENTAL MANUAL HOOK (DISABLED)
  * --------------------------------------------------------------------
  *
- * TEMPORARY FOR MILESTONE 11.4 STEP C:
- * - Uncomment to run read-only calendar ingestion
+ * TEMPORARY FOR MILESTONE 11.4:
+ * - Uncomment only for manual testing
  * - MUST be re-commented immediately after verification
  *
  * Example:
@@ -28,8 +30,6 @@ require_once __DIR__ . '/src/experimental/CalendarReader.php';
  *
  */
 // ExecutionController::run($cfg);
-
-$cfg = GcsConfig::load();
 
 /*
  * --------------------------------------------------------------------
