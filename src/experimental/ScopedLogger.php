@@ -5,20 +5,33 @@ declare(strict_types=1);
  * ScopedLogger
  *
  * Logging wrapper for experimental paths.
- * Hard-disabled for Milestone 11.1 (no log output permitted).
+ *
+ * IMPORTANT:
+ * - Logging is OFF by default.
+ * - Enablement is explicit and local to this file.
+ * - No runtime behavior changes unless ENABLED is set to true.
  */
 final class ScopedLogger
 {
+    /**
+     * Experimental logging enable switch.
+     *
+     * MUST remain false unless explicitly testing.
+     */
     private const ENABLED = false;
 
+    /**
+     * Write an experimental log entry.
+     *
+     * @param string $message
+     */
     public static function log(string $message): void
     {
         if (!self::ENABLED) {
             return;
         }
 
-        // Intentionally unreachable in 11.1.
-        // Future: call the project's logger here.
-        // Log::debug('[Experimental] ' . $message);
+        // Experimental logging path (opt-in only)
+        GcsLog::info('[Experimental] ' . $message);
     }
 }
