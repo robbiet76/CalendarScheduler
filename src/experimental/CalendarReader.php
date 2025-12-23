@@ -27,7 +27,6 @@ final class CalendarReader
      */
     public static function readSummary(array $config): array
     {
-        // Validate presence of ICS URL
         $icsUrl = (string)($config['calendar']['ics_url'] ?? '');
         if ($icsUrl === '') {
             return [
@@ -37,14 +36,14 @@ final class CalendarReader
         }
 
         // Fetch ICS data (read-only)
-        $fetcher = new GcsIcsFetcher($icsUrl);
-        $icsData = $fetcher->fetch();
+        $fetcher = new GcsIcsFetcher();
+        $icsData = $fetcher->fetch($icsUrl);
 
         // Parse ICS data (read-only)
         $parser = new GcsIcsParser($icsData);
         $events = $parser->parse();
 
-        // Produce summary only (no event objects returned)
+        // Summary only — no event objects returned
         return [
             'events' => count($events),
         ];
