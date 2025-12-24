@@ -122,16 +122,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <div class="gcs-diff-preview">
         <h3>Scheduler Change Preview</h3>
+
         <button type="button" class="buttons" id="gcs-preview-btn" disabled>
             Preview Changes
         </button>
-        <pre id="gcs-diff-results"
-             style="margin-top:10px; max-height:300px; overflow:auto; background:#f5f5f5; padding:8px;"></pre>
+
+        <div id="gcs-diff-results" style="margin-top:10px;"></div>
     </div>
 
     <script>
     (function () {
         'use strict';
+
+        function extractTrailingJSON(text) {
+            // Find the last JSON object in the response
+            var match = text.match(/\{[\s\S]*\}\s*$/);
+            if (!match) return null;
+
+            try {
+                return JSON.parse(match[0]);
+            } catch (e) {
+                return null;
+            }
+        }
 
         function onReady() {
             var btn = document.getElementById('gcs-preview-btn');
@@ -142,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             btn.addEventListener('click', function () {
                 btn.disabled = true;
-                results.textContent = 'Fetching raw response…';
+                results.textContent = 'Fetching diff preview (read-only)…';
 
                 var url = new URL(window.location.href);
                 url.searchParams.set('endpoint', 'experimental_diff');
@@ -150,7 +163,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 fetch(url.toString(), { credentials: 'same-origin' })
                     .then(function (r) { return r.text(); })
                     .then(function (text) {
-                        results.textContent = text;
+                        var data = extractTrailingJSON(text);
+
+                        if (!data) {
+                            results.textContent =
+                                'Unable to parse diff response from FPP.';
+                            return;
+                        }
+
+                        if (data.ok !== true) {
+                            if (data.error === 'experimental_disabled') {
+                                results.textContent =
+                                    'Experimental diff preview is currently disabled.';
+                                return;
+                            }
+                            results.textContent =
+                                'Diff preview error: ' + (data.error || 'unknown');
+                            return;
+                        }
+
+                        // Step B: summary only
+                        var diff = data.diff || {};
+                        var creates = diff.creates?.length || 0;
+                        var updates = diff.updates?.length || 0;
+                        var deletes = diff.deletes?.length || 0;
+
+                        results.innerHTML =
+                            '<strong>Creates:</strong> ' + creates + '<br>' +
+                            '<strong>Updates:</strong> ' + updates + '<br>' +
+                            '<strong>Deletes:</strong> ' + deletes + '<br>' +
+                            '<em>Read-only preview. No changes applied.</em>';
                     })
                     .catch(function (e) {
                         results.textContent = 'Network error: ' + e.message;
