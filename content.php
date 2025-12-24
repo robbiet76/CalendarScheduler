@@ -52,20 +52,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
         }
     }
 
-    /* ---- Apply (triple-guarded, Phase 11) ---- */
+    /*
+     * ---- Apply (Phase 13.2 Step A: structured result envelope) ----
+     *
+     * Behavior unchanged (guards still enforced). Only response shape is normalized.
+     */
     if ($_GET['endpoint'] === 'experimental_apply') {
         try {
+            $result = DiffPreviewer::apply($cfg);
+
+            // Defensive normalization of counts (supports multiple possible result shapes)
+            $counts = [
+                'creates' => 0,
+                'updates' => 0,
+                'deletes' => 0,
+            ];
+
+            if (is_array($result)) {
+                if (isset($result['creates']) && is_array($result['creates'])) $counts['creates'] = count($result['creates']);
+                if (isset($result['updates']) && is_array($result['updates'])) $counts['updates'] = count($result['updates']);
+                if (isset($result['deletes']) && is_array($result['deletes'])) $counts['deletes'] = count($result['deletes']);
+
+                // Alternative numeric keys (if DiffPreviewer returns aggregate counts)
+                if (isset($result['creates_count']) && is_numeric($result['creates_count'])) $counts['creates'] = (int)$result['creates_count'];
+                if (isset($result['updates_count']) && is_numeric($result['updates_count'])) $counts['updates'] = (int)$result['updates_count'];
+                if (isset($result['deletes_count']) && is_numeric($result['deletes_count'])) $counts['deletes'] = (int)$result['deletes_count'];
+            }
+
             echo json_encode([
                 'ok'      => true,
-                'applied' => true,
-                'result'  => DiffPreviewer::apply($cfg),
+                'status'  => 'applied',
+                'counts'  => $counts,
+                'message' => 'Scheduler changes applied successfully.',
+                // Keep raw result for now (useful for later UI/audit improvements)
+                'result'  => $result,
             ]);
             exit;
+
         } catch (Throwable $e) {
+            // Guard-triggered or execution-blocked cases surface here
             echo json_encode([
-                'ok'    => false,
-                'error' => 'apply_blocked',
-                'msg'   => $e->getMessage(),
+                'ok'      => false,
+                'status'  => 'blocked',
+                'message' => $e->getMessage(),
             ]);
             exit;
         }
@@ -306,10 +335,19 @@ applyBtn.onclick=function(){
     getJSON(ENDPOINT_BASE+'&endpoint=experimental_apply',function(r){
         if(r&&r.ok){
             applyBtn.textContent='Apply Completed';
-            applyResult.textContent='Apply completed successfully (or blocked by guards).';
+
+            // Phase 13.2 Step A: structured envelope (status/counts/message)
+            if (r.counts) {
+                applyResult.textContent =
+                    (r.message ? r.message : 'Apply completed.') +
+                    ' (' + r.counts.creates + ' creates, ' + r.counts.updates + ' updates, ' + r.counts.deletes + ' deletes)';
+            } else {
+                applyResult.textContent = (r.message ? r.message : 'Apply completed successfully (or blocked by guards).');
+            }
+
         } else {
             applyBtn.textContent='Apply Failed';
-            applyResult.textContent='Apply failed or was blocked.';
+            applyResult.textContent = (r && r.message) ? r.message : 'Apply failed or was blocked.';
         }
     });
 };
