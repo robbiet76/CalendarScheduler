@@ -42,9 +42,8 @@ if (
         $diff = DiffPreviewer::preview($cfg);
 
         echo json_encode([
-            'ok'                  => true,
-            'experimentalEnabled' => true,
-            'diff'                => $diff,
+            'ok'   => true,
+            'diff' => $diff,
         ], JSON_PRETTY_PRINT);
         exit;
 
@@ -58,42 +57,18 @@ if (
     }
 }
 
-if (
-    $_SERVER['REQUEST_METHOD'] === 'GET'
-    && isset($_GET['endpoint'])
-    && $_GET['endpoint'] === 'experimental_apply'
-) {
-    header('Content-Type: application/json');
-
-    try {
-        $result = DiffPreviewer::apply($cfg);
-
-        echo json_encode([
-            'ok'      => true,
-            'applied' => true,
-            'result'  => $result,
-        ], JSON_PRETTY_PRINT);
-        exit;
-
-    } catch (Throwable $e) {
-        echo json_encode([
-            'ok'    => false,
-            'error' => 'apply_blocked',
-            'msg'   => $e->getMessage(),
-        ], JSON_PRETTY_PRINT);
-        exit;
-    }
-}
-
+/*
+ * --------------------------------------------------------------------
+ * POST handling (normal UI flow)
+ * --------------------------------------------------------------------
+ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = (string)$_POST['action'];
 
     try {
-
         if ($action === 'save') {
             $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
             $cfg['runtime']['dry_run']  = isset($_POST['dry_run']);
-
             GcsConfig::save($cfg);
             $cfg = GcsConfig::load();
         }
@@ -104,7 +79,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $runner = new GcsSchedulerRunner($cfg, $horizonDays, $dryRun);
             $runner->run();
         }
-
     } catch (Throwable $e) {
         GcsLog::error('GoogleCalendarScheduler error', [
             'error' => $e->getMessage(),
@@ -118,7 +92,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <form method="post">
         <input type="hidden" name="action" value="save">
-
         <div class="setting">
             <label><strong>Google Calendar ICS URL</strong></label><br>
             <input
@@ -128,18 +101,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 value="<?php echo htmlspecialchars($cfg['calendar']['ics_url'] ?? '', ENT_QUOTES); ?>"
             >
         </div>
-
         <div class="setting">
             <label>
-                <input
-                    type="checkbox"
-                    name="dry_run"
-                    <?php if (!empty($cfg['runtime']['dry_run'])) echo 'checked'; ?>
-                >
+                <input type="checkbox" name="dry_run"
+                    <?php if (!empty($cfg['runtime']['dry_run'])) echo 'checked'; ?>>
                 Dry run (do not modify FPP scheduler)
             </label>
         </div>
-
         <button type="submit" class="buttons">Save Settings</button>
     </form>
 
@@ -154,12 +122,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <div class="gcs-diff-preview">
         <h3>Scheduler Change Preview</h3>
-
         <button type="button" class="buttons" id="gcs-preview-btn" disabled>
             Preview Changes
         </button>
-
-        <div id="gcs-diff-results" style="margin-top:10px;"></div>
+        <pre id="gcs-diff-results"
+             style="margin-top:10px; max-height:300px; overflow:auto; background:#f5f5f5; padding:8px;"></pre>
     </div>
 
     <script>
@@ -175,29 +142,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             btn.addEventListener('click', function () {
                 btn.disabled = true;
-                results.textContent = 'Fetching diff preview (read-only)…';
+                results.textContent = 'Fetching raw response…';
 
-                // ✅ FIX: preserve existing query params
                 var url = new URL(window.location.href);
                 url.searchParams.set('endpoint', 'experimental_diff');
 
                 fetch(url.toString(), { credentials: 'same-origin' })
-                    .then(function (r) {
-                        return r.json();
-                    })
-                    .then(function (data) {
-                        if (!data || data.ok !== true) {
-                            results.textContent =
-                                (data && data.error === 'experimental_disabled')
-                                    ? 'Experimental preview is disabled.'
-                                    : 'Preview error.';
-                            return;
-                        }
-
-                        results.textContent = JSON.stringify(data.diff, null, 2);
+                    .then(function (r) { return r.text(); })
+                    .then(function (text) {
+                        results.textContent = text;
                     })
                     .catch(function (e) {
-                        results.textContent = 'Error: ' + e.message;
+                        results.textContent = 'Network error: ' + e.message;
                     })
                     .finally(function () {
                         btn.disabled = false;
