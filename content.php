@@ -134,13 +134,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     (function () {
         'use strict';
 
-        function extractTrailingJSON(text) {
-            // Find the last JSON object in the response
-            var match = text.match(/\{[\s\S]*\}\s*$/);
-            if (!match) return null;
+        function extractJSONByOkMarker(text) {
+            var idx = text.lastIndexOf('{"ok"');
+            if (idx === -1) return null;
 
+            var jsonText = text.slice(idx);
             try {
-                return JSON.parse(match[0]);
+                return JSON.parse(jsonText);
             } catch (e) {
                 return null;
             }
@@ -163,7 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 fetch(url.toString(), { credentials: 'same-origin' })
                     .then(function (r) { return r.text(); })
                     .then(function (text) {
-                        var data = extractTrailingJSON(text);
+                        var data = extractJSONByOkMarker(text);
 
                         if (!data) {
                             results.textContent =
@@ -182,7 +182,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             return;
                         }
 
-                        // Step B: summary only
                         var diff = data.diff || {};
                         var creates = diff.creates?.length || 0;
                         var updates = diff.updates?.length || 0;
