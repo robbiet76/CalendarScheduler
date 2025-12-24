@@ -120,10 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <hr>
 
-    <!-- =============================== -->
-    <!-- Diff Preview UI (Phase 12.1/12.2) -->
-    <!-- =============================== -->
-
+    <!-- Diff Preview -->
     <div class="gcs-diff-preview">
         <h3>Scheduler Change Preview</h3>
 
@@ -136,28 +133,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <hr>
 
-    <!-- =============================== -->
-    <!-- Phase 12.3 Step A: Apply UI Skeleton -->
-    <!-- =============================== -->
-
-    <div class="gcs-apply-preview">
+    <!-- Phase 12.3 Step B: Apply Readiness -->
+    <div class="gcs-apply-preview gcs-hidden" id="gcs-apply-container">
         <h3>Apply Scheduler Changes</h3>
 
-        <p>
-            Applying changes will modify the FPP scheduler based on the previewed
-            differences above.
-        </p>
-
-        <p style="font-weight: bold; color: #856404;">
+        <p id="gcs-apply-reason" style="font-weight:bold; color:#856404;">
             Apply is disabled until all safety checks are satisfied.
         </p>
 
-        <button type="button" class="buttons" disabled>
+        <button type="button" class="buttons" id="gcs-apply-btn" disabled>
             Apply Changes
         </button>
     </div>
 
     <style>
+        .gcs-hidden { display:none; }
         .gcs-apply-preview {
             padding: 10px;
             background: #fff3cd;
@@ -166,8 +156,114 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     </style>
 
-    <!-- =============================== -->
-    <!-- End Phase 12.3 Step A -->
-    <!-- =============================== -->
+    <script>
+    (function () {
+        'use strict';
+
+        function extractJsonObjectWithOk(text) {
+            var matches = text.match(/\{[\s\S]*?\}/g);
+            if (!matches) return null;
+
+            for (var i = matches.length - 1; i >= 0; i--) {
+                try {
+                    var obj = JSON.parse(matches[i]);
+                    if (obj && typeof obj.ok === 'boolean') {
+                        return obj;
+                    }
+                } catch (e) {}
+            }
+            return null;
+        }
+
+        function countArray(v) {
+            return Object.prototype.toString.call(v) === '[object Array]' ? v.length : 0;
+        }
+
+        function resetApplyUI() {
+            var c = document.getElementById('gcs-apply-container');
+            var r = document.getElementById('gcs-apply-reason');
+            var b = document.getElementById('gcs-apply-btn');
+            if (!c || !r || !b) return;
+
+            c.className = 'gcs-apply-preview gcs-hidden';
+            r.textContent = 'Apply is disabled until all safety checks are satisfied.';
+            b.disabled = true;
+        }
+
+        function showApplyDisabled(reason) {
+            var c = document.getElementById('gcs-apply-container');
+            var r = document.getElementById('gcs-apply-reason');
+            var b = document.getElementById('gcs-apply-btn');
+            if (!c || !r || !b) return;
+
+            c.className = 'gcs-apply-preview';
+            r.textContent = reason;
+            b.disabled = true;
+        }
+
+        function onReady() {
+            var previewBtn = document.getElementById('gcs-preview-btn');
+            var results = document.getElementById('gcs-diff-results');
+            if (!previewBtn || !results) return;
+
+            previewBtn.disabled = false;
+            resetApplyUI();
+
+            previewBtn.addEventListener('click', function () {
+                previewBtn.disabled = true;
+                results.textContent = 'Fetching diff preview (read-only)…';
+                resetApplyUI();
+
+                var url = new URL(window.location.href);
+                url.searchParams.set('endpoint', 'experimental_diff');
+
+                fetch(url.toString(), { credentials: 'same-origin' })
+                    .then(function (r) { return r.text(); })
+                    .then(function (text) {
+                        var data = extractJsonObjectWithOk(text);
+
+                        if (!data) {
+                            results.textContent = 'Unable to parse diff response from FPP.';
+                            return;
+                        }
+
+                        if (data.ok !== true) {
+                            if (data.error === 'experimental_disabled') {
+                                results.textContent =
+                                    'Experimental diff preview is currently disabled.';
+                                return;
+                            }
+                            results.textContent =
+                                'Diff preview error: ' + (data.error || 'unknown');
+                            return;
+                        }
+
+                        var diff = data.diff || {};
+                        var creates = countArray(diff.creates);
+                        var updates = countArray(diff.updates);
+                        var deletes = countArray(diff.deletes);
+
+                        results.textContent =
+                            'Preview complete. Review changes above before applying.';
+
+                        if (creates + updates + deletes > 0) {
+                            showApplyDisabled(
+                                'Preview complete. Apply is available after confirmation steps.'
+                            );
+                        }
+                    })
+                    .finally(function () {
+                        previewBtn.disabled = false;
+                    });
+            });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', onReady);
+        } else {
+            onReady();
+        }
+    })();
+    </script>
 
 </div>
