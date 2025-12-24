@@ -87,33 +87,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
         }
     }
 }
-
-/*
- * --------------------------------------------------------------------
- * POST handling (normal UI flow)
- * --------------------------------------------------------------------
- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    try {
-        if ($_POST['action'] === 'save') {
-            $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
-            $cfg['runtime']['dry_run']  = isset($_POST['dry_run']);
-            GcsConfig::save($cfg);
-            $cfg = GcsConfig::load();
-        }
-
-        if ($_POST['action'] === 'sync') {
-            $runner = new GcsSchedulerRunner(
-                $cfg,
-                GcsFppSchedulerHorizon::getDays(),
-                !empty($cfg['runtime']['dry_run'])
-            );
-            $runner->run();
-        }
-    } catch (Throwable $e) {
-        GcsLog::error('GoogleCalendarScheduler error', ['error' => $e->getMessage()]);
-    }
-}
 ?>
 
 <div class="settings">
@@ -145,7 +118,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 <hr>
 
-<!-- ================= Diff Preview ================= -->
 <div class="gcs-diff-preview">
     <h3>Scheduler Change Preview</h3>
     <button type="button" class="buttons" id="gcs-preview-btn">
@@ -156,7 +128,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 <hr>
 
-<!-- ================= Apply UI ================= -->
 <div class="gcs-apply-preview gcs-hidden" id="gcs-apply-container">
     <h3>Apply Scheduler Changes</h3>
     <p style="font-weight:bold; color:#856404;">
@@ -176,9 +147,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 .gcs-badge-create { background:#e6f4ea; color:#1e7e34; }
 .gcs-badge-update { background:#fff3cd; color:#856404; }
 .gcs-badge-delete { background:#f8d7da; color:#721c24; }
-.gcs-section { margin-top:10px; border-top:1px solid #ddd; padding-top:6px; }
-.gcs-section h4 { cursor:pointer; margin:6px 0; }
-.gcs-section ul { margin:6px 0 6px 18px; }
 .gcs-apply-preview { padding:10px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; }
 .gcs-empty { padding:10px; background:#eef5ff; border:1px solid #cfe2ff; border-radius:6px; }
 </style>
@@ -187,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 (function () {
 'use strict';
 
-var ENDPOINT_BASE = 'plugin/GoogleCalendarScheduler/content.php';
+var ENDPOINT_BASE = '/plugin/GoogleCalendarScheduler/content.php';
 
 function getJSON(url, cb) {
     fetch(url, { credentials:'same-origin' })
@@ -199,60 +167,58 @@ function getJSON(url, cb) {
 }
 
 function renderDiff(container, diff) {
-    var c = (diff.creates||[]).length;
-    var u = (diff.updates||[]).length;
-    var d = (diff.deletes||[]).length;
+    var c=(diff.creates||[]).length;
+    var u=(diff.updates||[]).length;
+    var d=(diff.deletes||[]).length;
 
-    container.innerHTML = '';
+    container.innerHTML='';
 
-    if (c+u+d === 0) {
-        container.innerHTML =
-            '<div class="gcs-empty">No scheduler changes detected.</div>';
+    if(c+u+d===0){
+        container.innerHTML='<div class="gcs-empty">No scheduler changes detected.</div>';
         return;
     }
 
-    container.innerHTML =
-        '<div class="gcs-diff-badges">' +
-        '<span class="gcs-badge gcs-badge-create">+ '+c+' Creates</span>' +
-        '<span class="gcs-badge gcs-badge-update">~ '+u+' Updates</span>' +
-        '<span class="gcs-badge gcs-badge-delete">− '+d+' Deletes</span>' +
+    container.innerHTML=
+        '<div class="gcs-diff-badges">'+
+        '<span class="gcs-badge gcs-badge-create">+ '+c+' Creates</span>'+
+        '<span class="gcs-badge gcs-badge-update">~ '+u+' Updates</span>'+
+        '<span class="gcs-badge gcs-badge-delete">− '+d+' Deletes</span>'+
         '</div>';
 }
 
-document.getElementById('gcs-preview-btn').onclick = function () {
-    var results = document.getElementById('gcs-diff-results');
-    var applyBox = document.getElementById('gcs-apply-container');
+document.getElementById('gcs-preview-btn').onclick=function(){
+    var results=document.getElementById('gcs-diff-results');
+    var applyBox=document.getElementById('gcs-apply-container');
 
-    results.textContent = 'Loading preview…';
-    applyBox.className = 'gcs-apply-preview gcs-hidden';
+    results.textContent='Loading preview…';
+    applyBox.className='gcs-apply-preview gcs-hidden';
 
-    getJSON(ENDPOINT_BASE+'?endpoint=experimental_diff', function (data) {
-        if (!data || !data.ok) {
-            results.textContent = 'Preview unavailable.';
+    getJSON(ENDPOINT_BASE+'?endpoint=experimental_diff',function(data){
+        if(!data||!data.ok){
+            results.textContent='Preview unavailable.';
             return;
         }
-        renderDiff(results, data.diff || {});
-        if (
-            (data.diff.creates||[]).length +
-            (data.diff.updates||[]).length +
-            (data.diff.deletes||[]).length > 0
-        ) {
-            applyBox.className = 'gcs-apply-preview';
+        renderDiff(results,data.diff||{});
+        if(
+            (data.diff.creates||[]).length+
+            (data.diff.updates||[]).length+
+            (data.diff.deletes||[]).length>0
+        ){
+            applyBox.className='gcs-apply-preview';
         }
     });
 };
 
-document.getElementById('gcs-apply-btn').onclick = function () {
-    var out = document.getElementById('gcs-apply-result');
-    out.textContent = 'Applying changes…';
+document.getElementById('gcs-apply-btn').onclick=function(){
+    var out=document.getElementById('gcs-apply-result');
+    out.textContent='Applying changes…';
 
-    getJSON(ENDPOINT_BASE+'?endpoint=experimental_apply', function (data) {
-        out.textContent = (data && data.ok)
-            ? 'Apply completed or blocked by guards.'
-            : 'Apply failed.';
+    getJSON(ENDPOINT_BASE+'?endpoint=experimental_apply',function(data){
+        out.textContent=(data&&data.ok)
+            ?'Apply completed or blocked by guards.'
+            :'Apply failed.';
     });
 };
-
 })();
 </script>
 </div>
