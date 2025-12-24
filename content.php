@@ -17,6 +17,162 @@ require_once __DIR__ . '/src/experimental/DiffPreviewer.php';
 
 $cfg = GcsConfig::load();
 
+function gcs_diag_fetch_ics(string $url, int $timeoutSeconds = 10): array {
+    if (trim($url) === '') {
+        return [
+            'ok' => false,
+            'error' => 'empty_ics_url',
+            'http' => null,
+            'bytes' => 0,
+            'raw_vevents' => 0,
+            'within_horizon' => 0,
+            'timed_events' => 0,
+            'all_day_events' => 0,
+            'missing_dtstart' => 0,
+        ];
+    }
+
+    // Best-effort fetch with timeout; avoid fatal errors.
+    $ctx = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'timeout' => $timeoutSeconds,
+            'header' => "User-Agent: GoogleCalendarScheduler\r\n",
+        ],
+        'ssl' => [
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+        ],
+    ]);
+
+    $beforeErr = error_get_last();
+    $text = @file_get_contents($url, false, $ctx);
+    $afterErr = error_get_last();
+
+    if ($text === false) {
+        $msg = null;
+        if ($afterErr && $afterErr !== $beforeErr && isset($afterErr['message'])) {
+            $msg = (string)$afterErr['message'];
+        }
+
+        return [
+            'ok' => false,
+            'error' => $msg ?: 'fetch_failed',
+            'http' => null,
+            'bytes' => 0,
+            'raw_vevents' => 0,
+            'within_horizon' => 0,
+            'timed_events' => 0,
+            'all_day_events' => 0,
+            'missing_dtstart' => 0,
+        ];
+    }
+
+    $rawVevents = substr_count($text, "BEGIN:VEVENT");
+    $bytes = strlen($text);
+
+    return [
+        'ok' => true,
+        'error' => null,
+        'http' => null,
+        'bytes' => $bytes,
+        'raw_vevents' => $rawVevents,
+        'text' => $text, // caller may parse; strip before emitting
+    ];
+}
+
+function gcs_diag_parse_horizon_counts(string $icsText, int $horizonDays): array {
+    $within = 0;
+    $timed = 0;
+    $allDay = 0;
+    $missing = 0;
+
+    $now = new DateTimeImmutable('now');
+    $end = $now->add(new DateInterval('P' . max(0, (int)$horizonDays) . 'D'));
+
+    // Split VEVENT blocks safely
+    $parts = preg_split("/BEGIN:VEVENT\r\n|\nBEGIN:VEVENT\r\n|\rBEGIN:VEVENT\r|\nBEGIN:VEVENT\n|\rBEGIN:VEVENT\r/i", $icsText);
+    if (!is_array($parts) || count($parts) <= 1) {
+        return [
+            'within_horizon' => 0,
+            'timed_events' => 0,
+            'all_day_events' => 0,
+            'missing_dtstart' => 0,
+        ];
+    }
+
+    // First part is header; skip
+    for ($i = 1; $i < count($parts); $i++) {
+        $block = $parts[$i];
+        // Truncate to end of VEVENT
+        $endPos = stripos($block, "END:VEVENT");
+        if ($endPos !== false) {
+            $block = substr($block, 0, $endPos);
+        }
+
+        // Find DTSTART line (supports DTSTART;...:VALUE)
+        if (!preg_match('/^DTSTART(?:;[^:]*)?:(.+)$/mi', $block, $m)) {
+            $missing++;
+            continue;
+        }
+
+        $dtRaw = trim($m[1]);
+
+        // VALUE=DATE (all-day): YYYYMMDD
+        $isAllDay = false;
+        if (preg_match('/^\d{8}$/', $dtRaw)) {
+            $isAllDay = true;
+            $dtRaw = $dtRaw . 'T000000';
+        }
+
+        // DTSTART with Z (UTC)
+        $tz = null;
+        if (preg_match('/Z$/', $dtRaw)) {
+            $tz = new DateTimeZone('UTC');
+            $dtRaw = rtrim($dtRaw, 'Z');
+        } else {
+            // Local server timezone
+            $tz = new DateTimeZone(date_default_timezone_get());
+        }
+
+        // Basic YYYYMMDDTHHMMSS (or HHMM)
+        $fmt = null;
+        if (preg_match('/^\d{8}T\d{6}$/', $dtRaw)) {
+            $fmt = 'Ymd\THis';
+        } elseif (preg_match('/^\d{8}T\d{4}$/', $dtRaw)) {
+            $fmt = 'Ymd\THi';
+        } else {
+            // Unknown format; count as missing for our purposes
+            $missing++;
+            continue;
+        }
+
+        $dt = DateTimeImmutable::createFromFormat($fmt, $dtRaw, $tz);
+        if (!$dt) {
+            $missing++;
+            continue;
+        }
+
+        if ($isAllDay) {
+            $allDay++;
+        } else {
+            $timed++;
+        }
+
+        // Horizon check: [now, end]
+        if ($dt >= $now && $dt <= $end) {
+            $within++;
+        }
+    }
+
+    return [
+        'within_horizon' => $within,
+        'timed_events' => $timed,
+        'all_day_events' => $allDay,
+        'missing_dtstart' => $missing,
+    ];
+}
+
 /*
  * --------------------------------------------------------------------
  * JSON ENDPOINTS (FPP plugin.php + nopage=1)
@@ -44,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
             $updates = (isset($diff['updates']) && is_array($diff['updates'])) ? count($diff['updates']) : 0;
             $deletes = (isset($diff['deletes']) && is_array($diff['deletes'])) ? count($diff['deletes']) : 0;
 
-            // Diagnostics: do NOT change behavior; only report what we can observe safely.
+            // Horizon
             $horizonDays = null;
             try {
                 $horizonDays = GcsFppSchedulerHorizon::getDays();
@@ -52,6 +208,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
                 $horizonDays = null;
             }
 
+            // Calendar fetch + parse (diagnostic only)
+            $icsUrl = (string)($cfg['calendar']['ics_url'] ?? '');
+            $icsFetch = gcs_diag_fetch_ics($icsUrl, 10);
+
+            $calendarDiag = [
+                'ics_url_set' => (trim($icsUrl) !== ''),
+                'fetch_ok' => (bool)($icsFetch['ok'] ?? false),
+                'fetch_error' => $icsFetch['error'] ?? null,
+                'bytes' => $icsFetch['bytes'] ?? 0,
+                'raw_vevents' => $icsFetch['raw_vevents'] ?? 0,
+                'within_horizon' => 0,
+                'timed_events' => 0,
+                'all_day_events' => 0,
+                'missing_dtstart' => 0,
+            ];
+
+            if (!empty($icsFetch['ok']) && isset($icsFetch['text']) && is_string($icsFetch['text']) && is_numeric($horizonDays)) {
+                $counts = gcs_diag_parse_horizon_counts($icsFetch['text'], (int)$horizonDays);
+                $calendarDiag['within_horizon'] = $counts['within_horizon'];
+                $calendarDiag['timed_events'] = $counts['timed_events'];
+                $calendarDiag['all_day_events'] = $counts['all_day_events'];
+                $calendarDiag['missing_dtstart'] = $counts['missing_dtstart'];
+            }
+
+            // Diagnostics: do NOT change behavior; only report what we can observe safely.
             $diagnostics = [
                 'timestamp' => date('c'),
                 'configPath' => defined('GCS_CONFIG_PATH') ? GCS_CONFIG_PATH : null,
@@ -64,6 +245,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
                 ],
                 'scheduler' => [
                     'horizon_days' => $horizonDays,
+                    'timezone' => date_default_timezone_get(),
+                ],
+                'calendar' => $calendarDiag,
+                'execution' => [
+                    'php_version' => PHP_VERSION,
+                    'server_user' => function_exists('get_current_user') ? @get_current_user() : null,
+                    'classes_present' => [
+                        'ExecutionController' => class_exists('ExecutionController', false) || class_exists('ExecutionController'),
+                        'HealthProbe' => class_exists('HealthProbe', false) || class_exists('HealthProbe'),
+                        'CalendarReader' => class_exists('CalendarReader', false) || class_exists('CalendarReader'),
+                        'DiffPreviewer' => class_exists('DiffPreviewer', false) || class_exists('DiffPreviewer'),
+                    ],
                 ],
                 'diff_counts' => [
                     'creates' => $creates,
@@ -94,7 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
     }
 
     /*
-     * ---- Apply (Phase 13.2 Step A: structured result envelope) ----
+     * ---- Apply (structured result envelope) ----
      *
      * Behavior unchanged (guards still enforced). Only response shape is normalized.
      */
@@ -125,13 +318,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
                 'status'  => 'applied',
                 'counts'  => $counts,
                 'message' => 'Scheduler changes applied successfully.',
-                // Keep raw result for now (useful for later UI/audit improvements)
                 'result'  => $result,
             ]);
             exit;
 
         } catch (Throwable $e) {
-            // Guard-triggered or execution-blocked cases surface here
             echo json_encode([
                 'ok'      => false,
                 'status'  => 'blocked',
@@ -440,9 +631,6 @@ previewBtn.onclick=function(){
           'Ready to apply: '+n.c+' create(s), '+n.u+' update(s), '+n.d+' delete(s).';
 
         applyBtn.disabled=(n.t===0);
-
-        // If you want to quickly inspect diagnostics without changing UI,
-        // open browser devtools and view the network response JSON.
     });
 };
 
