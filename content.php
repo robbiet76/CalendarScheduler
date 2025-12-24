@@ -26,13 +26,13 @@ $cfg = GcsConfig::load();
 
 /*
  * --------------------------------------------------------------------
- * AJAX / JSON ENDPOINTS (FPP-supported via plugin.php?ajax=1)
+ * JSON ENDPOINTS (FPP plugin.php + nopage=1)
  * --------------------------------------------------------------------
  */
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
     header('Content-Type: application/json');
 
-    /* ---------- Diff Preview (read-only) ---------- */
+    /* ---- Diff preview (read-only) ---- */
     if ($_GET['endpoint'] === 'experimental_diff') {
 
         if (empty($cfg['experimental']['enabled']) && !$UI_TEST_MODE) {
@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
         }
     }
 
-    /* ---------- Apply (triple-guarded, Phase 11) ---------- */
+    /* ---- Apply (triple-guarded, Phase 11) ---- */
     if ($_GET['endpoint'] === 'experimental_apply') {
         try {
             echo json_encode([
@@ -129,9 +129,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <input type="hidden" name="action" value="save">
     <div class="setting">
         <label><strong>Google Calendar ICS URL</strong></label><br>
-        <input type="text" name="ics_url" size="100"
-            value="<?php echo htmlspecialchars($cfg['calendar']['ics_url'] ?? '', ENT_QUOTES); ?>">
+        <input
+            type="text"
+            name="ics_url"
+            size="100"
+            value="<?php echo htmlspecialchars($cfg['calendar']['ics_url'] ?? '', ENT_QUOTES); ?>"
+        >
     </div>
+
     <div class="setting">
         <label>
             <input type="checkbox" name="dry_run"
@@ -139,6 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             Dry run (do not modify FPP scheduler)
         </label>
     </div>
+
     <button type="submit" class="buttons">Save Settings</button>
 </form>
 
@@ -191,10 +197,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 'use strict';
 
 /*
- * FPP-approved AJAX endpoint base
+ * FPP-supported JSON endpoint (nopage=1 suppresses HTML)
  */
 var ENDPOINT_BASE =
-  'plugin.php?ajax=1&plugin=GoogleCalendarScheduler&page=content.php';
+  'plugin.php?_menu=content&plugin=GoogleCalendarScheduler&page=content.php&nopage=1';
 
 function getJSON(url, cb) {
     fetch(url, { credentials:'same-origin' })
@@ -206,23 +212,23 @@ function getJSON(url, cb) {
 }
 
 function renderDiff(container, diff) {
-    var c=(diff.creates||[]).length;
-    var u=(diff.updates||[]).length;
-    var d=(diff.deletes||[]).length;
+    var c = (diff.creates || []).length;
+    var u = (diff.updates || []).length;
+    var d = (diff.deletes || []).length;
 
-    container.innerHTML='';
+    container.innerHTML = '';
 
-    if (c+u+d === 0) {
+    if (c + u + d === 0) {
         container.innerHTML =
             '<div class="gcs-empty">No scheduler changes detected.</div>';
         return;
     }
 
     container.innerHTML =
-        '<div class="gcs-diff-badges">'+
-        '<span class="gcs-badge gcs-badge-create">+ '+c+' Creates</span>'+
-        '<span class="gcs-badge gcs-badge-update">~ '+u+' Updates</span>'+
-        '<span class="gcs-badge gcs-badge-delete">− '+d+' Deletes</span>'+
+        '<div class="gcs-diff-badges">' +
+        '<span class="gcs-badge gcs-badge-create">+ ' + c + ' Creates</span>' +
+        '<span class="gcs-badge gcs-badge-update">~ ' + u + ' Updates</span>' +
+        '<span class="gcs-badge gcs-badge-delete">− ' + d + ' Deletes</span>' +
         '</div>';
 }
 
@@ -242,9 +248,9 @@ document.getElementById('gcs-preview-btn').onclick = function () {
         renderDiff(results, data.diff || {});
 
         if (
-            (data.diff.creates||[]).length +
-            (data.diff.updates||[]).length +
-            (data.diff.deletes||[]).length > 0
+            (data.diff.creates || []).length +
+            (data.diff.updates || []).length +
+            (data.diff.deletes || []).length > 0
         ) {
             applyBox.className = 'gcs-apply-preview';
         }
