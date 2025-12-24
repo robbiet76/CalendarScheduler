@@ -33,9 +33,6 @@ $cfg = GcsConfig::load();
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
     header('Content-Type: application/json');
 
-    /*
-     * Diff preview (read-only)
-     */
     if ($_GET['endpoint'] === 'experimental_diff') {
 
         if (empty($cfg['experimental']['enabled']) && !$UI_TEST_MODE) {
@@ -47,7 +44,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
         }
 
         try {
-            // UI test mode: synthetic diff
             if ($UI_TEST_MODE && empty($cfg['experimental']['enabled'])) {
                 echo json_encode([
                     'ok'   => true,
@@ -77,9 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
         }
     }
 
-    /*
-     * Apply endpoint (real, triple-guarded — NEVER bypassed)
-     */
     if ($_GET['endpoint'] === 'experimental_apply') {
         try {
             $result = DiffPreviewer::apply($cfg);
@@ -158,7 +151,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 <hr>
 
-<!-- Diff Preview -->
 <div class="gcs-diff-preview">
     <h3>Scheduler Change Preview</h3>
     <button type="button" class="buttons" id="gcs-preview-btn" disabled>
@@ -169,7 +161,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 <hr>
 
-<!-- Apply UI -->
 <div class="gcs-apply-preview gcs-hidden" id="gcs-apply-container">
     <h3>Apply Scheduler Changes</h3>
     <p style="font-weight:bold; color:#856404;">
@@ -200,49 +191,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 (function () {
 'use strict';
 
-function extractJson(text) {
-    var m = text.match(/\{[\s\S]*?\}/g);
-    if (!m) return null;
-    for (var i = m.length - 1; i >= 0; i--) {
-        try {
-            var o = JSON.parse(m[i]);
-            if (typeof o.ok === 'boolean') return o;
-        } catch(e){}
+var BASE =
+  'plugin.php?_menu=content&plugin=GoogleCalendarScheduler&page=content.php';
+
+function extractJson(text){
+    var m=text.match(/\{[\s\S]*?\}/g); if(!m) return null;
+    for(var i=m.length-1;i>=0;i--){
+        try{var o=JSON.parse(m[i]); if(typeof o.ok==='boolean') return o;}catch(e){}
     }
     return null;
 }
 function isArr(v){return Object.prototype.toString.call(v)==='[object Array]';}
 
-function render(results, diff) {
+function render(results,diff){
     var c=isArr(diff.creates)?diff.creates.length:0;
     var u=isArr(diff.updates)?diff.updates.length:0;
     var d=isArr(diff.deletes)?diff.deletes.length:0;
     results.innerHTML='';
-
-    if (c+u+d===0) {
-        results.innerHTML='<div class="gcs-empty">No scheduler changes detected. Calendar is already in sync.</div>';
+    if(c+u+d===0){
+        results.innerHTML='<div class="gcs-empty">No scheduler changes detected.</div>';
         return;
     }
-
-    var b=document.createElement('div'); b.className='gcs-diff-badges';
-    b.innerHTML=
-        '<span class="gcs-badge gcs-badge-create">+ '+c+' Creates</span>'+
-        '<span class="gcs-badge gcs-badge-update">~ '+u+' Updates</span>'+
-        '<span class="gcs-badge gcs-badge-delete">− '+d+' Deletes</span>';
-    results.appendChild(b);
-
-    function sec(t,a){
-        if(!isArr(a)||!a.length) return;
-        var s=document.createElement('div'); s.className='gcs-section';
-        var h=document.createElement('h4'); h.textContent=t+' ('+a.length+')';
-        var ul=document.createElement('ul'); ul.style.display='none';
-        for(var i=0;i<a.length;i++){
-            var li=document.createElement('li'); li.textContent=a[i]; ul.appendChild(li);
-        }
-        h.onclick=function(){ul.style.display=ul.style.display==='none'?'block':'none';};
-        s.appendChild(h); s.appendChild(ul); results.appendChild(s);
-    }
-    sec('Creates',diff.creates); sec('Updates',diff.updates); sec('Deletes',diff.deletes);
+    results.innerHTML =
+      '<div class="gcs-diff-badges">'+
+      '<span class="gcs-badge gcs-badge-create">+ '+c+' Creates</span>'+
+      '<span class="gcs-badge gcs-badge-update">~ '+u+' Updates</span>'+
+      '<span class="gcs-badge gcs-badge-delete">− '+d+' Deletes</span>'+
+      '</div>';
 }
 
 function ready(){
@@ -251,12 +226,14 @@ function ready(){
     var a=document.getElementById('gcs-apply-container');
     var ab=document.getElementById('gcs-apply-btn');
     var ar=document.getElementById('gcs-apply-result');
+
     p.disabled=false;
 
     p.onclick=function(){
         r.textContent='Fetching diff preview…';
         a.className='gcs-apply-preview gcs-hidden';
-        fetch(new URL(location.href+'').toString()+'&endpoint=experimental_diff')
+
+        fetch(BASE+'&endpoint=experimental_diff',{credentials:'same-origin'})
         .then(function(x){return x.text();})
         .then(function(t){
             var d=extractJson(t);
@@ -269,7 +246,7 @@ function ready(){
 
     ab.onclick=function(){
         ar.textContent='Applying changes…';
-        fetch(new URL(location.href+'').toString()+'&endpoint=experimental_apply')
+        fetch(BASE+'&endpoint=experimental_apply',{credentials:'same-origin'})
         .then(function(x){return x.text();})
         .then(function(t){
             var d=extractJson(t);
