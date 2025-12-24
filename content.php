@@ -134,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .gcs-diff-badges {
             display: flex;
             gap: 10px;
-            margin: 8px 0 4px 0;
+            margin: 8px 0;
             flex-wrap: wrap;
         }
         .gcs-badge {
@@ -142,24 +142,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             border-radius: 12px;
             font-weight: bold;
             font-size: 0.9em;
-            display: inline-block;
         }
-        .gcs-badge-create {
-            background-color: #e6f4ea;
-            color: #1e7e34;
-        }
-        .gcs-badge-update {
-            background-color: #fff3cd;
-            color: #856404;
-        }
-        .gcs-badge-delete {
-            background-color: #f8d7da;
-            color: #721c24;
-        }
+        .gcs-badge-create { background:#e6f4ea; color:#1e7e34; }
+        .gcs-badge-update { background:#fff3cd; color:#856404; }
+        .gcs-badge-delete { background:#f8d7da; color:#721c24; }
+
         .gcs-readonly-note {
             margin-top: 6px;
             font-style: italic;
             color: #555;
+        }
+
+        .gcs-section {
+            margin-top: 10px;
+            border-top: 1px solid #ddd;
+            padding-top: 6px;
+        }
+        .gcs-section h4 {
+            cursor: pointer;
+            user-select: none;
+            margin: 6px 0;
+        }
+        .gcs-section ul {
+            margin: 6px 0 6px 18px;
+        }
+        .gcs-hidden {
+            display: none;
         }
     </style>
 
@@ -182,40 +190,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             return null;
         }
 
-        function countArray(v) {
-            return (v && Object.prototype.toString.call(v) === '[object Array]') ? v.length : 0;
+        function isArray(v) {
+            return Object.prototype.toString.call(v) === '[object Array]';
         }
 
-        function renderSummary(results, diff) {
-            var creates = countArray(diff.creates);
-            var updates = countArray(diff.updates);
-            var deletes = countArray(diff.deletes);
+        function itemLabel(item) {
+            if (typeof item === 'string') return item;
+            if (item && typeof item === 'object') {
+                if (item.name) return item.name;
+                if (item.title) return item.title;
+                if (item.id) return String(item.id);
+                return JSON.stringify(item);
+            }
+            return String(item);
+        }
 
-            var container = document.createElement('div');
-            container.className = 'gcs-diff-badges';
+        function renderSection(parent, title, items) {
+            if (!isArray(items) || items.length === 0) return;
+
+            var section = document.createElement('div');
+            section.className = 'gcs-section';
+
+            var header = document.createElement('h4');
+            header.textContent = title + ' (' + items.length + ')';
+            section.appendChild(header);
+
+            var list = document.createElement('ul');
+            list.className = 'gcs-hidden';
+
+            for (var i = 0; i < items.length; i++) {
+                var li = document.createElement('li');
+                li.textContent = itemLabel(items[i]);
+                list.appendChild(li);
+            }
+
+            header.addEventListener('click', function () {
+                list.className = list.className === 'gcs-hidden' ? '' : 'gcs-hidden';
+            });
+
+            section.appendChild(list);
+            parent.appendChild(section);
+        }
+
+        function renderSummaryAndDetails(results, diff) {
+            results.innerHTML = '';
+
+            var badges = document.createElement('div');
+            badges.className = 'gcs-diff-badges';
 
             var c = document.createElement('span');
             c.className = 'gcs-badge gcs-badge-create';
-            c.textContent = '+ ' + creates + ' Creates';
-            container.appendChild(c);
+            c.textContent = '+ ' + (diff.creates ? diff.creates.length : 0) + ' Creates';
+            badges.appendChild(c);
 
             var u = document.createElement('span');
             u.className = 'gcs-badge gcs-badge-update';
-            u.textContent = '~ ' + updates + ' Updates';
-            container.appendChild(u);
+            u.textContent = '~ ' + (diff.updates ? diff.updates.length : 0) + ' Updates';
+            badges.appendChild(u);
 
             var d = document.createElement('span');
             d.className = 'gcs-badge gcs-badge-delete';
-            d.textContent = '− ' + deletes + ' Deletes';
-            container.appendChild(d);
+            d.textContent = '− ' + (diff.deletes ? diff.deletes.length : 0) + ' Deletes';
+            badges.appendChild(d);
 
-            results.innerHTML = '';
-            results.appendChild(container);
+            results.appendChild(badges);
 
             var note = document.createElement('div');
             note.className = 'gcs-readonly-note';
             note.textContent = 'Read-only preview. No changes applied.';
             results.appendChild(note);
+
+            renderSection(results, 'Creates', diff.creates);
+            renderSection(results, 'Updates', diff.updates);
+            renderSection(results, 'Deletes', diff.deletes);
         }
 
         function onReady() {
@@ -253,7 +300,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             return;
                         }
 
-                        renderSummary(results, data.diff || {});
+                        renderSummaryAndDetails(results, data.diff || {});
                     })
                     .catch(function (e) {
                         results.textContent = 'Network error: ' + e.message;
