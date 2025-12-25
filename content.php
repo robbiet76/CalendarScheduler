@@ -56,7 +56,6 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 ?>
 
 <div class="settings">
-<h2>Google Calendar Scheduler</h2>
 
 <!-- =========================================================
      APPLY MODE BANNER
