@@ -84,20 +84,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint'])) {
         try {
             $result = DiffPreviewer::apply($cfg);
 
-            $counts = [
-                'creates' => 0,
-                'updates' => 0,
-                'deletes' => 0,
-            ];
+            $counts = DiffPreviewer::countsFromResult(is_array($result) ? $result : []);
 
-            if (is_array($result)) {
-                if (isset($result['diff']['create']) && is_array($result['diff']['create'])) $counts['creates'] = count($result['diff']['create']);
-                if (isset($result['diff']['update']) && is_array($result['diff']['update'])) $counts['updates'] = count($result['diff']['update']);
-                if (isset($result['diff']['delete']) && is_array($result['diff']['delete'])) $counts['deletes'] = count($result['diff']['delete']);
-
-                if (isset($result['creates_count'])) $counts['creates'] = (int)$result['creates_count'];
-                if (isset($result['updates_count'])) $counts['updates'] = (int)$result['updates_count'];
-                if (isset($result['deletes_count'])) $counts['deletes'] = (int)$result['deletes_count'];
+            // If result contains summary numeric keys, they may be authoritative
+            if (isset($result['adds']) && is_numeric($result['adds'])) {
+                $counts['creates'] = (int)$result['adds'];
+            }
+            if (isset($result['updates']) && is_numeric($result['updates'])) {
+                $counts['updates'] = (int)$result['updates'];
+            }
+            if (isset($result['deletes']) && is_numeric($result['deletes'])) {
+                $counts['deletes'] = (int)$result['deletes'];
             }
 
             $payload = [
