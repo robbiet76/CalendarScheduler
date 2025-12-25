@@ -14,10 +14,89 @@ declare(strict_types=1);
 final class DiffPreviewer
 {
     /**
+     * Normalize a scheduler result into UI-friendly diff arrays:
+     *   ['creates' => array, 'updates' => array, 'deletes' => array]
+     *
+     * Supports multiple schemas (Phase 11–13 evolution):
+     * - result['diff']['create|update|delete'] arrays
+     * - result['diff']['creates|updates|deletes'] arrays
+     * - result['adds|updates|deletes'] numeric counts (summary-only)
+     */
+    private static function normalizeDiffFromResult(array $result): array
+    {
+        $creates = [];
+        $updates = [];
+        $deletes = [];
+
+        // 1) Preferred: result['diff'] with singular keys
+        if (isset($result['diff']) && is_array($result['diff'])) {
+            $diff = $result['diff'];
+
+            if (isset($diff['create']) && is_array($diff['create'])) {
+                $creates = $diff['create'];
+            }
+            if (isset($diff['update']) && is_array($diff['update'])) {
+                $updates = $diff['update'];
+            }
+            if (isset($diff['delete']) && is_array($diff['delete'])) {
+                $deletes = $diff['delete'];
+            }
+
+            // 2) Alternate: result['diff'] with plural keys
+            if (empty($creates) && isset($diff['creates']) && is_array($diff['creates'])) {
+                $creates = $diff['creates'];
+            }
+            if (empty($updates) && isset($diff['updates']) && is_array($diff['updates'])) {
+                $updates = $diff['updates'];
+            }
+            if (empty($deletes) && isset($diff['deletes']) && is_array($diff['deletes'])) {
+                $deletes = $diff['deletes'];
+            }
+        }
+
+        // 3) Summary-only schema: adds/updates/deletes numeric counts at top-level
+        // If we still have empty arrays but have counts, produce placeholder entries.
+        $addsCount = null;
+        $updCount  = null;
+        $delCount  = null;
+
+        if (isset($result['adds']) && is_numeric($result['adds'])) {
+            $addsCount = (int)$result['adds'];
+        }
+        if (isset($result['updates']) && is_numeric($result['updates'])) {
+            $updCount = (int)$result['updates'];
+        }
+        if (isset($result['deletes']) && is_numeric($result['deletes'])) {
+            $delCount = (int)$result['deletes'];
+        }
+
+        if ($addsCount !== null && empty($creates)) {
+            $creates = array_fill(0, max(0, $addsCount), '(create)');
+        }
+        if ($updCount !== null && empty($updates)) {
+            $updates = array_fill(0, max(0, $updCount), '(update)');
+        }
+        if ($delCount !== null && empty($deletes)) {
+            $deletes = array_fill(0, max(0, $delCount), '(delete)');
+        }
+
+        return [
+            'creates' => $creates,
+            'updates' => $updates,
+            'deletes' => $deletes,
+        ];
+    }
+
+    /**
      * Compute a diff preview using the scheduler pipeline.
      *
+     * IMPORTANT: Preview is always forced to dry-run.
+     *
+     * Return shape is normalized for the UI:
+     *   ['creates' => array, 'updates' => array, 'deletes' => array]
+     *
      * @param array $config Loaded plugin configuration
-     * @return array Summary counts: ['create' => int, 'update' => int, 'delete' => int]
+     * @return array Normalized diff arrays
      */
     public static function preview(array $config): array
     {
@@ -28,19 +107,11 @@ final class DiffPreviewer
         $runner = new GcsSchedulerRunner($config, $horizonDays, $dryRun);
         $result = $runner->run();
 
-        $diff = $result['diff'] ?? [];
-
-        return [
-            'create' => isset($diff['create']) ? count($diff['create']) : 0,
-            'update' => isset($diff['update']) ? count($diff['update']) : 0,
-            'delete' => isset($diff['delete']) ? count($diff['delete']) : 0,
-        ];
+        return self::normalizeDiffFromResult(is_array($result) ? $result : []);
     }
 
     /**
      * Apply scheduler changes using the real pipeline.
-     *
-     * This method is intentionally NOT wired to any endpoint yet.
      *
      * @param array $config Loaded plugin configuration
      * @return array Result summary from SchedulerRunner
@@ -72,5 +143,19 @@ final class DiffPreviewer
 
         $runner = new GcsSchedulerRunner($config, $horizonDays, $dryRun);
         return $runner->run();
+    }
+
+    /**
+     * Helper for endpoints/UI: compute counts from any result schema.
+     */
+    public static function countsFromResult(array $result): array
+    {
+        $norm = self::normalizeDiffFromResult($result);
+
+        return [
+            'creates' => is_array($norm['creates']) ? count($norm['creates']) : 0,
+            'updates' => is_array($norm['updates']) ? count($norm['updates']) : 0,
+            'deletes' => is_array($norm['deletes']) ? count($norm['deletes']) : 0,
+        ];
     }
 }

@@ -1,62 +1,71 @@
 <?php
 
-final class GcsSchedulerSync
+/**
+ * SchedulerSync
+ *
+ * Phase 13 behavior:
+ * - Accept resolved scheduler intents
+ * - Report what *would* be created/updated/deleted
+ * - Do NOT modify the scheduler yet
+ *
+ * This class is intentionally conservative and dry-run safe.
+ */
+class SchedulerSync
 {
-    private array $cfg;
-    private int $horizonDays;
     private bool $dryRun;
 
-    public function __construct(array $cfg, int $horizonDays, bool $dryRun)
+    /**
+     * @param bool $dryRun
+     */
+    public function __construct(bool $dryRun = true)
     {
-        $this->cfg = $cfg;
-        $this->horizonDays = $horizonDays;
-        $this->dryRun = $dryRun;
+        $this->dryRun = (bool)$dryRun;
     }
 
     /**
-     * Backwards-compatible entrypoint.
-     * (Legacy callers may still call run(); it will perform a no-op diff.)
+     * Sync resolved intents against the scheduler.
      *
+     * CURRENT PHASE 13 LOGIC:
+     * - Scheduler is treated as empty
+     * - Each intent represents a CREATE
+     * - No updates or deletes yet
+     *
+     * @param array<int,array<string,mixed>> $intents
      * @return array<string,mixed>
      */
-    public function run(): array
+    public function sync(array $intents): array
     {
-        return $this->sync([]);
-    }
+        $adds = 0;
 
-    /**
-     * Execute full pipeline using desired schedule entries produced by the runner.
-     *
-     * @param array<int,array<string,mixed>> $desiredEntries
-     * @return array<string,mixed>
-     */
-    public function sync(array $desiredEntries): array
-    {
-        // Load scheduler state
-        $state = GcsSchedulerState::load($this->horizonDays);
+        foreach ($intents as $intent) {
+            // Log every intent for visibility (dry-run safe)
+            GcsLogger::instance()->info(
+                $this->dryRun ? 'Scheduler intent (dry-run)' : 'Scheduler intent',
+                is_array($intent) ? $intent : ['intent' => $intent]
+            );
 
-        GcsLog::info('SchedulerState loaded (stub)', [
-            'count' => count($state->getEntries()),
-        ]);
+            $adds++;
+        }
 
-        // Compute diff (desired vs existing state)
-        $diff = new GcsSchedulerDiff($desiredEntries, $state);
-        $diffResult = $diff->compute();
-
-        GcsLog::info('SchedulerDiff summary' . ($this->dryRun ? ' (dry-run)' : ''), [
-            'create' => count($diffResult->getToCreate()),
-            'update' => count($diffResult->getToUpdate()),
-            'delete' => count($diffResult->getToDelete()),
-        ]);
-
-        // Apply
-        $apply = new GcsSchedulerApply($this->dryRun);
-        $applySummary = $apply->apply($diffResult);
-
+        /*
+         * Phase 13 return schema (summary-only)
+         *
+         * DiffPreviewer is responsible for normalizing this
+         * into UI-friendly creates/updates/deletes arrays.
+         */
         return [
-            'dryRun' => $this->dryRun,
-            'diff'   => $diffResult->toArray(),
-            'apply'  => $applySummary,
+            'adds'         => $adds,
+            'updates'      => 0,
+            'deletes'      => 0,
+            'dryRun'       => $this->dryRun,
+            'intents_seen' => $adds,
         ];
     }
 }
+
+/**
+ * Compatibility alias
+ *
+ * Some legacy code refers to GcsSchedulerSync.
+ */
+class GcsSchedulerSync extends SchedulerSync {}
