@@ -1,5 +1,19 @@
 <?php
 
+/**
+ * GcsSchedulerRunner
+ *
+ * Top-level orchestrator:
+ * - fetch ICS
+ * - parse events within horizon
+ * - resolve target/intent
+ * - consolidate
+ * - sync (dry-run safe)
+ *
+ * IMPORTANT:
+ * - Must not rely on autoloading (bootstrap.php requires this file)
+ * - Must pass a BOOLEAN to SchedulerSync::__construct()
+ */
 final class GcsSchedulerRunner
 {
     private array $cfg;
@@ -10,212 +24,112 @@ final class GcsSchedulerRunner
     {
         $this->cfg = $cfg;
         $this->horizonDays = $horizonDays;
-        $this->dryRun = $dryRun;
+        $this->dryRun = (bool)$dryRun;
     }
 
     public function run(): array
     {
-        $now = new DateTime('now');
-        $horizonEnd = (clone $now)->modify("+{$this->horizonDays} days");
-
-        // ------------------------------------------------------------
-        // Fetch + parse ICS
-        // ------------------------------------------------------------
-        $fetcher = new GcsIcsFetcher();
-        $ics = $fetcher->fetch($this->cfg['calendar']['ics_url'] ?? '');
-        if ($ics === '') {
-            GcsLog::warn('ICS fetch returned empty string');
-            return (new GcsSchedulerSync($this->cfg, $this->horizonDays, $this->dryRun))->sync([]);
+        $icsUrl = trim((string)($this->cfg['calendar']['ics_url'] ?? ''));
+        if ($icsUrl === '') {
+            GcsLogger::instance()->warn('No ICS URL configured');
+            return $this->emptyResult();
         }
+
+        // 1) Fetch ICS (use canonical fetcher class from bootstrap)
+        $ics = (new GcsIcsFetcher())->fetch($icsUrl);
+        if ($ics === '') {
+            return $this->emptyResult();
+        }
+
+        // 2) Parse ICS within horizon (canonical parser)
+        $now = new DateTime('now');
+        $horizonEnd = (clone $now)->modify('+' . $this->horizonDays . ' days');
 
         $parser = new GcsIcsParser();
         $events = $parser->parse($ics, $now, $horizonEnd);
 
-        GcsLog::info('Parser returned', [
-            'eventCount' => count($events),
+        GcsLogger::instance()->info('Parser returned', [
+            'eventCount' => is_array($events) ? count($events) : 0,
         ]);
 
-        if (empty($events)) {
-            return (new GcsSchedulerSync($this->cfg, $this->horizonDays, $this->dryRun))->sync([]);
+        if (!is_array($events) || empty($events)) {
+            return $this->emptyResult();
         }
 
-        // ------------------------------------------------------------
-        // Build intents
-        // ------------------------------------------------------------
-        $intents = [];
-        $intentTypeCounts = [
-            'command'  => 0,
-            'playlist' => 0,
-            'sequence' => 0,
-            'unknown'  => 0,
-        ];
+        // 3) Build intents (simple base events only for now)
+        $rawIntents = [];
 
-        foreach ($events as $event) {
-            $summary = trim((string)($event['summary'] ?? ''));
-            $uid = $event['uid'] ?? null;
+        foreach ($events as $ev) {
+            if (!is_array($ev)) {
+                continue;
+            }
 
-            if (!isset($event['start']) || !isset($event['end'])) {
-                GcsLog::warn('Skipping event missing start/end', [
+            $uid = (string)($ev['uid'] ?? '');
+            if ($uid === '') {
+                continue;
+            }
+
+            $summary = (string)($ev['summary'] ?? '');
+            $start   = (string)($ev['start'] ?? '');
+            $end     = (string)($ev['end'] ?? '');
+
+            if ($start === '' || $end === '') {
+                continue;
+            }
+
+            // Resolve target intent (playlist/preset/etc)
+            $resolved = GcsTargetResolver::resolve($summary);
+            if (!$resolved || !is_array($resolved)) {
+                GcsLogger::instance()->warn('Unresolved target', [
                     'uid' => $uid,
                     'summary' => $summary,
                 ]);
                 continue;
             }
 
-            $start = new DateTime((string)$event['start']);
-            $end   = new DateTime((string)$event['end']);
+            // Skip all-day events for scheduler mapping (current behavior)
+            if (!empty($ev['isAllDay'])) {
+                continue;
+            }
 
-            $intent = [
-                'uid'      => $uid,
-                'type'     => null,
-                'target'   => null,
-                'start'    => $start->format('Y-m-d H:i:s'),
-                'end'      => $end->format('Y-m-d H:i:s'),
-                'stopType' => 'graceful',
-                'repeat'   => 'none',
-                'enabled'  => true,
-
-                // Command fields
-                'command'          => null,
-                'args'             => [],
-                'multisyncCommand' => false,
+            $rawIntents[] = [
+                'uid'     => $uid,
+                'summary' => $summary,
+                'type'    => (string)($resolved['type'] ?? ''),
+                'target'  => $resolved['target'] ?? null,
+                'start'   => (new DateTime($start))->format('Y-m-d H:i:s'),
+                'end'     => (new DateTime($end))->format('Y-m-d H:i:s'),
+                'stopType'=> 'graceful',
+                'repeat'  => 'none',
             ];
-
-            // YAML (top-level; no fpp: wrapper)
-            $yaml = GcsYamlMetadata::parse($event['description'] ?? null);
-            if (is_array($yaml)) {
-                foreach ($yaml as $k => $v) {
-                    if ($k !== 'target') {
-                        $intent[$k] = $v;
-                    }
-                }
-            }
-
-            $yamlType = isset($intent['type']) ? strtolower(trim((string)$intent['type'])) : '';
-
-            // --------------------------------------------------------
-            // Explicit command
-            // --------------------------------------------------------
-            if ($yamlType === 'command') {
-                $cmdFromYaml = isset($intent['command']) ? trim((string)$intent['command']) : '';
-                $cmd = ($cmdFromYaml !== '') ? $cmdFromYaml : $summary;
-
-                if ($cmd === '') {
-                    GcsLog::warn('Command event missing command name', [
-                        'uid' => $uid,
-                        'summary' => $summary,
-                    ]);
-                    continue;
-                }
-
-                if ($cmdFromYaml === '') {
-                    GcsLog::info('Command name fell back to event summary', [
-                        'uid' => $uid,
-                        'command' => $cmd,
-                    ]);
-                }
-
-                $intent['type'] = 'command';
-                $intent['target'] = '';
-                $intent['command'] = $cmd;
-                $intent['args'] = is_array($intent['args']) ? $intent['args'] : [];
-                $intent['multisyncCommand'] = !empty($intent['multisyncCommand']);
-
-                $intents[] = $intent;
-                $intentTypeCounts['command']++;
-                continue;
-            }
-
-            // --------------------------------------------------------
-            // Playlist / sequence
-            // --------------------------------------------------------
-            $resolved = GcsTargetResolver::resolve($summary);
-            if (!$resolved) {
-                $intentTypeCounts['unknown']++;
-                continue;
-            }
-
-            $intent['type']   = $resolved['type'];
-            $intent['target'] = $resolved['target'];
-
-            if ($intent['type'] === 'playlist') {
-                $intentTypeCounts['playlist']++;
-            } elseif ($intent['type'] === 'sequence') {
-                $intentTypeCounts['sequence']++;
-            } else {
-                $intentTypeCounts['unknown']++;
-            }
-
-            $intents[] = $intent;
         }
 
-        GcsLog::info('Intent build summary', [
-            'intentCount' => count($intents),
-            'byType' => $intentTypeCounts,
-        ]);
-
-        // ------------------------------------------------------------
-        // Consolidate + map to desired scheduler entries
-        // ------------------------------------------------------------
-        $consolidator = new GcsIntentConsolidator();
-        $ranges = $consolidator->consolidate($intents);
-
-        GcsLog::info('Intent consolidation', [
-            'inputIntents' => count($intents),
-            'rangeCount' => count($ranges),
-        ]);
-
-        $mapped = [];
-        $mappedNulls = 0;
-
-        foreach ($ranges as $ri) {
-            $entry = GcsFppScheduleMapper::mapRangeIntentToSchedule(
-                $this->hydrateRangeIntent($ri)
-            );
-
-            if ($entry) {
-                $mapped[] = $entry;
-                GcsLog::info('Mapped FPP schedule (dry-run)', $entry);
-            } else {
-                $mappedNulls++;
+        // 4) Consolidate intents (if available)
+        $consolidated = $rawIntents;
+        try {
+            $consolidator = new GcsIntentConsolidator();
+            $maybe = $consolidator->consolidate($rawIntents);
+            if (is_array($maybe)) {
+                $consolidated = $maybe;
             }
+        } catch (Throwable $ignored) {
+            // Consolidation should not break preview/apply wiring
         }
 
-        GcsLog::info('Mapping summary', [
-            'mappedCount' => count($mapped),
-            'nullMappings' => $mappedNulls,
-        ]);
-
-        // ------------------------------------------------------------
-        // Diff + apply using desired entries
-        // ------------------------------------------------------------
-        return (new GcsSchedulerSync($this->cfg, $this->horizonDays, $this->dryRun))->sync($mapped);
+        // 5) Sync (dry-run safe)
+        // CRITICAL: SchedulerSync expects bool; enforce it.
+        $sync = new SchedulerSync((bool)$this->dryRun);
+        return $sync->sync($consolidated);
     }
 
-    private function hydrateRangeIntent(array $ri): array
+    private function emptyResult(): array
     {
-        $t = $ri['template'];
-
         return [
-            'uid'         => $t['uid'] ?? null,
-            'type'        => $t['type'],
-            'target'      => $t['target'] ?? '',
-            'start'       => new DateTime($t['start']),
-            'end'         => new DateTime($t['end']),
-            'stopType'    => $t['stopType'] ?? 'graceful',
-            'repeat'      => $t['repeat'] ?? 'none',
-            'enabled'     => array_key_exists('enabled', $t) ? (bool)$t['enabled'] : true,
-
-            // Command fields
-            'command'          => $t['command'] ?? null,
-            'args'             => (isset($t['args']) && is_array($t['args'])) ? $t['args'] : [],
-            'multisyncCommand' => !empty($t['multisyncCommand']),
-
-            'weekdayMask' => GcsIntentConsolidator::shortDaysToWeekdayMask(
-                $ri['range']['days']
-            ),
-            'startDate'   => $ri['range']['start'],
-            'endDate'     => $ri['range']['end'],
+            'adds'         => 0,
+            'updates'      => 0,
+            'deletes'      => 0,
+            'dryRun'       => $this->dryRun,
+            'intents_seen' => 0,
         ];
     }
 }
