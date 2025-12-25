@@ -16,6 +16,42 @@ require_once __DIR__ . '/src/experimental/CalendarReader.php';
 require_once __DIR__ . '/src/experimental/DiffPreviewer.php';
 
 $cfg = GcsConfig::load();
+
+/*
+ * --------------------------------------------------------------------
+ * POST handling (normal UI flow)
+ * --------------------------------------------------------------------
+ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    try {
+
+        if ($_POST['action'] === 'save') {
+            $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
+            $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
+
+            GcsConfig::save($cfg);
+
+            // Force reload so UI reflects updated state immediately
+            clearstatcache();
+            $cfg = GcsConfig::load();
+        }
+
+        if ($_POST['action'] === 'sync') {
+            $runner = new GcsSchedulerRunner(
+                $cfg,
+                GcsFppSchedulerHorizon::getDays(),
+                !empty($cfg['runtime']['dry_run'])
+            );
+            $runner->run();
+        }
+
+    } catch (Throwable $e) {
+        GcsLog::error('GoogleCalendarScheduler error', [
+            'error' => $e->getMessage(),
+        ]);
+    }
+}
+
 $dryRun = !empty($cfg['runtime']['dry_run']);
 ?>
 
@@ -23,7 +59,7 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 <h2>Google Calendar Scheduler</h2>
 
 <!-- =========================================================
-     APPLY MODE BANNER (always visible)
+     APPLY MODE BANNER
      ========================================================= -->
 <div class="gcs-mode-banner <?php echo $dryRun ? 'gcs-mode-dry' : 'gcs-mode-live'; ?>">
 <?php if ($dryRun): ?>
@@ -50,8 +86,7 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 
     <div class="setting">
         <label>
-            <input type="checkbox" name="dry_run"
-                <?php if ($dryRun) echo 'checked'; ?>>
+            <input type="checkbox" name="dry_run" <?php if ($dryRun) echo 'checked'; ?>>
             Dry run (do not modify FPP scheduler)
         </label>
     </div>
@@ -165,13 +200,7 @@ function getJSON(url, cb){
         .catch(function(){ cb(null); });
 }
 
-function counts(d){
-    return {
-        c:(d.creates||[]).length,
-        u:(d.updates||[]).length,
-        x:(d.deletes||[]).length
-    };
-}
+function countArr(a){ return Array.isArray(a) ? a.length : 0; }
 
 var previewBtn=document.getElementById('gcs-preview-btn');
 if(!previewBtn) return;
@@ -190,38 +219,40 @@ previewBtn.onclick=function(){
     applyBtn.disabled=true;
     applyBtn.textContent='Apply Changes';
     applyResult.textContent='';
-    applyResult.className='';
     diffResults.textContent='Loading preview…';
 
     getJSON(ENDPOINT+'&endpoint=experimental_diff',function(d){
         if(!d||!d.ok){ diffResults.textContent='Preview unavailable.'; return; }
 
-        var n=counts(d.diff||{}); last=n;
+        var c=countArr(d.diff.creates),
+            u=countArr(d.diff.updates),
+            x=countArr(d.diff.deletes),
+            t=c+u+x;
 
         diffSummary.classList.remove('gcs-hidden');
         diffSummary.innerHTML =
           '<div class="gcs-diff-badges">'+
-          '<span class="gcs-badge gcs-badge-create">+ '+n.c+' Creates</span>'+
-          '<span class="gcs-badge gcs-badge-update">~ '+n.u+' Updates</span>'+
-          '<span class="gcs-badge gcs-badge-delete">− '+n.x+' Deletes</span>'+
+          '<span class="gcs-badge gcs-badge-create">+ '+c+' Creates</span>'+
+          '<span class="gcs-badge gcs-badge-update">~ '+u+' Updates</span>'+
+          '<span class="gcs-badge gcs-badge-delete">− '+x+' Deletes</span>'+
           '</div>';
 
-        diffResults.innerHTML='';
-        if(n.c+n.u+n.x===0){
-            diffResults.innerHTML='<div class="gcs-empty">No scheduler changes detected.</div>';
-        }
+        diffResults.innerHTML = (t===0)
+            ? '<div class="gcs-empty">No scheduler changes detected.</div>'
+            : '';
 
         applyBox.classList.remove('gcs-hidden');
         applySummary.textContent =
-            (n.c+n.u+n.x===0)
+            (t===0)
             ? 'No pending scheduler changes.'
-            : (n.c+n.u+n.x)+' pending scheduler changes detected.';
-        applyBtn.disabled=(n.c+n.u+n.x===0);
+            : t+' pending scheduler changes detected.';
+        applyBtn.disabled=(t===0);
+        last={c:c,u:u,x:x,t:t};
     });
 };
 
 applyBtn.onclick=function(){
-    if(!last) return;
+    if(!last||last.t===0) return;
 
     if(!armed){
         armed=true;
@@ -259,4 +290,5 @@ applyBtn.onclick=function(){
 
 })();
 </script>
+
 </div>
