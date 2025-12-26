@@ -19,6 +19,8 @@ require_once __DIR__ . '/src/experimental/DiffPreviewer.php';
 
 $cfg = GcsConfig::load();
 
+$syncMsg = null;
+
 /*
  * --------------------------------------------------------------------
  * POST handling (Save / Sync)
@@ -37,20 +39,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $cfg = GcsConfig::load();
         }
 
-        // Sync = safe pipeline run (respects dry-run)
+        /**
+         * SYNC (Phase 16.4 contract)
+         * - Plan only
+         * - NEVER writes schedule.json
+         * - No dependency on dry_run setting
+         */
         if ($_POST['action'] === 'sync') {
             $runner = new GcsSchedulerRunner(
                 $cfg,
                 GcsFppSchedulerHorizon::getDays(),
-                !empty($cfg['runtime']['dry_run'])
+                true // irrelevant for plan(); keep "safe" and explicit
             );
-            $runner->run();
+
+            $planned = $runner->plan();
+            $plannedCount = is_array($planned) ? count($planned) : 0;
+
+            $syncMsg = "Sync completed: planned {$plannedCount} scheduler intent(s). No changes were written.";
         }
 
     } catch (Throwable $e) {
         GcsLogger::instance()->error('GoogleCalendarScheduler error', [
             'error' => $e->getMessage(),
         ]);
+        $syncMsg = 'Sync failed: ' . $e->getMessage();
     }
 }
 
@@ -99,6 +111,12 @@ if (isset($_GET['endpoint'])) {
                 exit;
             }
         }
+
+        echo json_encode([
+            'ok' => false,
+            'error' => 'Unknown endpoint',
+        ]);
+        exit;
 
     } catch (Throwable $e) {
         echo json_encode([
@@ -157,10 +175,17 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
     <button type="submit" class="buttons">Sync Calendar</button>
     <div style="margin-top:6px; opacity:.85;">
         <small>
-            Sync runs the pipeline safely (respects dry-run).
+            <strong>Sync is plan-only</strong> (never writes).
             Use Preview + Apply to write scheduler changes.
         </small>
     </div>
+
+<?php if (!empty($syncMsg)): ?>
+    <div class="gcs-info" style="margin-top:10px;">
+        <?php echo htmlspecialchars((string)$syncMsg, ENT_QUOTES); ?>
+    </div>
+<?php endif; ?>
+
 </form>
 
 <hr>
@@ -260,6 +285,7 @@ previewBtn.onclick=function(){
         if(!d || !d.ok || !d.diff){
             diffResults.textContent='Preview unavailable.';
             applyBox.classList.add('gcs-hidden');
+            last=null;
             return;
         }
 
@@ -305,8 +331,8 @@ applyBtn.onclick=function(){
 
     getJSON(ENDPOINT+'&endpoint=experimental_apply',function(r){
         if(!r || !r.ok){
-            applyBtn.textContent='Apply Blocked';
-            applyResult.textContent = r && r.error ? r.error : 'Apply failed.';
+            applyBtn.textContent='Apply Failed';
+            applyResult.textContent = (r && r.error) ? r.error : 'Apply failed.';
             return;
         }
 
