@@ -408,7 +408,11 @@ class SchedulerSync
     private function verifyEntriesPresent(array $expectedEntries): array
     {
         $attempts = 10;
-        $sleepUs = 500000; // 500ms
+        $sleepUs = 500000;      // 500ms between attempts
+        $initialSleepUs = 750000; // NEW: allow scheduler to settle after schedule.json write
+
+        // NEW: initial settle pause before first projection fetch
+        usleep($initialSleepUs);
 
         for ($i = 1; $i <= $attempts; $i++) {
             $proj = $this->httpGetJson(self::FPP_SCHEDULE_PROJECTION_URL);
@@ -443,26 +447,43 @@ class SchedulerSync
         $missing = [];
 
         foreach ($expected as $exp) {
-            $expPlaylist = $exp['playlist'] ?? '';
-            $expCommand  = $exp['command'] ?? '';
+            $expPlaylist = (string)($exp['playlist'] ?? '');
+            $expCommand  = (string)($exp['command'] ?? '');
             $expStartDate = $exp['startDate'] ?? null;
             $expStartTime = $exp['startTime'] ?? null;
+
+            $expStartTimeNorm = self::normalizeTimeToHm(is_string($expStartTime) ? $expStartTime : null);
 
             $found = false;
 
             foreach ($projectionEntries as $p) {
                 if (!is_array($p)) continue;
 
+                // Type can vary by FPP version; infer if absent.
+                $pTypeRaw = $p['type'] ?? null;
+                $pType = is_string($pTypeRaw) ? strtolower($pTypeRaw) : '';
+                if ($pType === '') {
+                    if (!empty($p['playlist'])) $pType = 'playlist';
+                    if (!empty($p['command']))  $pType = 'command';
+                }
+
                 if ($expPlaylist !== '') {
-                    if (($p['type'] ?? null) !== 'playlist') continue;
-                    if (($p['playlist'] ?? null) !== $expPlaylist) continue;
+                    if ($pType !== 'playlist') continue;
+                    if ((string)($p['playlist'] ?? '') !== $expPlaylist) continue;
                 } else {
-                    if (($p['type'] ?? null) !== 'command') continue;
-                    if (($p['command'] ?? null) !== $expCommand) continue;
+                    if ($pType !== 'command') continue;
+                    if ((string)($p['command'] ?? '') !== $expCommand) continue;
                 }
 
                 if (($p['startDate'] ?? null) !== $expStartDate) continue;
-                if (($p['startTime'] ?? null) !== $expStartTime) continue;
+
+                $pStartTimeNorm = self::normalizeTimeToHm(is_string($p['startTime'] ?? null) ? (string)$p['startTime'] : null);
+                if ($expStartTimeNorm !== null && $pStartTimeNorm !== null) {
+                    if ($pStartTimeNorm !== $expStartTimeNorm) continue;
+                } else {
+                    // Fallback to strict compare if normalization couldn't run
+                    if (($p['startTime'] ?? null) !== $expStartTime) continue;
+                }
 
                 $found = true;
                 break;
@@ -479,6 +500,23 @@ class SchedulerSync
         }
 
         return $missing;
+    }
+
+    /**
+     * Normalize times to "HH:MM" for tolerant comparison across FPP versions.
+     */
+    private static function normalizeTimeToHm(?string $t): ?string
+    {
+        if ($t === null) return null;
+        $tt = trim($t);
+        if ($tt === '') return null;
+
+        // Accept HH:MM or HH:MM:SS; normalize both to HH:MM
+        if (preg_match('/^\d{2}:\d{2}/', $tt) === 1) {
+            return substr($tt, 0, 5);
+        }
+
+        return null;
     }
 
     private function httpGetJson(string $url): ?array
