@@ -36,11 +36,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $cfg = GcsConfig::load();
         }
 
+        /**
+         * IMPORTANT SAFETY RULE:
+         * The "Sync Calendar" button must NEVER apply changes.
+         * It should only run the pipeline in DRY-RUN mode.
+         *
+         * Apply must be explicit and only occur via the experimental_apply endpoint
+         * (which has the triple-guard).
+         */
         if ($_POST['action'] === 'sync') {
             $runner = new GcsSchedulerRunner(
                 $cfg,
                 GcsFppSchedulerHorizon::getDays(),
-                !empty($cfg['runtime']['dry_run'])
+                true // FORCE dry-run no matter what
             );
             $runner->run();
         }
@@ -53,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 $dryRun = !empty($cfg['runtime']['dry_run']);
+$expEnabled = !empty($cfg['experimental']['enabled']);
 ?>
 
 <div class="settings">
@@ -66,7 +75,7 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
     Scheduler changes will <strong>NOT</strong> be written.
 <?php else: ?>
     🔓 <strong>Apply mode: Live</strong><br>
-    Scheduler changes <strong>WILL</strong> be written.
+    Scheduler changes <strong>WILL</strong> be written (only when you click Apply).
 <?php endif; ?>
 </div>
 
@@ -98,6 +107,12 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 <form method="post">
     <input type="hidden" name="action" value="sync">
     <button type="submit" class="buttons">Sync Calendar</button>
+    <div style="margin-top:6px; opacity:.85;">
+        <small>
+            Sync Calendar runs the pipeline in <strong>dry-run</strong> for safety.
+            Use Preview + Apply to write scheduler changes.
+        </small>
+    </div>
 </form>
 
 <hr>
@@ -105,7 +120,7 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 <div class="gcs-diff-preview">
     <h3>Scheduler Change Preview</h3>
 
-<?php if (empty($cfg['experimental']['enabled'])): ?>
+<?php if (!$expEnabled): ?>
     <div class="gcs-info">
         Experimental diff preview is currently disabled.
     </div>
@@ -192,6 +207,8 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 var ENDPOINT =
   'plugin.php?_menu=content&plugin=GoogleCalendarScheduler&page=content.php&nopage=1';
 
+var IS_DRY_RUN = <?php echo $dryRun ? 'true' : 'false'; ?>;
+
 function getJSON(url, cb){
     fetch(url, {credentials:'same-origin'})
         .then(function(r){ return r.json(); })
@@ -200,6 +217,39 @@ function getJSON(url, cb){
 }
 
 function countArr(a){ return Array.isArray(a) ? a.length : 0; }
+
+/**
+ * Accept multiple backend schemas:
+ * A) { ok:true, diff:{ creates:[], updates:[], deletes:[] } }
+ * B) { creates:[], updates:[], deletes:[] }
+ * C) Legacy/summaries should be treated as unavailable here.
+ */
+function normalizeDiffPayload(d){
+    if(!d) return null;
+
+    // Schema A
+    if (d.ok && d.diff && typeof d.diff === 'object') {
+        return {
+            creates: Array.isArray(d.diff.creates) ? d.diff.creates : [],
+            updates: Array.isArray(d.diff.updates) ? d.diff.updates : [],
+            deletes: Array.isArray(d.diff.deletes) ? d.diff.deletes : []
+        };
+    }
+
+    // Schema B
+    var hasAny =
+        Array.isArray(d.creates) || Array.isArray(d.updates) || Array.isArray(d.deletes);
+
+    if (hasAny) {
+        return {
+            creates: Array.isArray(d.creates) ? d.creates : [],
+            updates: Array.isArray(d.updates) ? d.updates : [],
+            deletes: Array.isArray(d.deletes) ? d.deletes : []
+        };
+    }
+
+    return null;
+}
 
 var previewBtn=document.getElementById('gcs-preview-btn');
 if(!previewBtn) return;
@@ -213,19 +263,33 @@ var applyResult=document.getElementById('gcs-apply-result');
 
 var last=null, armed=false;
 
+function setApplyDisabled(disabled){
+    applyBtn.disabled = !!disabled;
+    if (IS_DRY_RUN) {
+        applyBtn.title = 'Apply is disabled while dry-run mode is enabled.';
+    }
+}
+
 previewBtn.onclick=function(){
     armed=false;
-    applyBtn.disabled=true;
+    setApplyDisabled(true);
     applyBtn.textContent='Apply Changes';
     applyResult.textContent='';
     diffResults.textContent='Loading preview…';
 
     getJSON(ENDPOINT+'&endpoint=experimental_diff',function(d){
-        if(!d||!d.ok){ diffResults.textContent='Preview unavailable.'; return; }
+        var norm = normalizeDiffPayload(d);
+        if(!norm){
+            diffResults.textContent='Preview unavailable.';
+            // Keep apply hidden/disabled if preview can't be computed
+            applyBox.classList.add('gcs-hidden');
+            last=null;
+            return;
+        }
 
-        var c=countArr(d.diff.creates),
-            u=countArr(d.diff.updates),
-            x=countArr(d.diff.deletes),
+        var c=countArr(norm.creates),
+            u=countArr(norm.updates),
+            x=countArr(norm.deletes),
             t=c+u+x;
 
         diffSummary.classList.remove('gcs-hidden');
@@ -245,12 +309,32 @@ previewBtn.onclick=function(){
             (t===0)
             ? 'No pending scheduler changes.'
             : t+' pending scheduler changes detected.';
-        applyBtn.disabled=(t===0);
+
+        // Apply enabled ONLY if:
+        // - preview found changes
+        // - NOT in dry-run mode
+        setApplyDisabled(IS_DRY_RUN || (t===0));
+
+        if (IS_DRY_RUN && t > 0) {
+            applyResult.innerHTML =
+                '<strong>Apply disabled</strong><br>' +
+                'Dry-run mode is ON. Turn it off to apply scheduler changes.';
+        } else {
+            applyResult.textContent = '';
+        }
+
         last={c:c,u:u,x:x,t:t};
     });
 };
 
 applyBtn.onclick=function(){
+    if(IS_DRY_RUN){
+        applyResult.innerHTML =
+          '<strong>Apply blocked</strong><br>'+
+          'Dry-run mode is ON. No scheduler changes were made.';
+        return;
+    }
+
     if(!last||last.t===0) return;
 
     if(!armed){
@@ -260,17 +344,19 @@ applyBtn.onclick=function(){
         return;
     }
 
-    applyBtn.disabled=true;
+    setApplyDisabled(true);
     applyBtn.textContent='Applying…';
     applyResult.textContent='Applying scheduler changes…';
 
     getJSON(ENDPOINT+'&endpoint=experimental_apply',function(r){
         if(!r){
+            applyBtn.textContent='Apply Failed';
             applyResult.textContent='Apply failed.';
             return;
         }
 
-        if(r.status==='blocked'){
+        // Common blocked shapes
+        if(r.status==='blocked' || r.blocked === true){
             applyBtn.textContent='Apply Blocked';
             applyResult.innerHTML =
               '<strong>Apply blocked</strong><br>'+
@@ -279,11 +365,31 @@ applyBtn.onclick=function(){
             return;
         }
 
+        // Support multiple success schemas:
+        // A) { ok:true, counts:{creates,updates,deletes} }
+        // B) { creates:[], updates:[], deletes:[] }
+        // C) { adds:n, updates:n, deletes:n }
+        var createdCount = 0;
+
+        if (r.counts && typeof r.counts === 'object') {
+            createdCount = (typeof r.counts.creates === 'number') ? r.counts.creates : 0;
+        } else if (Array.isArray(r.creates)) {
+            createdCount = r.creates.length;
+        } else if (typeof r.adds === 'number') {
+            createdCount = r.adds;
+        }
+
         applyBtn.textContent='Apply Completed';
         applyResult.innerHTML =
           '<strong>Changes applied successfully</strong><br>'+
-          r.counts.creates+' scheduler entries were created.<br>'+
-          'Re-running preview now shows no remaining changes.';
+          createdCount+' scheduler entries were created.<br>'+
+          'Re-running preview now should show no remaining changes.';
+
+        // Re-run preview automatically to refresh UI state
+        armed=false;
+        setTimeout(function(){
+            previewBtn.click();
+        }, 150);
     });
 };
 
