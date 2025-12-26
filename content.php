@@ -204,8 +204,6 @@ var diffResults = document.getElementById('gcs-diff-results');
 var applyBox    = document.getElementById('gcs-apply-container');
 var applyResult = document.getElementById('gcs-apply-result');
 
-var lastDiff = null;
-
 /* Auto status check */
 fetch(ENDPOINT + '&endpoint=experimental_plan_status')
   .then(r => r.json())
@@ -231,19 +229,22 @@ previewBtn.addEventListener('click', function () {
                 return;
             }
 
-            lastDiff = d.diff;
-
             var creates = d.diff.creates.length;
             var updates = d.diff.updates.length;
             var deletes = d.diff.deletes.length;
             var total   = creates + updates + deletes;
 
             diffSummary.classList.remove('gcs-hidden');
-            diffSummary.innerHTML =
-                '<strong>Preview Summary</strong><br>' +
-                'Creates: ' + creates + ', ' +
-                'Updates: ' + updates + ', ' +
-                'Deletes: ' + deletes;
+            diffSummary.innerHTML = `
+                <div style="margin-bottom:6px;">
+                    <strong>Preview Summary</strong>
+                </div>
+                <ul style="margin:0 0 0 18px; padding:0;">
+                    <li>➕ Creates: <strong>${creates}</strong></li>
+                    <li>✏️ Updates: <strong>${updates}</strong></li>
+                    <li>🗑️ Deletes: <strong>${deletes}</strong></li>
+                </ul>
+            `;
 
             diffResults.innerHTML =
                 '<pre>' + JSON.stringify(d.diff, null, 2) + '</pre>';
