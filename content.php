@@ -169,7 +169,6 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
     </button>
 
     <div id="gcs-diff-summary" class="gcs-hidden" style="margin-top:12px;"></div>
-    <div id="gcs-diff-results" style="margin-top:10px;"></div>
 </div>
 
 <hr>
@@ -186,6 +185,14 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 .gcs-mode-banner { padding:10px; border-radius:6px; margin-bottom:12px; font-weight:bold; }
 .gcs-mode-dry { background:#eef5ff; border:1px solid #cfe2ff; }
 .gcs-mode-live { background:#e6f4ea; border:1px solid #b7e4c7; }
+.gcs-summary-row {
+    display:flex;
+    gap:24px;
+    margin-top:6px;
+}
+.gcs-summary-item {
+    white-space:nowrap;
+}
 </style>
 
 <script>
@@ -200,7 +207,6 @@ var previewBtn = document.getElementById('gcs-preview-btn');
 var applyBtn   = document.getElementById('gcs-apply-btn');
 
 var diffSummary = document.getElementById('gcs-diff-summary');
-var diffResults = document.getElementById('gcs-diff-results');
 var applyBox    = document.getElementById('gcs-apply-container');
 var applyResult = document.getElementById('gcs-apply-result');
 
@@ -225,7 +231,8 @@ previewBtn.addEventListener('click', function () {
         .then(r => r.json())
         .then(d => {
             if (!d || !d.ok) {
-                diffResults.innerHTML = '❌ Failed to load preview.';
+                diffSummary.innerHTML = '❌ Failed to load preview.';
+                diffSummary.classList.remove('gcs-hidden');
                 return;
             }
 
@@ -236,18 +243,13 @@ previewBtn.addEventListener('click', function () {
 
             diffSummary.classList.remove('gcs-hidden');
             diffSummary.innerHTML = `
-                <div style="margin-bottom:6px;">
-                    <strong>Preview Summary</strong>
+                <div><strong>Preview Summary</strong></div>
+                <div class="gcs-summary-row">
+                    <div class="gcs-summary-item">➕ Creates: <strong>${creates}</strong></div>
+                    <div class="gcs-summary-item">✏️ Updates: <strong>${updates}</strong></div>
+                    <div class="gcs-summary-item">🗑️ Deletes: <strong>${deletes}</strong></div>
                 </div>
-                <ul style="margin:0 0 0 18px; padding:0;">
-                    <li>➕ Creates: <strong>${creates}</strong></li>
-                    <li>✏️ Updates: <strong>${updates}</strong></li>
-                    <li>🗑️ Deletes: <strong>${deletes}</strong></li>
-                </ul>
             `;
-
-            diffResults.innerHTML =
-                '<pre>' + JSON.stringify(d.diff, null, 2) + '</pre>';
 
             if (total > 0) {
                 applyBox.classList.remove('gcs-hidden');
