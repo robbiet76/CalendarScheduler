@@ -61,14 +61,8 @@ require_once __DIR__ . '/SchedulerSync.php';
 
 /*
  * --------------------------------------------------------------------
- * Planning-only execution (Phase 16.5)
- * --------------------------------------------------------------------
- */
-require_once __DIR__ . '/SchedulerPlanner.php';
-
-/*
- * --------------------------------------------------------------------
- * Runner (top-level orchestrator)
+ * Runner + Planner (Phase 16)
  * --------------------------------------------------------------------
  */
 require_once __DIR__ . '/SchedulerRunner.php';
+require_once __DIR__ . '/SchedulerPlanner.php';
