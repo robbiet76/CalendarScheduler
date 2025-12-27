@@ -14,21 +14,25 @@ final class GcsExistingScheduleEntry
     }
 
     /**
-     * Extract GCS UID from scheduler tag.
+     * Extract canonical GCS identity key for this entry.
+     *
+     * Phase 17.2:
+     * - Prefer canonical v1 args tag (uid+range+days)
+     * - Legacy tag field supported for uid-only entries
+     */
+    public function getGcsKey(): ?string
+    {
+        return GcsSchedulerIdentity::extractKey($this->raw);
+    }
+
+    /**
+     * Extract GCS UID (best-effort).
+     *
+     * Kept for compatibility with older code paths that only care about UID.
      */
     public function getGcsUid(): ?string
     {
-        $tag = $this->raw['tag'] ?? null;
-        if (!is_string($tag)) {
-            return null;
-        }
-
-        if (strpos($tag, GcsSchedulerIdentity::TAG_PREFIX) !== 0) {
-            return null;
-        }
-
-        $uid = substr($tag, strlen(GcsSchedulerIdentity::TAG_PREFIX));
-        return $uid !== '' ? $uid : null;
+        return GcsSchedulerIdentity::extractUid($this->raw);
     }
 
     /**

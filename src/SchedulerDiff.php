@@ -18,11 +18,12 @@ final class GcsSchedulerDiff
 
     public function compute(): GcsSchedulerDiffResult
     {
-        $existingByUid = [];
+        // Map existing entries by canonical identity key
+        $existingByKey = [];
         foreach ($this->state->getEntries() as $entry) {
-            $uid = $entry->getGcsUid();
-            if ($uid !== null) {
-                $existingByUid[$uid] = $entry;
+            $key = $entry->getGcsKey();
+            if ($key !== null) {
+                $existingByKey[$key] = $entry;
             }
         }
 
@@ -31,20 +32,20 @@ final class GcsSchedulerDiff
         $seen     = [];
 
         foreach ($this->desired as $desiredEntry) {
-            $uid = GcsSchedulerIdentity::extractUid($desiredEntry);
-            if ($uid === null) {
+            $key = GcsSchedulerIdentity::extractKey($desiredEntry);
+            if ($key === null) {
                 // Desired entry without GCS identity is ignored
                 continue;
             }
 
-            $seen[$uid] = true;
+            $seen[$key] = true;
 
-            if (!isset($existingByUid[$uid])) {
+            if (!isset($existingByKey[$key])) {
                 $toCreate[] = $desiredEntry;
                 continue;
             }
 
-            $existing = $existingByUid[$uid];
+            $existing = $existingByKey[$key];
 
             if (!GcsSchedulerComparator::isEquivalent($existing, $desiredEntry)) {
                 $toUpdate[] = [
@@ -55,8 +56,8 @@ final class GcsSchedulerDiff
         }
 
         $toDelete = [];
-        foreach ($existingByUid as $uid => $entry) {
-            if (!isset($seen[$uid])) {
+        foreach ($existingByKey as $key => $entry) {
+            if (!isset($seen[$key])) {
                 $toDelete[] = $entry;
             }
         }
