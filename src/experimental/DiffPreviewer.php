@@ -8,7 +8,7 @@ declare(strict_types=1);
  *
  * RULES:
  * - Preview ALWAYS uses SchedulerPlanner (plan-only)
- * - Apply is the ONLY place allowed to execute writes
+ * - Apply is the ONLY place allowed to execute writes (via GcsSchedulerApply)
  * - Creates / Updates / Deletes MUST normalize to the same preview shape
  */
 final class DiffPreviewer
@@ -59,6 +59,10 @@ final class DiffPreviewer
     /**
      * Apply scheduler changes (EXECUTION PATH).
      *
+     * IMPORTANT:
+     * - Preview and Apply must operate on the same plan representation for UI parity.
+     * - Writes MUST happen only via GcsSchedulerApply (Phase 17+ contract).
+     *
      * @throws RuntimeException if blocked
      */
     public static function apply(array $config): array
@@ -75,13 +79,30 @@ final class DiffPreviewer
             throw new RuntimeException('Apply blocked while dry-run is enabled');
         }
 
-        // Correct, validated apply path
-        $runner = new GcsSchedulerRunner(
-            $config,
-            GcsFppSchedulerHorizon::getDays()
-        );
+        // Use the same planner output shape that preview returns
+        $plan = SchedulerPlanner::plan($config);
 
-        return $runner->run();
+        // If planner reports no changes, do not write
+        $creates = (isset($plan['creates']) && is_array($plan['creates'])) ? count($plan['creates']) : 0;
+        $updates = (isset($plan['updates']) && is_array($plan['updates'])) ? count($plan['updates']) : 0;
+        $deletes = (isset($plan['deletes']) && is_array($plan['deletes'])) ? count($plan['deletes']) : 0;
+
+        if (($creates + $updates + $deletes) === 0) {
+            return [
+                'ok'   => true,
+                'diff' => $plan,
+                'noop' => true,
+            ];
+        }
+
+        // Execute the only permitted write boundary
+        $applyResult = GcsSchedulerApply::applyFromConfig($config);
+
+        return [
+            'ok'    => true,
+            'diff'  => $plan,
+            'apply' => $applyResult,
+        ];
     }
 
     /**
