@@ -7,12 +7,8 @@ declare(strict_types=1);
  * Phase 16.2 behavior:
  * - Accept resolved scheduler intents (including consolidated template+range form)
  * - DRY-RUN: report what would be created/updated/deleted (no writes)
- * - APPLY: append new entries to FPP scheduler persistence file schedule.json
+ * - APPLY: write FPP scheduler persistence file schedule.json
  *          with backup + atomic write + read-after-write verification.
- *
- * IMPORTANT CONSTRAINTS:
- * - Add-only (no updates/deletes/reordering) [for now]
- * - No scheduler logic/recurrence changes: we use whatever the intent already provides.
  *
  * Phase 17.1:
  * - Preserve canonical GCS identity tag, but store it in args[] (NOT in playlist name)
@@ -20,9 +16,12 @@ declare(strict_types=1);
  * - Tag format (unchanged): |GCS:v1|uid=<uid>|range=<start..end>|days=<shortdays>
  *
  * Phase 17.2:
- * - Dry-run now computes a real diff against existing schedule.json using canonical identity key
- *   (via GcsSchedulerIdentity::extractKey), and returns it under result['diff'] so preview
- *   converges with apply.
+ * - Dry-run computes real diff against existing schedule.json using canonical identity key.
+ *
+ * Phase 17.6:
+ * - Implement UPDATE + DELETE for plugin-managed entries (entries with a GCS identity key).
+ * - Ownership rule: if entry has GCS key, plugin owns it (may update/delete to converge).
+ * - NEVER modify entries without a GCS key.
  */
 class SchedulerSync
 {
@@ -116,7 +115,7 @@ class SchedulerSync
     public function sync(array $intents): array
     {
         $errors = [];
-        $entriesDesired = [];
+        $desiredEntries = [];
 
         foreach ($intents as $idx => $intent) {
             GcsLogger::instance()->info(
@@ -135,40 +134,48 @@ class SchedulerSync
                 continue;
             }
 
-            $entriesDesired[] = $entryOrError;
+            $desiredEntries[] = $entryOrError;
         }
 
-        // Dry-run path: compute real diff against existing schedule.json and return under ['diff']
+        // Dry-run: compute diff against existing schedule.json and return under ['diff'] for UI.
         if ($this->dryRun) {
-            foreach ($entriesDesired as $eIdx => $entry) {
+            foreach ($desiredEntries as $eIdx => $entry) {
                 GcsLogger::instance()->info('Scheduler normalized entry (dry-run)', [
                     'index' => $eIdx,
                     'entry' => $entry,
                 ]);
             }
 
-            $diff = $this->computeDiffAgainstExisting($entriesDesired);
+            $diff = $this->computeDiffAgainstExisting($desiredEntries);
 
             return [
-                'ok'          => true,
-                'diff'        => $diff,
-                'adds'        => count($diff['creates']),
-                'updates'     => count($diff['updates']),
-                'deletes'     => count($diff['deletes']),
-                'dryRun'      => true,
-                'intents_seen'=> count($intents),
-                'errors'      => $errors,
+                'ok'           => true,
+                'diff'         => $diff,
+                'adds'         => count($diff['creates']),
+                'updates'      => count($diff['updates']),
+                'deletes'      => count($diff['deletes']),
+                'dryRun'       => true,
+                'intents_seen' => count($intents),
+                'errors'       => $errors,
             ];
         }
 
-        // Apply path: validation must pass (truth gate)
+        // Apply: validation must pass (truth gate)
         if (!empty($errors)) {
             $msg = 'Scheduler apply aborted due to intent validation errors';
             GcsLogger::instance()->error($msg, ['errors' => $errors]);
             throw new RuntimeException($msg . ': ' . implode('; ', $errors));
         }
 
-        if (count($entriesDesired) === 0) {
+        // Load existing schedule.json
+        $existing = $this->readScheduleJsonOrThrow(self::SCHEDULE_JSON_PATH);
+        $beforeCount = count($existing);
+
+        // Compute plan (creates/updates/deletes) and the new schedule.json
+        $plan = $this->planApply($existing, $desiredEntries);
+
+        // If nothing changes, short-circuit
+        if (count($plan['creates']) === 0 && count($plan['updates']) === 0 && count($plan['deletes']) === 0) {
             return [
                 'adds'         => 0,
                 'updates'      => 0,
@@ -179,26 +186,22 @@ class SchedulerSync
             ];
         }
 
-        // Load existing schedule.json
-        $existing = $this->readScheduleJsonOrThrow(self::SCHEDULE_JSON_PATH);
-        $beforeCount = count($existing);
-
-        // Append-only
-        $newSchedule = array_merge($existing, $entriesDesired);
-
         // Backup + atomic write
         $backupPath = $this->backupScheduleFileOrThrow(self::SCHEDULE_JSON_PATH);
-        $this->writeScheduleJsonAtomicallyOrThrow(self::SCHEDULE_JSON_PATH, $newSchedule);
+        $this->writeScheduleJsonAtomicallyOrThrow(self::SCHEDULE_JSON_PATH, $plan['newSchedule']);
 
-        // Verify read-after-write via projection API
-        $verification = $this->verifyEntriesPresent($entriesDesired);
+        // Verify file contains expected keys (local read-after-write)
+        $this->verifyScheduleJsonKeysOrThrow($plan['expectedManagedKeys'], $plan['expectedDeletedKeys']);
+
+        // Verify presence via projection API for created/updated entries (tolerant to projection lag)
+        $verification = $this->verifyEntriesPresent(array_merge($plan['createsExpectedEntries'], $plan['updatesExpectedEntries']));
 
         if (!$verification['ok']) {
             $msg = 'Scheduler apply verification failed (schedule.json written but projection did not reflect expected entries)';
             GcsLogger::instance()->error($msg, [
-                'backup' => $backupPath,
-                'beforeCount' => $beforeCount,
-                'afterCount' => count($newSchedule),
+                'backup'       => $backupPath,
+                'beforeCount'  => $beforeCount,
+                'afterCount'   => count($plan['newSchedule']),
                 'verification' => $verification,
             ]);
 
@@ -206,17 +209,19 @@ class SchedulerSync
         }
 
         GcsLogger::instance()->info('Scheduler apply completed', [
-            'adds' => count($entriesDesired),
-            'backup' => $backupPath,
-            'beforeCount' => $beforeCount,
-            'afterCount' => count($newSchedule),
+            'creates'      => count($plan['creates']),
+            'updates'      => count($plan['updates']),
+            'deletes'      => count($plan['deletes']),
+            'backup'       => $backupPath,
+            'beforeCount'  => $beforeCount,
+            'afterCount'   => count($plan['newSchedule']),
             'verification' => $verification,
         ]);
 
         return [
-            'adds'         => count($entriesDesired),
-            'updates'      => 0,
-            'deletes'      => 0,
+            'adds'         => count($plan['creates']),
+            'updates'      => count($plan['updates']),
+            'deletes'      => count($plan['deletes']),
             'dryRun'       => false,
             'intents_seen' => count($intents),
             'errors'       => [],
@@ -229,8 +234,7 @@ class SchedulerSync
      * Returns arrays compatible with DiffPreviewer::normalizeResultForUi:
      *   ['creates'=>[], 'updates'=>[], 'deletes'=>[]]
      *
-     * For now this returns placeholder strings '(create)/(update)/(delete)' rather than full objects,
-     * keeping preview output lightweight.
+     * For preview UI, we return placeholders (create/update/delete) rather than full objects.
      *
      * @param array<int,array<string,mixed>> $desiredEntries
      * @return array{creates: array<int,mixed>, updates: array<int,mixed>, deletes: array<int,mixed>}
@@ -242,11 +246,8 @@ class SchedulerSync
         $existingByKey = [];
         foreach ($existingRaw as $ex) {
             if (!is_array($ex)) continue;
-
             $key = GcsSchedulerIdentity::extractKey($ex);
             if ($key === null) continue;
-
-            // last one wins if duplicates; that's fine for preview purposes
             $existingByKey[$key] = $ex;
         }
 
@@ -272,7 +273,7 @@ class SchedulerSync
 
             $existing = $existingByKey[$key];
 
-            if (!self::entriesEquivalentForPreview($existing, $d)) {
+            if (!self::entriesEquivalentForCompare($existing, $d)) {
                 $updates[] = '(update)';
             }
         }
@@ -292,12 +293,172 @@ class SchedulerSync
     }
 
     /**
-     * Preview equivalence: compare normalized structures, ignoring non-semantic fields.
+     * Plan apply: compute create/update/delete sets and build the next schedule.json.
+     *
+     * Ownership rule:
+     * - Entries WITHOUT a GCS key are preserved exactly as-is.
+     * - Entries WITH a GCS key are fully managed: replaced by desired entry if present, else deleted.
+     *
+     * @param array<int,array<string,mixed>> $existing
+     * @param array<int,array<string,mixed>> $desired
+     * @return array<string,mixed>
+     */
+    private function planApply(array $existing, array $desired): array
+    {
+        // Desired by key (last write wins if duplicates)
+        $desiredByKey = [];
+        $desiredKeysInOrder = [];
+
+        foreach ($desired as $d) {
+            if (!is_array($d)) continue;
+            $k = GcsSchedulerIdentity::extractKey($d);
+            if ($k === null) continue;
+
+            if (!isset($desiredByKey[$k])) {
+                $desiredKeysInOrder[] = $k;
+            }
+            $desiredByKey[$k] = $d;
+        }
+
+        // Existing managed entries by key
+        $existingManagedByKey = [];
+        $existingManagedKeysInOrder = [];
+
+        foreach ($existing as $ex) {
+            if (!is_array($ex)) continue;
+            $k = GcsSchedulerIdentity::extractKey($ex);
+            if ($k === null) continue;
+
+            if (!isset($existingManagedByKey[$k])) {
+                $existingManagedKeysInOrder[] = $k;
+            }
+            $existingManagedByKey[$k] = $ex;
+        }
+
+        $createsKeys = [];
+        $updatesKeys = [];
+        $deletesKeys = [];
+
+        // Creates + Updates (for keys present in desired)
+        foreach ($desiredByKey as $k => $d) {
+            if (!isset($existingManagedByKey[$k])) {
+                $createsKeys[] = $k;
+                continue;
+            }
+            if (!self::entriesEquivalentForCompare($existingManagedByKey[$k], $d)) {
+                $updatesKeys[] = $k;
+            }
+        }
+
+        // Deletes (existing managed keys not in desired)
+        foreach ($existingManagedByKey as $k => $_ex) {
+            if (!isset($desiredByKey[$k])) {
+                $deletesKeys[] = $k;
+            }
+        }
+
+        // Build new schedule:
+        // - iterate existing in order:
+        //   - unmanaged => keep
+        //   - managed => if desired exists, write desired; else drop
+        $newSchedule = [];
+        $keptOrReplacedManagedKeys = [];
+
+        foreach ($existing as $ex) {
+            if (!is_array($ex)) continue;
+
+            $k = GcsSchedulerIdentity::extractKey($ex);
+            if ($k === null) {
+                $newSchedule[] = $ex;
+                continue;
+            }
+
+            if (!isset($desiredByKey[$k])) {
+                // delete
+                continue;
+            }
+
+            $newSchedule[] = $desiredByKey[$k];
+            $keptOrReplacedManagedKeys[$k] = true;
+        }
+
+        // Append desired managed entries that did not exist at all (creates)
+        foreach ($desiredKeysInOrder as $k) {
+            if (!isset($keptOrReplacedManagedKeys[$k])) {
+                $newSchedule[] = $desiredByKey[$k];
+                $keptOrReplacedManagedKeys[$k] = true;
+            }
+        }
+
+        // Expected managed keys after apply = all desired managed keys
+        $expectedManagedKeys = array_keys($desiredByKey);
+
+        // For projection presence verification we use only created+updated entries (not deletes)
+        $createsExpectedEntries = [];
+        foreach ($createsKeys as $k) {
+            if (isset($desiredByKey[$k])) $createsExpectedEntries[] = $desiredByKey[$k];
+        }
+
+        $updatesExpectedEntries = [];
+        foreach ($updatesKeys as $k) {
+            if (isset($desiredByKey[$k])) $updatesExpectedEntries[] = $desiredByKey[$k];
+        }
+
+        return [
+            'creates'               => $createsKeys,
+            'updates'               => $updatesKeys,
+            'deletes'               => $deletesKeys,
+            'newSchedule'           => $newSchedule,
+            'expectedManagedKeys'   => $expectedManagedKeys,
+            'expectedDeletedKeys'   => $deletesKeys,
+            'createsExpectedEntries'=> $createsExpectedEntries,
+            'updatesExpectedEntries'=> $updatesExpectedEntries,
+        ];
+    }
+
+    /**
+     * Ensure schedule.json matches expected managed-key set after apply.
+     * - Every expected managed key must be present.
+     * - Every expected deleted key must be absent.
+     *
+     * This is a deterministic local truth gate (independent of projection lag).
+     *
+     * @param array<int,string> $expectedManagedKeys
+     * @param array<int,string> $expectedDeletedKeys
+     */
+    private function verifyScheduleJsonKeysOrThrow(array $expectedManagedKeys, array $expectedDeletedKeys): void
+    {
+        $after = self::readScheduleJsonStatic(self::SCHEDULE_JSON_PATH);
+
+        $managedPresent = [];
+        foreach ($after as $e) {
+            if (!is_array($e)) continue;
+            $k = GcsSchedulerIdentity::extractKey($e);
+            if ($k !== null) {
+                $managedPresent[$k] = true;
+            }
+        }
+
+        foreach ($expectedManagedKeys as $k) {
+            if (!isset($managedPresent[$k])) {
+                throw new RuntimeException("Post-write verification failed: expected managed key missing in schedule.json: {$k}");
+            }
+        }
+
+        foreach ($expectedDeletedKeys as $k) {
+            if (isset($managedPresent[$k])) {
+                throw new RuntimeException("Post-write verification failed: expected deleted key still present in schedule.json: {$k}");
+            }
+        }
+    }
+
+    /**
+     * Compare normalized structures, ignoring non-semantic fields.
      *
      * @param array<string,mixed> $a
      * @param array<string,mixed> $b
      */
-    private static function entriesEquivalentForPreview(array $a, array $b): bool
+    private static function entriesEquivalentForCompare(array $a, array $b): bool
     {
         unset($a['id'], $a['lastRun'], $b['id']);
         return self::normalizeEntryForCompare($a) === self::normalizeEntryForCompare($b);
@@ -395,11 +556,10 @@ class SchedulerSync
         }
 
         if ($shortDays === '') {
-            // Convert mask to short-days string for tag parity with legacy mapper
             $shortDays = (string)GcsIntentConsolidator::weekdayMaskToShortDays((int)$dayMask);
         }
 
-        // Canonical legacy identity tag (now stored in args[] for UI compatibility)
+        // Canonical identity tag stored in args[] for UI compatibility
         $tag = self::buildGcsV1Tag($uid, $startDate, $endDate, $shortDays);
 
         $stopType = self::coalesceInt($tpl, ['stopType', 'stop_type'], 0);
@@ -410,7 +570,7 @@ class SchedulerSync
             $args = array_values($tpl['args']);
         }
 
-        // Add tag to args exactly once (avoid duplicates if caller provided it)
+        // Add tag to args exactly once
         if ($tag !== '' && !self::argsContainsGcsV1Tag($args)) {
             $args[] = $tag;
         }
@@ -436,10 +596,8 @@ class SchedulerSync
         ];
 
         if ($type === 'playlist') {
-            // Keep playlist name clean so FPP UI can resolve it
             $entry['playlist'] = $target;
         } else {
-            // Command entries keep command name; playlist remains empty
             $entry['command']  = $target;
             $entry['playlist'] = '';
         }
@@ -453,7 +611,6 @@ class SchedulerSync
     private static function buildGcsV1Tag(string $uid, string $startDate, string $endDate, string $days): string
     {
         if ($uid === '') {
-            // No UID => no tag (keeps behavior safe; identity system can ignore)
             return '';
         }
         $range = $startDate . '..' . $endDate;
@@ -562,8 +719,16 @@ class SchedulerSync
         }
     }
 
+    /**
+     * Projection verification for presence of created/updated entries.
+     * Deletes are verified locally against schedule.json to avoid projection field ambiguity.
+     */
     private function verifyEntriesPresent(array $expectedEntries): array
     {
+        if (count($expectedEntries) === 0) {
+            return ['ok' => true, 'attempts' => 0, 'missing' => []];
+        }
+
         $attempts = 10;
         $sleepUs = 500000;        // 500ms between attempts
         $initialSleepUs = 750000; // allow scheduler to settle after schedule.json write
@@ -603,8 +768,8 @@ class SchedulerSync
         $missing = [];
 
         foreach ($expected as $exp) {
-            $expPlaylist = (string)($exp['playlist'] ?? '');
-            $expCommand  = (string)($exp['command'] ?? '');
+            $expPlaylist  = (string)($exp['playlist'] ?? '');
+            $expCommand   = (string)($exp['command'] ?? '');
             $expStartDate = $exp['startDate'] ?? null;
             $expStartTime = $exp['startTime'] ?? null;
 
