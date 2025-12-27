@@ -195,7 +195,7 @@ class SchedulerSync
 
         $existingByKey = [];
         foreach ($existingRaw as $ex) {
-            $key = GcsSchedulerIdentity::extractKey($ex);
+            $key = GcsSchedulerIdentity::extractUid($ex);
             if ($key === null) continue;
             $existingByKey[$key] = $ex;
         }
@@ -205,7 +205,7 @@ class SchedulerSync
         $seenKeys = [];
 
         foreach ($desiredEntries as $d) {
-            $key = GcsSchedulerIdentity::extractKey($d);
+            $key = GcsSchedulerIdentity::extractUid($d);
             if ($key === null) {
                 // Desired entry without identity is ignored
                 continue;
@@ -254,7 +254,7 @@ class SchedulerSync
         $desiredByKey = [];
         $desiredKeysInOrder = [];
         foreach ($desired as $d) {
-            $k = GcsSchedulerIdentity::extractKey($d);
+            $k = GcsSchedulerIdentity::extractUid($d);
             if ($k === null) continue;
             if (!isset($desiredByKey[$k])) {
                 $desiredKeysInOrder[] = $k;
@@ -265,7 +265,7 @@ class SchedulerSync
         // Existing managed entries by key
         $existingManagedByKey = [];
         foreach ($existing as $ex) {
-            $k = GcsSchedulerIdentity::extractKey($ex);
+            $k = GcsSchedulerIdentity::extractUid($ex);
             if ($k === null) continue;
             $existingManagedByKey[$k] = $ex;
         }
@@ -295,7 +295,7 @@ class SchedulerSync
         $writtenKeys = [];
 
         foreach ($existing as $ex) {
-            $k = GcsSchedulerIdentity::extractKey($ex);
+            $k = GcsSchedulerIdentity::extractUid($ex);
             if ($k === null) {
                 // Unmanaged: keep as-is
                 $newSchedule[] = $ex;
@@ -358,7 +358,7 @@ class SchedulerSync
         $present = [];
         foreach ($after as $e) {
             if (!is_array($e)) continue;
-            $k = GcsSchedulerIdentity::extractKey($e);
+            $k = GcsSchedulerIdentity::extractUid($e);
             if ($k !== null) $present[$k] = true;
         }
 
