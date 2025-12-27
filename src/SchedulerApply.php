@@ -159,6 +159,12 @@ final class GcsSchedulerApply
 
             $k = GcsSchedulerIdentity::extractKey($ex);
 
+            GcsLogger::instance()->info('APPLY DELETE CHECK', [
+                'existing_key' => $k,
+                'desired_keys' => array_keys($desiredByKey),
+                'will_delete'  => ($k !== null && !isset($desiredByKey[$k])),
+            ]);
+
             if ($k === null) {
                 // Unmanaged: keep as-is
                 $newSchedule[] = $ex;
