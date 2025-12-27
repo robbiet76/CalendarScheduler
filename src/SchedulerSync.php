@@ -358,8 +358,3 @@ final class SchedulerSync
         return $default;
     }
 }
-
-/**
- * Compatibility alias (kept for now)
- */
-class GcsSchedulerSync extends SchedulerSync {}
