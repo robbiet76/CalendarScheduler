@@ -25,7 +25,7 @@ final class SchedulerPlanner
      */
     public static function plan(array $config): array
     {
-        // 1. Build desired entries (calendar ingestion only)
+        // 1. Calendar ingestion → intents
         $runner = new GcsSchedulerRunner(
             $config,
             GcsFppSchedulerHorizon::getDays()
@@ -33,7 +33,9 @@ final class SchedulerPlanner
 
         $runnerResult = $runner->run();
 
+        // 2. Desired schedule entries
         $desired = [];
+
         if (!empty($runnerResult['intents']) && is_array($runnerResult['intents'])) {
             foreach ($runnerResult['intents'] as $intent) {
                 $entry = SchedulerSync::intentToScheduleEntryPublic($intent);
@@ -43,7 +45,7 @@ final class SchedulerPlanner
             }
         }
 
-        // 2. Load existing schedule.json (raw)
+        // 3. Load existing schedule.json
         $existingRaw = SchedulerSync::readScheduleJsonStatic(
             SchedulerSync::SCHEDULE_JSON_PATH
         );
@@ -55,11 +57,11 @@ final class SchedulerPlanner
             }
         }
 
-        // 3. Build immutable scheduler state
+        // 4. Immutable scheduler state
         $state = new GcsSchedulerState($existingEntries);
 
-        // 4. Compute diff
-        $diff = new GcsSchedulerDiff($desired, $state)->compute();
+        // 5. Compute diff
+        $diff = (new GcsSchedulerDiff($desired, $state))->compute();
 
         return [
             'creates'        => $diff->creates(),
