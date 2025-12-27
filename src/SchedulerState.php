@@ -4,22 +4,14 @@ declare(strict_types=1);
 final class GcsSchedulerState
 {
     /** @var array<int,GcsExistingScheduleEntry> */
-    private array $entries = [];
+    private array $entries;
 
     /**
-     * Create an empty scheduler state.
-     * Population is explicit via add().
+     * @param array<int,GcsExistingScheduleEntry> $entries
      */
-    public function __construct()
+    public function __construct(array $entries)
     {
-    }
-
-    /**
-     * Add an existing scheduler entry to state.
-     */
-    public function add(GcsExistingScheduleEntry $entry): void
-    {
-        $this->entries[] = $entry;
+        $this->entries = $entries;
     }
 
     /**

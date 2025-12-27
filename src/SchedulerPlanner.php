@@ -4,82 +4,69 @@ declare(strict_types=1);
 /**
  * SchedulerPlanner
  *
- * Planning-only entry point.
- * NEVER writes to FPP scheduler.
+ * Planning-only entry point for scheduler diffs.
+ *
+ * Responsibilities:
+ * - Fetch Google Calendar
+ * - Resolve desired scheduler entries
+ * - Load existing scheduler state
+ * - Compute create/update/delete diff
+ *
+ * GUARANTEES:
+ * - NEVER writes to FPP scheduler
  */
 final class SchedulerPlanner
 {
     /**
-     * Compute scheduler diff (plan-only).
+     * Compute a scheduler plan (diff) without side effects.
      *
      * @param array $config
-     * @return array{
-     *   creates: array,
-     *   updates: array,
-     *   deletes: array,
-     *   desiredEntries: array,
-     *   existingRaw: array
-     * }
+     * @return array{creates:array,updates:array,deletes:array,desiredEntries:array,existingRaw:array}
      */
     public static function plan(array $config): array
     {
-        // 1. Calendar ingestion → intents (PURE)
+        // 1. Build desired entries (calendar ingestion only)
         $runner = new GcsSchedulerRunner(
             $config,
             GcsFppSchedulerHorizon::getDays()
         );
 
-        $result = $runner->run();
-        if (empty($result['ok']) || empty($result['intents'])) {
-            return self::emptyPlan();
-        }
+        $runnerResult = $runner->run();
 
-        // 2. Map intents → desired scheduler entries (PURE)
-        $desiredEntries = [];
-        foreach ($result['intents'] as $intent) {
-            if (!is_array($intent)) {
-                continue;
-            }
-
-            $entry = SchedulerSync::intentToScheduleEntryPublic($intent);
-            if (is_array($entry)) {
-                $desiredEntries[] = $entry;
+        $desired = [];
+        if (!empty($runnerResult['intents']) && is_array($runnerResult['intents'])) {
+            foreach ($runnerResult['intents'] as $intent) {
+                $entry = SchedulerSync::intentToScheduleEntryPublic($intent);
+                if (is_array($entry)) {
+                    $desired[] = $entry;
+                }
             }
         }
 
-        // 3. Load existing schedule.json
+        // 2. Load existing schedule.json (raw)
         $existingRaw = SchedulerSync::readScheduleJsonStatic(
             SchedulerSync::SCHEDULE_JSON_PATH
         );
 
-        $state = new GcsSchedulerState();
+        $existingEntries = [];
         foreach ($existingRaw as $row) {
             if (is_array($row)) {
-                $state->add(new GcsExistingScheduleEntry($row));
+                $existingEntries[] = new GcsExistingScheduleEntry($row);
             }
         }
 
+        // 3. Build immutable scheduler state
+        $state = new GcsSchedulerState($existingEntries);
+
         // 4. Compute diff
-        $diff = new GcsSchedulerDiff($desiredEntries, $state);
-        $res  = $diff->compute();
+        $diff = new GcsSchedulerDiff($desired, $state)->compute();
 
         return [
-            'creates'        => $res->creates(),
-            'updates'        => $res->updates(),
-            'deletes'        => $res->deletes(),
-            'desiredEntries' => $desiredEntries,
+            'creates'        => $diff->creates(),
+            'updates'        => $diff->updates(),
+            'deletes'        => $diff->deletes(),
+            'desiredEntries' => $desired,
             'existingRaw'    => $existingRaw,
-        ];
-    }
-
-    private static function emptyPlan(): array
-    {
-        return [
-            'creates'        => [],
-            'updates'        => [],
-            'deletes'        => [],
-            'desiredEntries' => [],
-            'existingRaw'    => [],
         ];
     }
 }
