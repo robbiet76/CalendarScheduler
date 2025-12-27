@@ -79,7 +79,8 @@ if (isset($_GET['endpoint'])) {
             exit;
         }
 
-        // Preview (plan-only, normalized for UI)
+
+        // Preview (plan-only)
         if ($_GET['endpoint'] === 'experimental_diff') {
             if (empty($cfg['experimental']['enabled'])) {
                 echo json_encode(['ok' => false]);
@@ -87,11 +88,17 @@ if (isset($_GET['endpoint'])) {
             }
 
             $plan = SchedulerPlanner::plan($cfg);
-            $norm = DiffPreviewer::normalizeResultForUi(['diff' => $plan]);
 
+            // Always return full plan payload (Phase 18 debugging + apply parity)
             echo json_encode([
                 'ok'   => true,
-                'diff' => $norm,
+                'diff' => [
+                    'creates'        => (isset($plan['creates']) && is_array($plan['creates'])) ? $plan['creates'] : [],
+                    'updates'        => (isset($plan['updates']) && is_array($plan['updates'])) ? $plan['updates'] : [],
+                    'deletes'        => (isset($plan['deletes']) && is_array($plan['deletes'])) ? $plan['deletes'] : [],
+                    'desiredEntries' => (isset($plan['desiredEntries']) && is_array($plan['desiredEntries'])) ? $plan['desiredEntries'] : [],
+                    'existingRaw'    => (isset($plan['existingRaw']) && is_array($plan['existingRaw'])) ? $plan['existingRaw'] : [],
+                ],
             ]);
             exit;
         }
