@@ -14,7 +14,6 @@ declare(strict_types=1);
  *
  * GUARANTEES:
  * - NEVER writes to FPP scheduler
- * - NEVER instantiates SchedulerSync in apply mode
  * - Safe to call from UI load, Sync, Preview
  */
 final class SchedulerPlanner
@@ -38,9 +37,10 @@ final class SchedulerPlanner
             $dryRun
         );
 
+        // In dry-run, SchedulerSync returns ['diff'=>['creates'=>..,'updates'=>..,'deletes'=>..]]
         $result = $runner->run();
 
-        // Normalize result to diff arrays
+        // Normalize result to diff arrays (DiffPreviewer already knows how)
         return DiffPreviewer::normalizeResultForUi($result);
     }
 }

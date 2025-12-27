@@ -4,15 +4,14 @@ declare(strict_types=1);
 /**
  * Scheduler identity helper.
  *
- * CANONICAL RULE:
- * - Identity is derived from GCS UID ONLY
- * - UID is extracted from args[] entries containing a |GCS:v1| tag
- *
  * Stored tag format (args[]):
  *   |GCS:v1|uid=<uid>|range=<start..end>|days=<shortdays>
  *
  * Canonical identity key:
  *   gcs:v1:<uid>
+ *
+ * IMPORTANT:
+ * - Identity is UID-only. range/days are metadata and may change.
  */
 final class GcsSchedulerIdentity
 {
@@ -23,22 +22,18 @@ final class GcsSchedulerIdentity
      * Extract canonical identity key from a scheduler entry.
      *
      * @param array<string,mixed> $entry
-     * @return string|null  Canonical key (gcs:v1:<uid>) or null if not managed
      */
     public static function extractKey(array $entry): ?string
     {
         $uid = self::extractUid($entry);
-        if ($uid === null) {
-            return null;
-        }
+        if ($uid === null) return null;
         return self::KEY_PREFIX . $uid;
     }
 
     /**
-     * Extract GCS UID from args[] tag.
+     * Extract UID from args[] tag.
      *
      * @param array<string,mixed> $entry
-     * @return string|null
      */
     public static function extractUid(array $entry): ?string
     {
@@ -53,7 +48,8 @@ final class GcsSchedulerIdentity
 
             // Expected: |GCS:v1|uid=<uid>|range=...|days=...
             if (preg_match('/\|GCS:v1\|uid=([^|]+)/', $a, $m) === 1) {
-                return $m[1];
+                $uid = (string)$m[1];
+                return ($uid !== '') ? $uid : null;
             }
         }
 
