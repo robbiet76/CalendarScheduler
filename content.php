@@ -65,31 +65,33 @@ if (isset($_GET['endpoint'])) {
                 exit;
             }
 
-            $diff = SchedulerPlanner::plan($cfg);
+            $plan = SchedulerPlanner::plan($cfg);
+            $norm = DiffPreviewer::normalizeResultForUi(['diff' => $plan]);
 
             echo json_encode([
                 'ok' => true,
                 'counts' => [
-                    'creates' => count($diff['creates']),
-                    'updates' => count($diff['updates']),
-                    'deletes' => count($diff['deletes']),
+                    'creates' => count($norm['creates']),
+                    'updates' => count($norm['updates']),
+                    'deletes' => count($norm['deletes']),
                 ],
             ]);
             exit;
         }
 
-        // Preview (plan-only)
+        // Preview (plan-only, normalized for UI)
         if ($_GET['endpoint'] === 'experimental_diff') {
             if (empty($cfg['experimental']['enabled'])) {
                 echo json_encode(['ok' => false]);
                 exit;
             }
 
-            $diff = SchedulerPlanner::plan($cfg);
+            $plan = SchedulerPlanner::plan($cfg);
+            $norm = DiffPreviewer::normalizeResultForUi(['diff' => $plan]);
 
             echo json_encode([
                 'ok'   => true,
-                'diff' => $diff,
+                'diff' => $norm,
             ]);
             exit;
         }
