@@ -1,15 +1,6 @@
 <?php
 declare(strict_types=1);
 
-/**
- * GcsSchedulerState
- *
- * Phase 17 contract:
- * - Pure container for existing scheduler entries
- * - No file I/O
- * - No implicit loading
- * - Planner injects existing entries explicitly
- */
 final class GcsSchedulerState
 {
     /** @var array<int,GcsExistingScheduleEntry> */
