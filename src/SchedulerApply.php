@@ -17,35 +17,41 @@ final class GcsSchedulerApply
 
         $dryRun = !empty($cfg['runtime']['dry_run']);
 
-        // Counts from the planner diff (authoritative preview)
-        $counts = [
-            'creates' => isset($plan['creates']) && is_array($plan['creates']) ? count($plan['creates']) : 0,
-            'updates' => isset($plan['updates']) && is_array($plan['updates']) ? count($plan['updates']) : 0,
-            'deletes' => isset($plan['deletes']) && is_array($plan['deletes']) ? count($plan['deletes']) : 0,
+        // Extract authoritative plan inputs
+        $existing = (isset($plan['existingRaw']) && is_array($plan['existingRaw'])) ? $plan['existingRaw'] : [];
+        $desired  = (isset($plan['desiredEntries']) && is_array($plan['desiredEntries'])) ? $plan['desiredEntries'] : [];
+
+        // Planner diff counts (preview-oriented)
+        $previewCounts = [
+            'creates' => (isset($plan['creates']) && is_array($plan['creates'])) ? count($plan['creates']) : 0,
+            'updates' => (isset($plan['updates']) && is_array($plan['updates'])) ? count($plan['updates']) : 0,
+            'deletes' => (isset($plan['deletes']) && is_array($plan['deletes'])) ? count($plan['deletes']) : 0,
         ];
 
-        // If dry-run, do NOT write; just return counts and plan state
+        // If dry-run, do NOT write; just return counts and plan state (useful for debugging)
         if ($dryRun) {
             return [
-                'ok' => true,
-                'dryRun' => true,
-                'counts' => $counts,
+                'ok'            => true,
+                'dryRun'        => true,
+                'counts'        => $previewCounts,
+                'creates'       => $plan['creates'] ?? [],
+                'updates'       => $plan['updates'] ?? [],
+                'deletes'       => $plan['deletes'] ?? [],
+                'desiredEntries'=> $desired,
+                'existingRaw'   => $existing,
             ];
         }
 
         // Live apply: build new schedule.json from existingRaw + desiredEntries (single truth)
-        $existing = (isset($plan['existingRaw']) && is_array($plan['existingRaw'])) ? $plan['existingRaw'] : [];
-        $desired  = (isset($plan['desiredEntries']) && is_array($plan['desiredEntries'])) ? $plan['desiredEntries'] : [];
-
         $applyPlan = self::planApply($existing, $desired);
 
         // If no changes, return noop
         if (count($applyPlan['creates']) === 0 && count($applyPlan['updates']) === 0 && count($applyPlan['deletes']) === 0) {
             return [
-                'ok' => true,
+                'ok'     => true,
                 'dryRun' => false,
                 'counts' => ['creates' => 0, 'updates' => 0, 'deletes' => 0],
-                'noop' => true,
+                'noop'   => true,
             ];
         }
 
@@ -57,7 +63,7 @@ final class GcsSchedulerApply
         SchedulerSync::verifyScheduleJsonKeysOrThrow($applyPlan['expectedManagedKeys'], $applyPlan['expectedDeletedKeys']);
 
         return [
-            'ok' => true,
+            'ok'     => true,
             'dryRun' => false,
             'counts' => [
                 'creates' => count($applyPlan['creates']),
@@ -84,13 +90,18 @@ final class GcsSchedulerApply
         // Desired entries by key (keep insertion order for appends)
         $desiredByKey = [];
         $desiredKeysInOrder = [];
+
         foreach ($desired as $d) {
             if (!is_array($d)) continue;
+
             $k = GcsSchedulerIdentity::extractUid($d);
             if ($k === null) continue;
+
             if (!isset($desiredByKey[$k])) {
                 $desiredKeysInOrder[] = $k;
             }
+
+            // Last writer wins for same UID (deterministic)
             $desiredByKey[$k] = $d;
         }
 
@@ -98,8 +109,10 @@ final class GcsSchedulerApply
         $existingManagedByKey = [];
         foreach ($existing as $ex) {
             if (!is_array($ex)) continue;
+
             $k = GcsSchedulerIdentity::extractUid($ex);
             if ($k === null) continue;
+
             $existingManagedByKey[$k] = $ex;
         }
 
@@ -112,6 +125,7 @@ final class GcsSchedulerApply
                 $createsKeys[] = $k;
                 continue;
             }
+
             if (!self::entriesEquivalentForCompare($existingManagedByKey[$k], $d)) {
                 $updatesKeys[] = $k;
             }
@@ -131,6 +145,7 @@ final class GcsSchedulerApply
             if (!is_array($ex)) continue;
 
             $k = GcsSchedulerIdentity::extractUid($ex);
+
             if ($k === null) {
                 // Unmanaged: keep as-is
                 $newSchedule[] = $ex;
