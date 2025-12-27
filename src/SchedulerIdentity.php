@@ -7,11 +7,15 @@
  * - Prefer canonical v1 tag stored in args[]:
  *   |GCS:v1|uid=<uid>|range=<start..end>|days=<shortdays>
  *
+ * Transitional tolerance (Phase 17.2):
+ * - Some planner/mapper paths may still append the v1 tag to the playlist field:
+ *   <PlaylistName>|GCS:v1|uid=...|range=...|days=...
+ *   We must extract identity from either location so plan-only preview can match
+ *   already-applied entries.
+ *
  * Legacy compatibility:
  * - Older code may have used $entry['tag'] with:
  *   gcs:v1:<uid>
- *
- * Phase 17.2 unifies identity extraction here so callers do not implement their own parsing.
  */
 final class GcsSchedulerIdentity
 {
@@ -21,7 +25,7 @@ final class GcsSchedulerIdentity
     public const TAG_PREFIX = 'gcs:v1:';
 
     /**
-     * Canonical v1 prefix stored in args[]:
+     * Canonical v1 prefix stored in args[] (and sometimes embedded in playlist during transition):
      * |GCS:v1|uid=...|range=...|days=...
      */
     public const V1_PREFIX = '|GCS:v1|';
@@ -38,8 +42,13 @@ final class GcsSchedulerIdentity
     {
         // Canonical: stored in args[]
         $v1 = self::findV1TagInArgs($entry);
+
+        // Transitional: tag appended to playlist field
+        if ($v1 === null) {
+            $v1 = self::findV1TagInPlaylist($entry);
+        }
+
         if ($v1 !== null) {
-            // Return substring after prefix to form a stable map key
             $key = substr($v1, strlen(self::V1_PREFIX));
             return ($key !== '') ? $key : null;
         }
@@ -47,7 +56,6 @@ final class GcsSchedulerIdentity
         // Legacy: stored in tag field (uid-only)
         $uid = self::extractLegacyUid($entry);
         if ($uid !== null) {
-            // Legacy entries cannot supply range/days; return a key that is stable for uid-only
             return 'uid=' . $uid;
         }
 
@@ -57,7 +65,7 @@ final class GcsSchedulerIdentity
     /**
      * Extract UID (best-effort) from entry.
      *
-     * - If v1 args tag exists, parse uid=<uid> from it.
+     * - If v1 tag exists (args or playlist), parse uid=<uid> from it.
      * - Else fallback to legacy tag field (gcs:v1:<uid>).
      *
      * @param array<string,mixed> $entry
@@ -65,6 +73,10 @@ final class GcsSchedulerIdentity
     public static function extractUid(array $entry): ?string
     {
         $v1 = self::findV1TagInArgs($entry);
+        if ($v1 === null) {
+            $v1 = self::findV1TagInPlaylist($entry);
+        }
+
         if ($v1 !== null) {
             $parts = self::parseV1Tag($v1);
             $uid = $parts['uid'] ?? null;
@@ -138,7 +150,6 @@ final class GcsSchedulerIdentity
                 return $a;
             }
             if (strpos($a, self::V1_PREFIX) !== false) {
-                // If embedded, attempt to extract starting at prefix
                 $pos = strpos($a, self::V1_PREFIX);
                 $sub = substr($a, (int)$pos);
                 return ($sub !== '') ? $sub : null;
@@ -146,6 +157,28 @@ final class GcsSchedulerIdentity
         }
 
         return null;
+    }
+
+    /**
+     * Transitional support: find v1 tag appended to playlist field:
+     *   <PlaylistName>|GCS:v1|uid=...|range=...|days=...
+     *
+     * @param array<string,mixed> $entry
+     */
+    private static function findV1TagInPlaylist(array $entry): ?string
+    {
+        $p = $entry['playlist'] ?? null;
+        if (!is_string($p) || $p === '') {
+            return null;
+        }
+
+        $pos = strpos($p, self::V1_PREFIX);
+        if ($pos === false) {
+            return null;
+        }
+
+        $sub = substr($p, (int)$pos);
+        return ($sub !== '') ? $sub : null;
     }
 
     /**
