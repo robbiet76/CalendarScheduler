@@ -94,7 +94,7 @@ final class GcsSchedulerApply
         foreach ($desired as $d) {
             if (!is_array($d)) continue;
 
-            $k = GcsSchedulerIdentity::extractUid($d);
+            $k = GcsSchedulerIdentity::extractKey($d);
             if ($k === null) continue;
 
             if (!isset($desiredByKey[$k])) {
@@ -110,7 +110,7 @@ final class GcsSchedulerApply
         foreach ($existing as $ex) {
             if (!is_array($ex)) continue;
 
-            $k = GcsSchedulerIdentity::extractUid($ex);
+            $k = GcsSchedulerIdentity::extractKey($ex);
             if ($k === null) continue;
 
             $existingManagedByKey[$k] = $ex;
@@ -144,7 +144,7 @@ final class GcsSchedulerApply
         foreach ($existing as $ex) {
             if (!is_array($ex)) continue;
 
-            $k = GcsSchedulerIdentity::extractUid($ex);
+            $k = GcsSchedulerIdentity::extractKey($ex);
 
             if ($k === null) {
                 // Unmanaged: keep as-is

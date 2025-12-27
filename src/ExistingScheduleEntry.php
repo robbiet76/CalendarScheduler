@@ -25,7 +25,7 @@ final class GcsExistingScheduleEntry
      */
     public function getGcsUid(): ?string
     {
-        return GcsSchedulerIdentity::extractUid($this->raw);
+        return GcsSchedulerIdentity::extractKey($this->raw);
     }
 
     /**

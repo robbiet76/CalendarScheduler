@@ -142,7 +142,7 @@ final class DiffPreviewer
      */
     private static function normalizeEntryRow(array $entry, string $type): array
     {
-        $uid = GcsSchedulerIdentity::extractUid($entry);
+        $uid = GcsSchedulerIdentity::extractKey($entry);
 
         return [
             'type'      => $type,
