@@ -122,8 +122,14 @@ if (isset($_GET['endpoint'])) {
     }
 }
 
+$icsUrl = trim($cfg['calendar']['ics_url'] ?? '');
 $dryRun = !empty($cfg['runtime']['dry_run']);
-$hasIcs = !empty($cfg['calendar']['ics_url']);
+
+function looksLikeIcs(string $url): bool {
+    return (bool)preg_match('#^https?://.+\.ics$#i', $url);
+}
+
+$isIcsValid = looksLikeIcs($icsUrl);
 ?>
 
 <div class="settings">
@@ -131,9 +137,17 @@ $hasIcs = !empty($cfg['calendar']['ics_url']);
 <div id="gcs-status-bar" class="gcs-status gcs-status--info">
     <span class="gcs-status-dot"></span>
     <span class="gcs-status-text">
-        <?php echo $hasIcs
-            ? 'Ready — check calendar for changes.'
-            : 'Configure a Google Calendar to begin.'; ?>
+        <?php
+        if ($icsUrl === '') {
+            echo 'Enter a Google Calendar ICS URL to begin.';
+        } elseif (!$isIcsValid) {
+            echo 'Please enter a valid Google Calendar ICS (.ics) URL.';
+        } elseif ($dryRun) {
+            echo 'Developer mode: changes will NOT be written to the scheduler.';
+        } else {
+            echo 'Ready — check calendar for changes.';
+        }
+        ?>
     </span>
 </div>
 
@@ -142,18 +156,30 @@ $hasIcs = !empty($cfg['calendar']['ics_url']);
 
     <div class="setting">
         <label><strong>Google Calendar ICS URL</strong></label><br>
-        <input type="text" name="ics_url" size="100"
-            value="<?php echo htmlspecialchars($cfg['calendar']['ics_url'] ?? '', ENT_QUOTES); ?>">
+        <input
+            type="text"
+            name="ics_url"
+            size="100"
+            id="gcs-ics-input"
+            value="<?php echo htmlspecialchars($icsUrl, ENT_QUOTES); ?>"
+        >
     </div>
 
-    <div class="setting">
+    <button
+        type="submit"
+        class="buttons"
+        id="gcs-save-btn"
+        <?php if (!$isIcsValid) echo 'disabled'; ?>
+    >
+        Save Settings
+    </button>
+
+    <div class="gcs-dev-toggle">
         <label>
             <input type="checkbox" name="dry_run" <?php if ($dryRun) echo 'checked'; ?>>
-            Dry run (do not modify FPP scheduler)
+            Developer mode: dry run
         </label>
     </div>
-
-    <button type="submit" class="buttons">Save Settings</button>
 </form>
 
 <div class="gcs-diff-preview">
@@ -189,6 +215,13 @@ $hasIcs = !empty($cfg['calendar']['ics_url']);
 .gcs-status--success { background:#e6f6ea; color:#1e7f43; }
 .gcs-status--warning { background:#fff4e5; color:#9a5b00; }
 .gcs-status--error   { background:#fdecea; color:#b42318; }
+
+.gcs-dev-toggle {
+    margin-top:8px;
+    text-align:right;
+    font-size:0.85em;
+    opacity:0.85;
+}
 </style>
 
 <script>
@@ -203,6 +236,18 @@ var diffSummary = document.getElementById('gcs-diff-summary');
 var previewActions = document.getElementById('gcs-preview-actions');
 var applyBtn = document.getElementById('gcs-apply-btn');
 var closePreviewBtn = document.getElementById('gcs-close-preview-btn');
+var saveBtn = document.getElementById('gcs-save-btn');
+var icsInput = document.getElementById('gcs-ics-input');
+
+function looksLikeIcs(url) {
+    return /^https?:\/\/.+\.ics$/i.test(url);
+}
+
+icsInput.addEventListener('input', function () {
+    saveBtn.disabled = !looksLikeIcs(icsInput.value.trim());
+});
+
+/* existing Phase 19 logic below remains unchanged */
 
 function gcsSetStatus(level, message) {
     var bar = document.getElementById('gcs-status-bar');
