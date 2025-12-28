@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
 
         if ($_POST['action'] === 'save') {
+            // Empty URL is allowed (clears configuration)
             $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
             $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
 
@@ -129,7 +130,9 @@ function looksLikeIcs(string $url): bool {
     return (bool)preg_match('#^https?://.+\.ics$#i', $url);
 }
 
-$isIcsValid = looksLikeIcs($icsUrl);
+$isEmpty    = ($icsUrl === '');
+$isIcsValid = (!$isEmpty && looksLikeIcs($icsUrl));
+$canSave    = ($isEmpty || $isIcsValid);
 ?>
 
 <div class="settings">
@@ -138,7 +141,7 @@ $isIcsValid = looksLikeIcs($icsUrl);
     <span class="gcs-status-dot"></span>
     <span class="gcs-status-text">
         <?php
-        if ($icsUrl === '') {
+        if ($isEmpty) {
             echo 'Enter a Google Calendar ICS URL to begin.';
         } elseif (!$isIcsValid) {
             echo 'Please enter a valid Google Calendar ICS (.ics) URL.';
@@ -165,11 +168,13 @@ $isIcsValid = looksLikeIcs($icsUrl);
         >
     </div>
 
+    <!-- spacing added here -->
     <button
         type="submit"
         class="buttons"
         id="gcs-save-btn"
-        <?php if (!$isIcsValid) echo 'disabled'; ?>
+        style="margin-top:8px;"
+        <?php if (!$canSave) echo 'disabled'; ?>
     >
         Save Settings
     </button>
@@ -244,7 +249,8 @@ function looksLikeIcs(url) {
 }
 
 icsInput.addEventListener('input', function () {
-    saveBtn.disabled = !looksLikeIcs(icsInput.value.trim());
+    var val = icsInput.value.trim();
+    saveBtn.disabled = !(val === '' || looksLikeIcs(val));
 });
 
 /* existing Phase 19 logic below remains unchanged */
