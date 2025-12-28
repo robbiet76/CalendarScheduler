@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * GoogleCalendarScheduler
- * content.php (Phase 19.1 UI rewrite)
+ * content.php (Phase 19.1 UI rewrite – ready state fix)
  */
 
 require_once __DIR__ . '/src/bootstrap.php';
@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 /*
  * --------------------------------------------------------------------
- * AJAX endpoints (JSON only)
+ * AJAX endpoints
  * --------------------------------------------------------------------
  */
 if (isset($_GET['endpoint'])) {
@@ -135,7 +135,6 @@ if (isset($_GET['endpoint'])) {
   <!-- Preview Panel -->
   <div id="gcs-preview-panel" class="gcs-panel hidden">
     <h3>Scheduler Change Preview</h3>
-    <div id="gcs-preview-summary"></div>
     <pre id="gcs-preview-table"></pre>
 
     <div class="gcs-actions">
@@ -201,12 +200,12 @@ const GCS_STATE = {
     creates: 0,
     updates: 0,
     deletes: 0,
-    loaded: false
+    loaded: false,
+    checkedOnce: false
   },
   diffPayload: null,
   apply: {
     inProgress: false,
-    error: null,
     dryRun: false
   }
 };
@@ -219,17 +218,30 @@ function isValidIcsUrl(url) {
 }
 
 function deriveMode() {
-  if (!GCS_STATE.config.calendarUrlValid) return 'setup';
-  if (!GCS_STATE.plan.loaded) return 'offline';
+  if (!GCS_STATE.config.calendarUrlValid) {
+    return 'setup';
+  }
+
+  if (!GCS_STATE.plan.checkedOnce) {
+    return 'ready';
+  }
 
   const total =
     GCS_STATE.plan.creates +
     GCS_STATE.plan.updates +
     GCS_STATE.plan.deletes;
 
-  if (GCS_STATE.apply.inProgress) return 'applying';
-  if (total === 0) return 'in_sync';
-  if (GCS_STATE.diffPayload) return 'preview';
+  if (GCS_STATE.apply.inProgress) {
+    return 'applying';
+  }
+
+  if (total === 0) {
+    return 'in_sync';
+  }
+
+  if (GCS_STATE.diffPayload) {
+    return 'preview';
+  }
 
   return 'changes_detected';
 }
@@ -250,10 +262,10 @@ function render() {
         'Google Calendar is not configured. Please enter a valid ICS URL.';
       break;
 
-    case 'offline':
-      status.classList.add('warning');
+    case 'ready':
+      status.classList.add('info');
       status.textContent =
-        'Unable to reach Google Calendar. Using last known state.';
+        'Google Calendar configured. Ready to check for scheduler changes.';
       break;
 
     case 'in_sync':
@@ -291,8 +303,8 @@ function render() {
 }
 
 function toggle(id, show) {
-  const el = document.getElementById(id);
-  el.classList.toggle('hidden', !show);
+  document.getElementById(id)
+    .classList.toggle('hidden', !show);
 }
 
 /* ============================================================
@@ -310,13 +322,13 @@ function refreshPlan() {
         creates: d.counts.creates,
         updates: d.counts.updates,
         deletes: d.counts.deletes,
-        loaded: true
+        loaded: true,
+        checkedOnce: true
       };
       GCS_STATE.diffPayload = null;
       render();
     })
     .catch(() => {
-      GCS_STATE.plan.loaded = false;
       render();
     });
 }
@@ -345,7 +357,9 @@ saveBtn.addEventListener('click', () => {
       action: 'save',
       ics_url: urlInput.value
     })
-  }).then(refreshPlan);
+  }).then(() => {
+    refreshPlan();
+  });
 });
 
 previewBtn.addEventListener('click', () => {
