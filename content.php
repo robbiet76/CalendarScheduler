@@ -168,7 +168,6 @@ $canSave    = ($isEmpty || $isIcsValid);
         >
     </div>
 
-    <!-- spacing added here -->
     <button
         type="submit"
         class="buttons"
@@ -253,7 +252,7 @@ icsInput.addEventListener('input', function () {
     saveBtn.disabled = !(val === '' || looksLikeIcs(val));
 });
 
-/* existing Phase 19 logic below remains unchanged */
+/* Phase 19 status precedence logic */
 
 function gcsSetStatus(level, message) {
     var bar = document.getElementById('gcs-status-bar');
@@ -282,6 +281,23 @@ function showPreviewButton() { previewBtn.classList.remove('gcs-hidden'); }
 function hidePreviewButton() { previewBtn.classList.add('gcs-hidden'); }
 
 function runPlanStatus() {
+    var val = icsInput.value.trim();
+
+    // Configuration state always wins
+    if (val === '') {
+        gcsSetStatus('info', 'Enter a Google Calendar ICS URL to begin.');
+        hidePreviewButton();
+        hidePreviewUi();
+        return;
+    }
+
+    if (!looksLikeIcs(val)) {
+        gcsSetStatus('warning', 'Please enter a valid Google Calendar ICS (.ics) URL.');
+        hidePreviewButton();
+        hidePreviewUi();
+        return;
+    }
+
     return fetch(ENDPOINT + '&endpoint=experimental_plan_status')
         .then(r => r.json())
         .then(d => {
