@@ -88,7 +88,6 @@ if (isset($_GET['endpoint'])) {
 
             $plan = SchedulerPlanner::plan($cfg);
 
-            // Always return full plan payload
             echo json_encode([
                 'ok'   => true,
                 'diff' => [
@@ -124,29 +123,21 @@ if (isset($_GET['endpoint'])) {
 }
 
 $dryRun = !empty($cfg['runtime']['dry_run']);
+$hasIcs = !empty($cfg['calendar']['ics_url']);
 ?>
 
 <div class="settings">
 
 <!-- ========================================================= -->
-<!-- Phase 19.1: Authoritative Status Bar (UI only, additive) -->
+<!-- Phase 19: Authoritative Status Bar -->
 <!-- ========================================================= -->
 <div id="gcs-status-bar" class="gcs-status gcs-status--info">
     <span class="gcs-status-dot"></span>
-    <span class="gcs-status-text">Ready — calendar configured</span>
-</div>
-
-<div id="gcs-sync-status" class="gcs-hidden gcs-warning" style="margin-bottom:12px;"></div>
-
-<!-- APPLY MODE BANNER -->
-<div class="gcs-mode-banner <?php echo $dryRun ? 'gcs-mode-dry' : 'gcs-mode-live'; ?>">
-<?php if ($dryRun): ?>
-    ⚠️ <strong>Apply mode: Dry-run</strong><br>
-    Scheduler changes will <strong>NOT</strong> be written.
-<?php else: ?>
-    ✅ <strong>Apply mode: Live</strong><br>
-    Scheduler changes <strong>WILL</strong> be written (only when you click Apply).
-<?php endif; ?>
+    <span class="gcs-status-text">
+        <?php echo $hasIcs
+            ? 'Ready — check calendar for changes.'
+            : 'Configure a Google Calendar to begin.'; ?>
+    </span>
 </div>
 
 <form method="post">
@@ -197,11 +188,6 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 
 <style>
 .gcs-hidden { display:none; }
-.gcs-warning { padding:10px; background:#fff3cd; border:1px solid #ffeeba; border-radius:6px; }
-
-.gcs-mode-banner { padding:10px; border-radius:6px; margin-bottom:12px; font-weight:bold; }
-.gcs-mode-dry { background:#eef5ff; border:1px solid #cfe2ff; }
-.gcs-mode-live { background:#e6f4ea; border:1px solid #b7e4c7; }
 
 .gcs-summary-row {
     display:flex;
@@ -212,7 +198,7 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
     white-space:nowrap;
 }
 
-/* Phase 19.1 Status Bar */
+/* Phase 19 Status Bar */
 .gcs-status {
     display:flex;
     align-items:center;
@@ -241,7 +227,6 @@ $dryRun = !empty($cfg['runtime']['dry_run']);
 var ENDPOINT =
   'plugin.php?_menu=content&plugin=GoogleCalendarScheduler&page=content.php&nopage=1';
 
-var statusBox  = document.getElementById('gcs-sync-status');
 var previewBtn = document.getElementById('gcs-preview-btn');
 var applyBtn   = document.getElementById('gcs-apply-btn');
 
@@ -249,7 +234,6 @@ var diffSummary = document.getElementById('gcs-diff-summary');
 var applyBox    = document.getElementById('gcs-apply-container');
 var applyResult = document.getElementById('gcs-apply-result');
 
-/* Phase 19.1 status helper (UI only) */
 function gcsSetStatus(level, message) {
     var bar = document.getElementById('gcs-status-bar');
     var text = bar.querySelector('.gcs-status-text');
@@ -269,14 +253,18 @@ function gcsSetStatus(level, message) {
 fetch(ENDPOINT + '&endpoint=experimental_plan_status')
   .then(r => r.json())
   .then(d => {
-    if(!d || !d.ok) return;
+    if (!d || !d.ok) return;
+
     var t = d.counts.creates + d.counts.updates + d.counts.deletes;
-    if (t > 0) {
-        statusBox.classList.remove('gcs-hidden');
-        statusBox.innerHTML =
-            '⚠️ <strong>Scheduler is out of sync with Google Calendar</strong><br>' +
-            t + ' pending change(s) detected. Click <em>Preview Changes</em> to review.';
+
+    if (t === 0) {
+        gcsSetStatus('success', 'Scheduler is in sync with Google Calendar.');
+    } else {
+        gcsSetStatus('warning', t + ' pending scheduler change(s) detected.');
     }
+  })
+  .catch(() => {
+      gcsSetStatus('error', 'Error communicating with Google Calendar.');
   });
 
 /* Preview handler */
@@ -288,6 +276,7 @@ previewBtn.addEventListener('click', function () {
             if (!d || !d.ok) {
                 diffSummary.innerHTML = '❌ Failed to load preview.';
                 diffSummary.classList.remove('gcs-hidden');
+                gcsSetStatus('error', 'Error communicating with Google Calendar.');
                 return;
             }
 
@@ -318,13 +307,14 @@ applyBtn.addEventListener('click', function () {
 
     applyBtn.disabled = true;
     applyResult.innerHTML = '⏳ Applying changes...';
+    gcsSetStatus('info', 'Applying scheduler changes…');
 
     fetch(ENDPOINT + '&endpoint=experimental_apply')
         .then(r => r.json())
         .then(d => {
             if (!d || !d.ok) {
-                applyResult.innerHTML =
-                    '❌ Apply failed: ' + (d && d.error ? d.error : 'unknown error');
+                applyResult.innerHTML = '❌ Apply failed.';
+                gcsSetStatus('error', 'Error communicating with Google Calendar.');
                 applyBtn.disabled = false;
                 return;
             }
@@ -337,9 +327,12 @@ applyBtn.addEventListener('click', function () {
                     <div class="gcs-summary-item">🗑️ Deletes: <strong>${d.counts.deletes}</strong></div>
                 </div>
             `;
+
+            gcsSetStatus('success', 'Scheduler changes applied successfully.');
         })
-        .catch(err => {
-            applyResult.innerHTML = '❌ Apply error: ' + err;
+        .catch(() => {
+            applyResult.innerHTML = '❌ Apply error.';
+            gcsSetStatus('error', 'Error communicating with Google Calendar.');
             applyBtn.disabled = false;
         });
 });
