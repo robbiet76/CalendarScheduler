@@ -85,31 +85,27 @@ final class GcsSchedulerRunner
                 $horizonEnd
             );
 
-            if (empty($occurrences)) {
+            if (empty($occurrences) || !$base) {
                 continue;
-            }
-
-            // Phase 20: capture calendar series DTSTART date (YYYY-MM-DD)
-            $seriesStartDate = null;
-            if ($base && !empty($base['start'])) {
-                $seriesStartDate = substr((string)$base['start'], 0, 10);
             }
 
             foreach ($occurrences as $occ) {
                 if (!is_array($occ)) continue;
 
                 $rawIntents[] = [
-                    'uid'             => $uid,
-                    'summary'         => $summary,
-                    'type'            => $resolved['type'],
-                    'target'          => $resolved['target'],
-                    'start'           => $occ['start'],
-                    'end'             => $occ['end'],
-                    'stopType'        => 'graceful',
-                    'repeat'          => 'none',
-                    'isOverride'      => !empty($occ['isOverride']),
-                    // Phase 20: pass series DTSTART through intent
-                    'seriesStartDate' => $seriesStartDate,
+                    'uid'        => $uid,
+                    'summary'    => $summary,
+                    'type'       => $resolved['type'],
+                    'target'     => $resolved['target'],
+
+                    // Phase 20 FIX:
+                    // Use SERIES DTSTART, not per-occurrence start
+                    'start'      => $base['start'],
+                    'end'        => $base['end'],
+
+                    'stopType'   => 'graceful',
+                    'repeat'     => 'none',
+                    'isOverride' => !empty($occ['isOverride']),
                 ];
             }
         }
