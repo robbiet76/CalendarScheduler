@@ -49,7 +49,7 @@ final class GcsSchedulerRunner
             }
         }
 
-        $rawIntents = [];
+        $intentsOut = [];
 
         foreach ($byUid as $uid => $items) {
             $base = null;
@@ -78,8 +78,6 @@ final class GcsSchedulerRunner
                 continue;
             }
 
-            // Expand occurrences ONLY to decide whether this series intersects the horizon.
-            // IMPORTANT (Phase 20): We emit ONE intent per UID (one scheduler entry), not one per occurrence.
             $occurrences = self::expandEventOccurrences(
                 $base,
                 $overrides,
@@ -88,122 +86,171 @@ final class GcsSchedulerRunner
             );
 
             if (empty($occurrences)) {
-                // Nothing relevant within the horizon; do not emit an intent.
                 continue;
             }
 
-            // Determine the template start/end time-of-day for the schedule entry.
-            // Prefer base DTSTART/DTEND when available (series anchor); otherwise use first in-horizon occurrence.
-            $tplStart = null;
-            $tplEnd = null;
+            // Determine whether we can safely emit ONE intent per UID.
+            // If overrides exist OR occurrence times vary, we fall back to per-occurrence intents
+            // and let GcsIntentConsolidator split into ranges losslessly.
+            $hasOverride = false;
+            $timeKey = null;
+            $timesVary = false;
 
-            if ($base && !empty($base['start']) && !empty($base['end'])) {
-                $tplStart = (string)$base['start'];
-                $tplEnd   = (string)$base['end'];
-            } else {
+            foreach ($occurrences as $occ) {
+                if (!is_array($occ)) continue;
+
+                if (!empty($occ['isOverride'])) {
+                    $hasOverride = true;
+                }
+
+                $s = new DateTime((string)($occ['start'] ?? ''));
+                $e = new DateTime((string)($occ['end'] ?? ''));
+
+                $k = $s->format('H:i:s') . '|' . $e->format('H:i:s');
+                if ($timeKey === null) {
+                    $timeKey = $k;
+                } elseif ($timeKey !== $k) {
+                    $timesVary = true;
+                }
+            }
+
+            $canEmitSingle = (!$hasOverride && !$timesVary);
+
+            if ($canEmitSingle) {
+                // IMPORTANT (Phase 20): We emit ONE intent per UID (one scheduler entry), not one per occurrence.
+                // That means we MUST explicitly provide a range (start/end/days). Consolidator cannot infer
+                // "Everyday" or the correct endDate from a single occurrence.
+
                 $first = $occurrences[0];
-                if (is_array($first) && !empty($first['start']) && !empty($first['end'])) {
-                    $tplStart = (string)$first['start'];
-                    $tplEnd   = (string)$first['end'];
+                if (!is_array($first) || empty($first['start']) || empty($first['end'])) {
+                    continue;
                 }
-            }
 
-            if ($tplStart === null || $tplEnd === null) {
-                continue;
-            }
+                $occStart = new DateTime((string)$first['start']);
+                $occEnd   = new DateTime((string)$first['end']);
 
-            // Series start date should reflect calendar DTSTART (date-only).
-            $seriesStartDate = substr($tplStart, 0, 10); // YYYY-MM-DD
-            if (!self::isValidYmd($seriesStartDate)) {
-                // Fallback: if somehow malformed, use horizon start date
-                $seriesStartDate = $now->format('Y-m-d');
-            }
-
-            // Series end date:
-            // - If RRULE:UNTIL is present, it is authoritative.
-            // - Otherwise fall back to horizon end (conservative; prevents infinite ranges).
-            $seriesEndDate = null;
-
-            if ($base && !empty($base['rrule']) && is_array($base['rrule']) && !empty($base['rrule']['UNTIL'])) {
-                $untilDt = self::parseRruleUntil((string)$base['rrule']['UNTIL']);
-                if ($untilDt instanceof DateTime) {
-                    $seriesEndDate = $untilDt->format('Y-m-d');
+                // Series DTSTART date (calendar series start)
+                $seriesStartDate = $occStart->format('Y-m-d');
+                if ($base && !empty($base['start'])) {
+                    $tmp = substr((string)$base['start'], 0, 10);
+                    if (self::isValidYmd($tmp)) {
+                        $seriesStartDate = $tmp;
+                    }
                 }
-            }
 
-            if ($seriesEndDate === null || !self::isValidYmd($seriesEndDate)) {
-                $seriesEndDate = $horizonEnd->format('Y-m-d');
-            }
+                // Series end date:
+                // Prefer RRULE UNTIL (true series boundary), else use last expanded occurrence date.
+                $seriesEndDate = $occStart->format('Y-m-d');
+                $lastOccDate = $occStart->format('Y-m-d');
 
-            // Days mask: prefer RRULE BYDAY when present, else default to the weekday of DTSTART.
-            $daysShort = '';
-            if ($base && !empty($base['rrule']) && is_array($base['rrule'])) {
-                $rrule = $base['rrule'];
-                $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
+                foreach ($occurrences as $occ) {
+                    if (!is_array($occ) || empty($occ['start'])) continue;
+                    $d = substr((string)$occ['start'], 0, 10);
+                    if (self::isValidYmd($d) && $d > $lastOccDate) {
+                        $lastOccDate = $d;
+                    }
+                }
 
-                if ($freq === 'DAILY') {
-                    // Daily recurrence implies all days.
-                    $daysShort = 'SuMoTuWeThFrSa';
-                } elseif (!empty($rrule['BYDAY'])) {
-                    $mask = 0;
-                    foreach (explode(',', strtoupper((string)$rrule['BYDAY'])) as $tok) {
-                        $dow = self::byDayToDow($tok);
-                        if ($dow !== null) {
-                            $mask |= (1 << $dow);
+                $seriesEndDate = $lastOccDate;
+
+                $rrule = ($base && isset($base['rrule']) && is_array($base['rrule'])) ? $base['rrule'] : null;
+                if (is_array($rrule) && !empty($rrule['UNTIL'])) {
+                    $until = self::parseRruleUntil((string)$rrule['UNTIL']);
+                    if ($until instanceof DateTime) {
+                        // Normalize to local timezone before taking date
+                        try {
+                            $until->setTimezone(new DateTimeZone(date_default_timezone_get()));
+                        } catch (Throwable $ignored) {}
+                        $untilDate = $until->format('Y-m-d');
+                        if (self::isValidYmd($untilDate)) {
+                            $seriesEndDate = $untilDate;
                         }
                     }
-                    if ($mask !== 0) {
-                        $daysShort = (string)GcsIntentConsolidator::weekdayMaskToShortDays($mask);
+                }
+
+                // Days:
+                // - DAILY => Everyday (SuMoTuWeThFrSa)
+                // - WEEKLY => derive from BYDAY, else fallback to the start DOW only
+                $daysShort = '';
+                if (is_array($rrule)) {
+                    $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
+                    if ($freq === 'DAILY') {
+                        $daysShort = 'SuMoTuWeThFrSa';
+                    } elseif ($freq === 'WEEKLY') {
+                        $daysShort = self::shortDaysFromByDay((string)($rrule['BYDAY'] ?? ''));
                     }
                 }
+                if ($daysShort === '') {
+                    // Fallback: single day based on DTSTART
+                    $dow = (int)$occStart->format('w'); // 0=Sun..6=Sat
+                    $daysShort = self::dowToShortDay($dow);
+                }
+
+                $template = [
+                    'uid'        => $uid,
+                    'summary'    => $summary,
+                    'type'       => (string)$resolved['type'],
+                    'target'     => (string)$resolved['target'],
+                    'start'      => $occStart->format('Y-m-d H:i:s'),
+                    'end'        => $occEnd->format('Y-m-d H:i:s'),
+                    'stopType'   => 'graceful',
+                    'repeat'     => 'none',
+                    'isOverride' => false,
+                ];
+
+                $intentsOut[] = [
+                    'uid'      => $uid,
+                    'template' => $template,
+                    'range'    => [
+                        'start' => $seriesStartDate,
+                        'end'   => $seriesEndDate,
+                        'days'  => $daysShort,
+                    ],
+                ];
+
+                continue;
             }
 
-            if ($daysShort === '') {
-                // Default to DTSTART weekday.
-                $dt = DateTime::createFromFormat('Y-m-d H:i:s', $tplStart);
-                if ($dt instanceof DateTime) {
-                    $dow = (int)$dt->format('w'); // 0=Sun..6=Sat
-                    $mask = (1 << $dow);
-                    $daysShort = (string)GcsIntentConsolidator::weekdayMaskToShortDays($mask);
-                } else {
-                    $daysShort = 'SuMoTuWeThFrSa';
+            // Fallback: per-occurrence (lossless), then consolidator will merge into correct ranges/days.
+            $rawIntents = [];
+            foreach ($occurrences as $occ) {
+                if (!is_array($occ)) continue;
+
+                $rawIntents[] = [
+                    'uid'        => $uid,
+                    'summary'    => $summary,
+                    'type'       => $resolved['type'],
+                    'target'     => $resolved['target'],
+                    'start'      => $occ['start'],
+                    'end'        => $occ['end'],
+                    'stopType'   => 'graceful',
+                    'repeat'     => 'none',
+                    'isOverride' => !empty($occ['isOverride']),
+                ];
+            }
+
+            try {
+                $consolidator = new GcsIntentConsolidator();
+                $maybe = $consolidator->consolidate($rawIntents);
+                if (is_array($maybe) && !empty($maybe)) {
+                    foreach ($maybe as $row) {
+                        if (is_array($row)) {
+                            $intentsOut[] = $row;
+                        }
+                    }
+                }
+            } catch (Throwable $ignored) {
+                // If consolidation fails, still return the raw intents (best effort)
+                foreach ($rawIntents as $ri) {
+                    $intentsOut[] = $ri;
                 }
             }
-
-            // Emit ONE intent for this UID (one scheduler entry).
-            // Use range start/end so SchedulerSync produces startDate=endDate correctly for the series.
-            $rawIntents[] = [
-                'uid'     => $uid,
-                'summary' => $summary,
-                'type'    => $resolved['type'],
-                'target'  => $resolved['target'],
-                'start'   => $tplStart,
-                'end'     => $tplEnd,
-                'stopType'=> 'graceful',
-                'repeat'  => 'none',
-                'range'   => [
-                    'start' => $seriesStartDate,
-                    'end'   => $seriesEndDate,
-                    'days'  => $daysShort,
-                ],
-            ];
         }
-
-        // Consolidate raw intents (multi-day, adjacency, overlaps)
-        // Note: With Phase 20 "one intent per UID", consolidator should be effectively a no-op for series events.
-        $consolidated = $rawIntents;
-        try {
-            $consolidator = new GcsIntentConsolidator();
-            $maybe = $consolidator->consolidate($rawIntents);
-            if (is_array($maybe)) {
-                $consolidated = $maybe;
-            }
-        } catch (Throwable $ignored) {}
 
         return [
             'ok'           => true,
-            'intents'      => $consolidated,
-            'intents_seen' => count($consolidated),
+            'intents'      => $intentsOut,
+            'intents_seen' => count($intentsOut),
             'errors'       => [],
         ];
     }
@@ -381,22 +428,16 @@ final class GcsSchedulerRunner
     private static function parseRruleUntil(string $raw): ?DateTime
     {
         try {
-            // DATE form (YYYYMMDD) — treat as inclusive end-of-day
             if (preg_match('/^\d{8}$/', $raw)) {
                 return (new DateTime($raw))->setTime(23, 59, 59);
             }
-
-            // UTC timestamp
             if (preg_match('/^\d{8}T\d{6}Z$/', $raw)) {
                 return new DateTime($raw, new DateTimeZone('UTC'));
             }
-
-            // Local timestamp
             if (preg_match('/^\d{8}T\d{6}$/', $raw)) {
                 return new DateTime($raw);
             }
         } catch (Throwable) {}
-
         return null;
     }
 
@@ -405,8 +446,60 @@ final class GcsSchedulerRunner
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) {
             return false;
         }
-
         $dt = DateTime::createFromFormat('Y-m-d', $s);
         return ($dt instanceof DateTime) && ($dt->format('Y-m-d') === $s);
+    }
+
+    private static function dowToShortDay(int $dow): string
+    {
+        return match ($dow) {
+            0 => 'Su',
+            1 => 'Mo',
+            2 => 'Tu',
+            3 => 'We',
+            4 => 'Th',
+            5 => 'Fr',
+            6 => 'Sa',
+            default => '',
+        };
+    }
+
+    /**
+     * Convert RRULE BYDAY like "SU,MO,TU,WE,TH,FR,SA" into "SuMoTuWeThFrSa".
+     * Returns empty string if BYDAY missing/invalid.
+     */
+    private static function shortDaysFromByDay(string $bydayRaw): string
+    {
+        $bydayRaw = strtoupper(trim($bydayRaw));
+        if ($bydayRaw === '') return '';
+
+        $tokens = explode(',', $bydayRaw);
+        $present = [
+            'SU' => false,
+            'MO' => false,
+            'TU' => false,
+            'WE' => false,
+            'TH' => false,
+            'FR' => false,
+            'SA' => false,
+        ];
+
+        foreach ($tokens as $tok) {
+            $tok = preg_replace('/^[+-]?\d+/', '', trim($tok)); // remove ordinal like 1MO
+            if (isset($present[$tok])) {
+                $present[$tok] = true;
+            }
+        }
+
+        $out = '';
+        if ($present['SU']) $out .= 'Su';
+        if ($present['MO']) $out .= 'Mo';
+        if ($present['TU']) $out .= 'Tu';
+        if ($present['WE']) $out .= 'We';
+        if ($present['TH']) $out .= 'Th';
+        if ($present['FR']) $out .= 'Fr';
+        if ($present['SA']) $out .= 'Sa';
+
+        return $out;
     }
 }
