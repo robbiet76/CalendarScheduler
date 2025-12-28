@@ -89,37 +89,18 @@ final class GcsSchedulerRunner
                 continue;
             }
 
-            // Calendar DTSTART (date-only) for scheduler range
-            $seriesStartDate = null;
-            if ($base && !empty($base['start'])) {
-                $seriesStartDate = substr((string)$base['start'], 0, 10);
-            }
-
-            // Template intent (survives consolidation)
-            $template = [
-                'uid'      => $uid,
-                'summary'  => $summary,
-                'type'     => $resolved['type'],
-                'target'   => $resolved['target'],
-                'stopType' => 'graceful',
-                'repeat'   => 'none',
-            ];
-
-            if ($seriesStartDate !== null) {
-                $template['range'] = [
-                    'start' => $seriesStartDate,
-                    'end'   => $horizonEnd->format('Y-m-d'),
-                ];
-            }
-
             foreach ($occurrences as $occ) {
                 if (!is_array($occ)) continue;
 
                 $rawIntents[] = [
                     'uid'        => $uid,
-                    'template'   => $template,
+                    'summary'    => $summary,
+                    'type'       => $resolved['type'],
+                    'target'     => $resolved['target'],
                     'start'      => $occ['start'],
                     'end'        => $occ['end'],
+                    'stopType'   => 'graceful',
+                    'repeat'     => 'none',
                     'isOverride' => !empty($occ['isOverride']),
                 ];
             }
