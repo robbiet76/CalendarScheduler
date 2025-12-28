@@ -228,7 +228,19 @@ final class SchedulerSync
 
             if ($rDays !== '') {
                 $shortDays = $rDays;
-                $dayMask = (int)GcsIntentConsolidator::shortDaysToWeekdayMask($rDays);
+
+                // Phase 20: ensure Everyday renders correctly in FPP UI
+                // FPP expects day mask 127 for "Everyday". Some conversions can yield 0/partial masks
+                // if input is malformed or edge-cased.
+                if ($rDays === 'SuMoTuWeThFrSa') {
+                    if (defined('GcsIntentConsolidator::WD_ALL')) {
+                        $dayMask = (int)GcsIntentConsolidator::WD_ALL;
+                    } else {
+                        $dayMask = 127;
+                    }
+                } else {
+                    $dayMask = (int)GcsIntentConsolidator::shortDaysToWeekdayMask($rDays);
+                }
             }
         }
 
