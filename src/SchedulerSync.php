@@ -191,6 +191,7 @@ final class SchedulerSync
             return 'Missing target for intent (expected playlist name or command name)';
         }
 
+        // UID may live on outer intent even when template/range is used
         $uid = self::coalesceString($intent, ['uid'], '');
         if ($uid === '') {
             $uid = self::coalesceString($tpl, ['uid'], '');
@@ -202,8 +203,11 @@ final class SchedulerSync
         $startDt = self::parseYmdHms($startRaw);
         $endDt   = self::parseYmdHms($endRaw);
 
-        if (!$startDt || !$endDt) {
-            return 'Invalid or missing template start/end';
+        if (!$startDt) {
+            return "Invalid or missing template start (expected Y-m-d H:i:s): '{$startRaw}'";
+        }
+        if (!$endDt) {
+            return "Invalid or missing template end (expected Y-m-d H:i:s): '{$endRaw}'";
         }
 
         $startTime = $startDt->format('H:i:s');
@@ -215,36 +219,41 @@ final class SchedulerSync
         $shortDays = '';
 
         if (is_array($range)) {
-            if (self::isDateYmd((string)($range['start'] ?? ''))) {
-                $startDate = (string)$range['start'];
-            }
-            if (self::isDateYmd((string)($range['end'] ?? ''))) {
-                $endDate = (string)$range['end'];
-            }
+            $rStart = isset($range['start']) ? (string)$range['start'] : '';
+            $rEnd   = isset($range['end']) ? (string)$range['end'] : '';
+            $rDays  = isset($range['days']) ? (string)$range['days'] : '';
 
-            if (!empty($range['days'])) {
-                $shortDays = (string)$range['days'];
-                $dayMask   = (int)GcsIntentConsolidator::shortDaysToWeekdayMask($shortDays);
+            if (self::isDateYmd($rStart)) $startDate = $rStart;
+            if (self::isDateYmd($rEnd))   $endDate = $rEnd;
+
+            if ($rDays !== '') {
+                $shortDays = $rDays;
+                $dayMask = (int)GcsIntentConsolidator::shortDaysToWeekdayMask($rDays);
             }
         }
 
         if ($startDate === null) $startDate = $startDt->format('Y-m-d');
         if ($endDate === null)   $endDate = $startDate;
 
-        // ✅ Phase 20 FINAL FIX:
-        // FPP requires day mask to be non-zero or the schedule will not run.
-        // Default to "Everyday" (127) when no explicit days are provided, or when parsing yields 0.
         if ($dayMask === null || $dayMask === 0) {
-            $dayMask = 127;
+            $dow = (int)$startDt->format('w'); // 0=Sun..6=Sat
+            $dayMask = (1 << $dow);
         }
 
-        // For tagging purposes only (not used by FPP scheduler logic):
-        // Ensure we store canonical short-days in the identity tag.
         if ($shortDays === '') {
             $shortDays = (string)GcsIntentConsolidator::weekdayMaskToShortDays((int)$dayMask);
         }
 
+        // ✅ Phase 20: FPP UI compatibility
+        // Some FPP builds require an explicit string "days" field for the UI to render day selections.
+        // Keep canonical numeric day mask, but also add a UI-friendly label.
+        $daysLabel = self::weekdayMaskToFppDaysLabel((int)$dayMask, $shortDays);
+
+        // Canonical identity tag stored in args[]
         $tag = self::buildGcsV1Tag($uid, $startDate, $endDate, $shortDays);
+
+        $stopType = self::coalesceInt($tpl, ['stopType', 'stop_type'], 0);
+        $repeat   = self::coalesceInt($tpl, ['repeat'], 0);
 
         $args = [];
         if (isset($tpl['args']) && is_array($tpl['args'])) {
@@ -255,29 +264,63 @@ final class SchedulerSync
             $args[] = $tag;
         }
 
-        return [
+        $multisyncCommand = self::coalesceBool($tpl, ['multisyncCommand', 'multisync_command'], false);
+
+        $entry = [
             'enabled'          => 1,
             'sequence'         => 0,
+
+            // Canonical scheduler day mask
             'day'              => $dayMask,
+
+            // UI rendering helpers (harmless if ignored by FPP)
+            'days'             => $daysLabel,
+            'dayStr'           => $daysLabel,
+
             'startTime'        => $startTime,
             'startTimeOffset'  => 0,
             'endTime'          => $endTime,
             'endTimeOffset'    => 0,
-            'repeat'           => self::coalesceInt($tpl, ['repeat'], 0),
+            'repeat'           => $repeat,
             'startDate'        => $startDate,
             'endDate'          => $endDate,
-            'stopType'         => self::coalesceInt($tpl, ['stopType'], 0),
-            'playlist'         => ($type === 'playlist') ? $target : '',
-            'command'          => ($type === 'command') ? $target : '',
+            'stopType'         => $stopType,
+            'playlist'         => '',
+            'command'          => '',
             'args'             => $args,
-            'multisyncCommand' => self::coalesceBool($tpl, ['multisyncCommand'], false),
+            'multisyncCommand' => $multisyncCommand,
         ];
+
+        if ($type === 'playlist') {
+            $entry['playlist'] = $target;
+        } else {
+            $entry['command']  = $target;
+            $entry['playlist'] = '';
+        }
+
+        return $entry;
+    }
+
+    private static function weekdayMaskToFppDaysLabel(int $mask, string $fallbackShortDays): string
+    {
+        // Common presets first
+        if ($mask === 127) return 'Everyday';
+        if ($mask === 62)  return 'Weekdays'; // MoTuWeThFr (2+4+8+16+32)
+        if ($mask === 65)  return 'Weekends'; // SuSa (1+64)
+
+        // If caller already computed a short-days string, keep it (SuMoTu...)
+        $sd = trim($fallbackShortDays);
+        if ($sd !== '') return $sd;
+
+        // Last resort: derive from mask
+        return (string)GcsIntentConsolidator::weekdayMaskToShortDays($mask);
     }
 
     private static function buildGcsV1Tag(string $uid, string $startDate, string $endDate, string $days): string
     {
         if ($uid === '') return '';
-        return '|GCS:v1|uid=' . $uid . '|range=' . $startDate . '..' . $endDate . '|days=' . $days;
+        $range = $startDate . '..' . $endDate;
+        return '|GCS:v1|uid=' . $uid . '|range=' . $range . '|days=' . $days;
     }
 
     /**
@@ -286,28 +329,30 @@ final class SchedulerSync
     private static function argsContainsGcsV1Tag(array $args): bool
     {
         foreach ($args as $a) {
-            if (is_string($a) && strpos($a, '|GCS:v1|') !== false) {
-                return true;
-            }
+            if (!is_string($a)) continue;
+            if (strpos($a, '|GCS:v1|') !== false) return true;
         }
         return false;
     }
 
     private static function parseYmdHms(string $s): ?DateTime
     {
+        if ($s === '') return null;
         $dt = DateTime::createFromFormat('Y-m-d H:i:s', $s);
         return ($dt instanceof DateTime) ? $dt : null;
     }
 
     private static function isDateYmd(string $s): bool
     {
-        return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $s);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) return false;
+        $dt = DateTime::createFromFormat('Y-m-d', $s);
+        return ($dt instanceof DateTime) && ($dt->format('Y-m-d') === $s);
     }
 
     private static function coalesceString(array $src, array $keys, string $default): string
     {
         foreach ($keys as $k) {
-            if (!empty($src[$k]) && is_string($src[$k])) return $src[$k];
+            if (isset($src[$k]) && is_string($src[$k]) && $src[$k] !== '') return $src[$k];
         }
         return $default;
     }
@@ -315,7 +360,7 @@ final class SchedulerSync
     private static function coalesceInt(array $src, array $keys, int $default): int
     {
         foreach ($keys as $k) {
-            if (isset($src[$k]) && (is_int($src[$k]) || ctype_digit((string)$src[$k]))) {
+            if (isset($src[$k]) && (is_int($src[$k]) || (is_string($src[$k]) && ctype_digit($src[$k])))) {
                 return (int)$src[$k];
             }
         }
@@ -326,11 +371,13 @@ final class SchedulerSync
     {
         foreach ($keys as $k) {
             if (!isset($src[$k])) continue;
+
             $v = $src[$k];
             if (is_bool($v)) return $v;
             if (is_int($v))  return $v !== 0;
+
             if (is_string($v)) {
-                $vv = strtolower($v);
+                $vv = strtolower(trim($v));
                 if (in_array($vv, ['true','1','yes','on'], true)) return true;
                 if (in_array($vv, ['false','0','no','off'], true)) return false;
             }
