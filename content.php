@@ -286,6 +286,9 @@ runPlanStatus();
 /* Preview handler */
 previewBtn.addEventListener('click', function () {
 
+    // Hide Preview button once preview is open (Phase 19.4.x)
+    hidePreviewButton();
+
     fetch(ENDPOINT + '&endpoint=experimental_diff')
         .then(r => r.json())
         .then(d => {
