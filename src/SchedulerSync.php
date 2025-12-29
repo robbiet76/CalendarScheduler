@@ -249,7 +249,7 @@ final class SchedulerSync
         $tag = self::buildGcsV1Tag($uid, $startDate, $endDate, $shortDays);
 
         $stopType = self::coalesceInt($tpl, ['stopType', 'stop_type'], 0);
-        $repeat   = self::coalesceInt($tpl, ['repeat'], 0);
+        $repeat   = self::repeatToFppRepeat($tpl['repeat'] ?? null);
 
         $args = [];
         if (isset($tpl['args']) && is_array($tpl['args'])) {
@@ -370,6 +370,53 @@ final class SchedulerSync
             if (strpos($a, '|GCS:v1|') !== false) return true;
         }
         return false;
+    }
+
+    /**
+     * Phase 21 (clean): Map YAML-friendly repeat values into FPP's encoded repeat integer.
+     *
+     * Confirmed behavior from FPP schedule.json:
+     * - 10 minutes => 1000
+     * - 15 minutes => 1500
+     * Therefore: minutes * 100
+     *
+     * Supported inputs:
+     * - "none"        => 0
+     * - "immediate"   => 1
+     * - int minutes   => minutes * 100
+     * - numeric string minutes => minutes * 100
+     * - already-encoded int (>= 100) passes through unchanged
+     *
+     * @param mixed $v
+     */
+    private static function repeatToFppRepeat($v): int
+    {
+        if ($v === null) return 0;
+
+        if (is_string($v)) {
+            $s = strtolower(trim($v));
+            if ($s === '' || $s === 'none') return 0;
+            if ($s === 'immediate') return 1;
+            if (ctype_digit($s)) {
+                $mins = (int)$s;
+                return ($mins > 0) ? $mins * 100 : 0;
+            }
+            return 0;
+        }
+
+        if (is_int($v)) {
+            if ($v <= 0) return 0;
+            if ($v === 1) return 1;
+            if ($v >= 100) return $v;
+            return $v * 100;
+        }
+
+        if (is_float($v)) {
+            $mins = (int)round($v);
+            return ($mins > 0) ? $mins * 100 : 0;
+        }
+
+        return 0;
     }
 
     private static function parseYmdHms(string $s): ?DateTime
