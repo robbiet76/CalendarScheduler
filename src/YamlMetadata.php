@@ -41,15 +41,10 @@ final class GcsYamlMetadata
             return [];
         }
 
-        // Parse YAML safely
+        // Parse using lightweight safe parser (no ext-yaml dependency)
         try {
-            if (!function_exists('yaml_parse')) {
-                // yaml extension not available
-                return [];
-            }
-
-            $parsed = @yaml_parse($yamlText);
-            if (!is_array($parsed)) {
+            $parsed = self::parseYamlBlock($yamlText);
+            if (!is_array($parsed) || empty($parsed)) {
                 return [];
             }
 
@@ -115,6 +110,73 @@ final class GcsYamlMetadata
         }
 
         return implode("\n", $yamlLines);
+    }
+
+    /**
+     * Lightweight YAML parser for Phase 21.
+     *
+     * Supported:
+     * - flat key: value pairs
+     * - scalar values only
+     * - integers, booleans, strings
+     *
+     * Explicitly NOT supported:
+     * - nesting
+     * - arrays
+     * - multiline blocks
+     * - anchors, tags, etc.
+     *
+     * @return array<string,mixed>
+     */
+    private static function parseYamlBlock(string $raw): array
+    {
+        $out = [];
+
+        $lines = preg_split('/\r?\n/', $raw);
+        if (!$lines) {
+            return $out;
+        }
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+
+            // Skip blanks and comments
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+
+            // Expect simple key: value
+            if (!str_contains($line, ':')) {
+                continue;
+            }
+
+            [$key, $value] = explode(':', $line, 2);
+
+            $key = trim($key);
+            $value = trim($value);
+
+            if ($key === '') {
+                continue;
+            }
+
+            // Normalize scalar value
+            if (ctype_digit($value)) {
+                $value = (int)$value;
+            } else {
+                $lv = strtolower($value);
+                if ($lv === 'true') {
+                    $value = true;
+                } elseif ($lv === 'false') {
+                    $value = false;
+                } else {
+                    $value = $value;
+                }
+            }
+
+            $out[$key] = $value;
+        }
+
+        return $out;
     }
 
     /**
