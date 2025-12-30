@@ -17,6 +17,10 @@ require_once __DIR__ . '/src/SchedulerExportService.php';
 // Phase 23 inventory support
 require_once __DIR__ . '/src/SchedulerInventoryService.php';
 
+// Phase 23 cleanup support
+require_once __DIR__ . '/src/cleanup/SchedulerCleanupPlanner.php';
+require_once __DIR__ . '/src/cleanup/SchedulerCleanupApplier.php';
+
 // Experimental scaffolding
 require_once __DIR__ . '/src/experimental/ExecutionContext.php';
 require_once __DIR__ . '/src/experimental/ScopedLogger.php';
@@ -171,6 +175,29 @@ if (isset($_GET['endpoint'])) {
                 ]);
                 exit;
             }
+        }
+
+        // Cleanup preview (read-only)
+        if ($_GET['endpoint'] === 'experimental_cleanup_preview') {
+            header('Content-Type: application/json');
+
+            $plan = SchedulerCleanupPlanner::plan();
+
+            echo json_encode([
+                'ok' => !empty($plan['ok']),
+                'plan' => $plan,
+            ]);
+            exit;
+        }
+
+        // Cleanup apply (guarded write)
+        if ($_GET['endpoint'] === 'experimental_cleanup_apply') {
+            header('Content-Type: application/json');
+
+            $res = SchedulerCleanupApplier::apply();
+
+            echo json_encode($res);
+            exit;
         }
 
     } catch (Throwable $e) {
