@@ -117,6 +117,36 @@ if (isset($_GET['endpoint'])) {
             exit;
         }
 
+        // Export unmanaged scheduler entries to ICS
+        if ($_GET['endpoint'] === 'export_unmanaged_ics') {
+            try {
+                $result = SchedulerExportService::exportUnmanaged();
+
+                if (empty($result['ics'])) {
+                    echo json_encode([
+                        'ok' => false,
+                        'error' => 'No unmanaged scheduler entries available for export.',
+                    ]);
+                    exit;
+                }
+
+                // Send file download
+                header('Content-Type: text/calendar; charset=utf-8');
+                header('Content-Disposition: attachment; filename="gcs-unmanaged-export.ics"');
+                header('Cache-Control: no-store');
+
+                echo $result['ics'];
+                exit;
+
+            } catch (Throwable $e) {
+                echo json_encode([
+                    'ok' => false,
+                    'error' => 'Export failed: ' . $e->getMessage(),
+                ]);
+                exit;
+            }
+        }
+
     } catch (Throwable $e) {
         echo json_encode([
             'ok'    => false,
@@ -229,6 +259,16 @@ $schedulerInventory = SchedulerInventory::summarize();
     </div>
 </div>
 
+<div style="margin-top:16px;">
+    <button
+        type="button"
+        class="buttons"
+        id="gcs-export-unmanaged-btn"
+    >
+        Export Unmanaged Schedules
+    </button>
+</div>
+
 <style>
 /* Anchor container */
 .settings {
@@ -278,6 +318,7 @@ var applyBtn = document.getElementById('gcs-apply-btn');
 var closePreviewBtn = document.getElementById('gcs-close-preview-btn');
 var saveBtn = document.getElementById('gcs-save-btn');
 var icsInput = document.getElementById('gcs-ics-input');
+var exportBtn = document.getElementById('gcs-export-unmanaged-btn');
 
 function looksLikeIcs(url) {
     return /^https?:\/\/.+\.ics$/i.test(url);
@@ -419,6 +460,31 @@ applyBtn.addEventListener('click', function () {
             closePreviewBtn.disabled = false;
         });
 });
+
+exportBtn.addEventListener('click', function () {
+
+    gcsSetStatus('info', 'Preparing export of unmanaged scheduler entries…');
+
+    // Trigger file download via navigation (not fetch)
+    var url = ENDPOINT + '&endpoint=export_unmanaged_ics';
+
+    // Create a hidden iframe to allow download without navigation
+    var iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+
+    document.body.appendChild(iframe);
+
+    // Best-effort messaging (download may still succeed even if warnings exist)
+    setTimeout(function () {
+        gcsSetStatus(
+            'success',
+            'Export complete. Import the downloaded file into Google Calendar.'
+        );
+        document.body.removeChild(iframe);
+    }, 1200);
+});
+
 
 })();
 </script>
