@@ -25,7 +25,7 @@ class GcsFppScheduleMapper
         $weekdayMask = intval($ri['weekdayMask'] ?? 0);
         $dayFields   = self::encodeDayFields($weekdayMask);
 
-        $repeat   = self::mapRepeat($ri['repeat'] ?? 'none');
+        $repeat = self::mapRepeat($ri['repeat'] ?? 'immediate');
         $stopType = self::mapStopType($ri['stopType'] ?? 'graceful');
         $tag      = self::buildTag($ri);
 
@@ -177,10 +177,10 @@ class GcsFppScheduleMapper
 
         if (is_string($repeat)) {
             $r = strtolower(trim($repeat));
-            if ($r === 'none' || $r === '') {
+            if ($r === 'none') {
                 return 0;
             }
-            if ($r === 'immediate') {
+            if ($r === 'immediate' || $r === '') {
                 return 1;
             }
             if (ctype_digit($r)) {
@@ -188,6 +188,7 @@ class GcsFppScheduleMapper
             }
         }
 
-        return 0;
+        // Default: Immediate (match FPP UI)
+        return 1;
     }
 }
