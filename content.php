@@ -9,6 +9,11 @@ declare(strict_types=1);
 require_once __DIR__ . '/src/bootstrap.php';
 require_once __DIR__ . '/src/FppSchedulerHorizon.php';
 
+// Phase 23 export support
+require_once __DIR__ . '/src/ScheduleEntryExportAdapter.php';
+require_once __DIR__ . '/src/IcsWriter.php';
+require_once __DIR__ . '/src/SchedulerExportService.php';
+
 // Experimental scaffolding
 require_once __DIR__ . '/src/experimental/ExecutionContext.php';
 require_once __DIR__ . '/src/experimental/ScopedLogger.php';
