@@ -150,6 +150,28 @@ if (isset($_GET['endpoint'])) {
             exit;
         }
 
+        // Scheduler inventory (read-only counts)
+        if ($_GET['endpoint'] === 'experimental_scheduler_inventory') {
+            header('Content-Type: application/json');
+
+            try {
+                $inv = SchedulerInventoryService::getInventory();
+
+                echo json_encode([
+                    'ok' => true,
+                    'inventory' => $inv,
+                ]);
+                exit;
+
+            } catch (Throwable $e) {
+                echo json_encode([
+                    'ok' => false,
+                    'error' => $e->getMessage(),
+                ]);
+                exit;
+            }
+        }
+
     } catch (Throwable $e) {
         header('Content-Type: application/json');
         echo json_encode([
@@ -159,8 +181,6 @@ if (isset($_GET['endpoint'])) {
         exit;
     }
 }
-
-
 
 $icsUrl = trim($cfg['calendar']['ics_url'] ?? '');
 $dryRun = !empty($cfg['runtime']['dry_run']);
