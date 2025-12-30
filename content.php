@@ -288,14 +288,28 @@ $canSave    = ($isEmpty || $isIcsValid);
     </div>
 </div>
 
-<div style="margin-top:16px;">
-    <button
-        type="button"
-        class="buttons"
-        id="gcs-export-unmanaged-btn"
-    >
-        Export Unmanaged Schedules
-    </button>
+<div id="gcs-unmanaged-section" class="gcs-hidden">
+
+    <hr style="margin:20px 0;">
+
+    <div id="gcs-unmanaged-status"
+         class="gcs-status gcs-status--info">
+        <span class="gcs-status-dot"></span>
+        <span class="gcs-status-text">
+            <!-- Filled dynamically -->
+        </span>
+    </div>
+
+    <div style="margin-top:12px;">
+        <button
+            type="button"
+            class="buttons"
+            id="gcs-export-unmanaged-btn"
+        >
+            Export Unmanaged Schedules
+        </button>
+    </div>
+
 </div>
 
 <style>
@@ -347,8 +361,6 @@ var applyBtn = document.getElementById('gcs-apply-btn');
 var closePreviewBtn = document.getElementById('gcs-close-preview-btn');
 var saveBtn = document.getElementById('gcs-save-btn');
 var icsInput = document.getElementById('gcs-ics-input');
-var exportBtn = document.getElementById('gcs-export-unmanaged-btn');
-var gcsInventorySuffix = '';
 
 function looksLikeIcs(url) {
     return /^https?:\/\/.+\.ics$/i.test(url);
@@ -373,13 +385,24 @@ function gcsSetStatus(level, message) {
     );
 
     bar.classList.add('gcs-status--' + level);
-
     text.textContent = message;
+}
 
-    // Re-append inventory info if present
-    if (gcsInventorySuffix) {
-        text.textContent += gcsInventorySuffix;
-    }
+function gcsSetUnmanagedStatus(level, message) {
+    var bar = document.getElementById('gcs-unmanaged-status');
+    if (!bar) return;
+
+    var text = bar.querySelector('.gcs-status-text');
+
+    bar.classList.remove(
+        'gcs-status--info',
+        'gcs-status--success',
+        'gcs-status--warning',
+        'gcs-status--error'
+    );
+
+    bar.classList.add('gcs-status--' + level);
+    text.textContent = message;
 }
 
 function hidePreviewUi() {
@@ -434,45 +457,43 @@ function runPlanStatus() {
         });
 }
 
-function appendInventoryMessage(inv) {
-    if (!inv || typeof inv.unmanaged !== 'number') return;
-
-    if (inv.unmanaged <= 0) {
-        gcsInventorySuffix = '';
-        return;
-    }
-
-    var msg = 'Scheduler contains ' + inv.unmanaged + ' unmanaged entr' +
-              (inv.unmanaged === 1 ? 'y' : 'ies');
-
-    if (inv.unmanaged_disabled > 0) {
-        msg += ' (' + inv.unmanaged_disabled + ' disabled)';
-    }
-
-    msg += '.';
-
-    gcsInventorySuffix = '  ' + msg;
-
-    // Apply immediately if status already exists
-    var bar = document.getElementById('gcs-status-bar');
-    var text = bar.querySelector('.gcs-status-text');
-    text.textContent += gcsInventorySuffix;
-}
-
 runPlanStatus();
 
-// Fetch scheduler inventory (read-only)
+// ------------------------------------------------------------------
+// Unmanaged scheduler section
+// ------------------------------------------------------------------
+
+var unmanagedSection = document.getElementById('gcs-unmanaged-section');
+var unmanagedStatus  = document.getElementById('gcs-unmanaged-status');
+var unmanagedText    = unmanagedStatus.querySelector('.gcs-status-text');
+var exportBtn        = document.getElementById('gcs-export-unmanaged-btn');
+
 fetch(ENDPOINT + '&endpoint=experimental_scheduler_inventory')
     .then(r => r.json())
     .then(d => {
-        if (d && d.ok && d.inventory) {
-            appendInventoryMessage(d.inventory);
+        if (!d || !d.ok || !d.inventory) return;
+
+        var inv = d.inventory;
+        if (typeof inv.unmanaged !== 'number' || inv.unmanaged <= 0) {
+            unmanagedSection.classList.add('gcs-hidden');
+            return;
         }
+
+        var msg = 'You have ' + inv.unmanaged + ' unmanaged scheduler entr' +
+                  (inv.unmanaged === 1 ? 'y' : 'ies') + '.';
+
+        if (inv.unmanaged_disabled > 0) {
+            msg += ' (' + inv.unmanaged_disabled + ' disabled)';
+        }
+
+        msg += ' These are not controlled by Google Calendar.';
+
+        unmanagedText.textContent = msg;
+        unmanagedSection.classList.remove('gcs-hidden');
     })
     .catch(() => {
         // Inventory is informational only — ignore failures
     });
-
 
 previewBtn.addEventListener('click', function () {
 
@@ -535,22 +556,25 @@ applyBtn.addEventListener('click', function () {
         });
 });
 
-exportBtn.addEventListener('click', function () {
+if (exportBtn) {
+    exportBtn.addEventListener('click', function () {
 
-    gcsSetStatus('info', 'Preparing export of unmanaged scheduler entries…');
-
-    // Trigger download via direct navigation (RELIABLE)
-    var url = ENDPOINT + '&endpoint=export_unmanaged_ics';
-    window.location.href = url;
-
-    // Status update (best-effort UX)
-    setTimeout(function () {
-        gcsSetStatus(
-            'success',
-            'Export complete. Import the downloaded file into Google Calendar.'
+        gcsSetUnmanagedStatus(
+            'info',
+            'Preparing export of unmanaged scheduler entries…'
         );
-    }, 800);
-});
+
+        var url = ENDPOINT + '&endpoint=export_unmanaged_ics';
+        window.location.href = url;
+
+        setTimeout(function () {
+            gcsSetUnmanagedStatus(
+                'success',
+                'Export complete. Import the downloaded file into Google Calendar.'
+            );
+        }, 800);
+    });
+}
 
 })();
 </script>
