@@ -125,4 +125,5 @@ require_once __DIR__ . '/Planner/SchedulerPlanner.php';
  * - Dry-run gating enforced here
  * - Post-write verification enforced here
  */
-require_once __DIR__ . '/SchedulerApply.php';
+require_once __DIR__ . '/Apply/SchedulerApply.php';
+
