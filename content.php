@@ -35,6 +35,7 @@ require_once __DIR__ . '/src/bootstrap.php';
 // ---------------------------------------------------------------------
 require_once __DIR__ . '/src/Core/DiffPreviewer.php';
 require_once __DIR__ . '/src/Core/ScheduleEntryExportAdapter.php';
+require_once __DIR__ . '/src/Core/IcsWriter.php';
 
 // ---------------------------------------------------------------------
 // Planner services (PURE — no writes)
@@ -47,11 +48,6 @@ require_once __DIR__ . '/src/Planner/InventoryService.php';
 // ---------------------------------------------------------------------
 require_once __DIR__ . '/src/Apply/SchedulerCleanupPlanner.php';
 require_once __DIR__ . '/src/Apply/SchedulerCleanupApplier.php';
-
-// ---------------------------------------------------------------------
-// Legacy / optional I/O helpers (explicitly isolated)
-// ---------------------------------------------------------------------
-require_once __DIR__ . '/src/IcsWriter.php';
 
 
 

@@ -18,7 +18,6 @@ declare(strict_types=1);
  * - Core    : Domain + shared infrastructure (no scheduler writes)
  * - Planner : PURE planning layer (no writes)
  * - Apply   : WRITE boundary (scheduler mutations only)
- * - Legacy  : Explicitly isolated compatibility code
  */
 
 /*
@@ -90,13 +89,3 @@ require_once __DIR__ . '/Planner/SchedulerPlanner.php';
 require_once __DIR__ . '/Apply/SchedulerCleanupPlanner.php';
 require_once __DIR__ . '/Apply/SchedulerCleanupApplier.php';
 require_once __DIR__ . '/Apply/SchedulerApply.php';
-
-/*
- * ============================================================
- * Legacy / compatibility (EXPLICITLY ISOLATED)
- * ============================================================
- * - Retained for backward compatibility only
- * - Not used by the current scheduling pipeline
- * - Safe to remove once legacy paths are fully retired
- */
-require_once __DIR__ . '/FppScheduleMapper.php';
