@@ -89,7 +89,7 @@ final class IcsParser
         if (!$this->calendarTz) {
             // Fallback to FPP timezone if calendar does not declare one
             $this->calendarTz = $this->fppTz;
-            SchedulerLogger::instance()->warn(
+            GcsLogger::instance()->warn(
                 'ICS calendar timezone missing; defaulting to FPP timezone',
                 ['fpp_tz' => $this->fppTz->getName()]
             );

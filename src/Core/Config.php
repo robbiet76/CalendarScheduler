@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * SchedulerConfig
+ * Config
  * 
  * POSSIBLE LEGACY CODE
  *
@@ -24,7 +24,7 @@ declare(strict_types=1);
  * - Persisted config is always merged over defaults
  * - Missing keys are backfilled automatically
  */
-final class SchedulerConfig
+final class Config
 {
     /**
      * Canonical default configuration.

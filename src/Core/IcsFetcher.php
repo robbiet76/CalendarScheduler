@@ -18,7 +18,7 @@ declare(strict_types=1);
  *
  * ERROR HANDLING:
  * - All failures return an empty string
- * - Errors are logged via SchedulerLogger
+ * - Errors are logged via GcsLogger
  *
  * NOTE:
  * SSL verification is explicitly disabled to match common
@@ -36,7 +36,7 @@ final class IcsFetcher
     public function fetch(string $url): string
     {
         if ($url === '') {
-            SchedulerLogger::instance()->error('ICS URL is empty');
+            GcsLogger::instance()->error('ICS URL is empty');
             return '';
         }
 
@@ -55,7 +55,7 @@ final class IcsFetcher
 
         if ($data === false) {
             $err = error_get_last();
-            SchedulerLogger::instance()->error('ICS fetch failed', [
+            GcsLogger::instance()->error('ICS fetch failed', [
                 'error' => $err['message'] ?? 'unknown',
             ]);
             return '';

@@ -28,14 +28,14 @@ $action = $_POST['action'] ?? '';
  * --------------------------------------------------------------------
  */
 if ($action === 'save') {
-    $cfg = SchedulerConfig::load();
+    $cfg = Config::load();
 
     $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
     $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
 
-    SchedulerConfig::save($cfg);
+    Config::save($cfg);
 
-    SchedulerLog::info('Settings saved', [
+    GcsLog::info('Settings saved', [
         'dryRun' => $cfg['runtime']['dry_run'],
     ]);
 }
@@ -46,10 +46,10 @@ if ($action === 'save') {
  * --------------------------------------------------------------------
  */
 if ($action === 'sync') {
-    $cfg    = SchedulerConfig::load();
+    $cfg    = Config::load();
     $dryRun = !empty($cfg['runtime']['dry_run']);
 
-    SchedulerLog::info('Starting scheduler sync', [
+    GcsLog::info('Starting scheduler sync', [
         'dryRun' => $dryRun,
         'mode'   => $dryRun ? 'dry-run' : 'live',
     ]);
@@ -68,7 +68,7 @@ if ($action === 'sync') {
 
     $result = $runner->run();
 
-    SchedulerLog::info(
+    GcsLog::info(
         'Scheduler sync completed',
         array_merge(
             $result,

@@ -55,7 +55,7 @@ require_once __DIR__ . '/src/IcsWriter.php';
 
 
 
-$cfg = SchedulerConfig::load();
+$cfg = Config::load();
 
 /*
  * --------------------------------------------------------------------
@@ -70,9 +70,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
             $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
 
-            SchedulerConfig::save($cfg);
+            Config::save($cfg);
             clearstatcache();
-            $cfg = SchedulerConfig::load();
+            $cfg = Config::load();
         }
 
         // Sync = plan-only, never writes (UI removed in Phase 19.3)
@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
     } catch (Throwable $e) {
-        SchedulerLogger::instance()->error('GoogleCalendarScheduler error', [
+        GcsLogger::instance()->error('GoogleCalendarScheduler error', [
             'error' => $e->getMessage(),
         ]);
     }

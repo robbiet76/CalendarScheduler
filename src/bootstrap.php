@@ -40,8 +40,8 @@ define('GCS_LOG_PATH', '/home/fpp/media/logs/google-calendar-scheduler.log');
  * - Parsing, intent modeling, metadata
  * - Shared adapters/utilities
  */
-require_once __DIR__ . '/Core/SchedulerConfig.php';
-require_once __DIR__ . '/Core/SchedulerLog.php';
+require_once __DIR__ . '/Core/Config.php';
+require_once __DIR__ . '/Core/GcsLog.php';
 
 require_once __DIR__ . '/Core/SchedulerIdentity.php';
 require_once __DIR__ . '/Core/SchedulerComparator.php';

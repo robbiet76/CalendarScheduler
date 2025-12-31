@@ -50,7 +50,7 @@ final class SchedulerRunner
         // ------------------------------------------------------------
         $icsUrl = trim((string)($this->cfg['calendar']['ics_url'] ?? ''));
         if ($icsUrl === '') {
-            SchedulerLogger::instance()->warn('No ICS URL configured');
+            GcsLogger::instance()->warn('No ICS URL configured');
             return $this->emptyResult();
         }
 
