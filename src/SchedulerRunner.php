@@ -54,7 +54,7 @@ final class GcsSchedulerRunner
             return $this->emptyResult();
         }
 
-        $ics = (new GcsIcsFetcher())->fetch($icsUrl);
+        $ics = (new IcsFetcher())->fetch($icsUrl);
         if ($ics === '') {
             return $this->emptyResult();
         }
@@ -62,7 +62,7 @@ final class GcsSchedulerRunner
         $now = new DateTime('now');
         $horizonEnd = (clone $now)->modify('+' . $this->horizonDays . ' days');
 
-        $parser = new GcsIcsParser();
+        $parser = new IcsParser();
         $events = $parser->parse($ics, $now, $horizonEnd);
         if (empty($events)) {
             return $this->emptyResult();
