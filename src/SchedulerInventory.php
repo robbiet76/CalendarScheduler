@@ -61,7 +61,7 @@ final class SchedulerInventory
                 continue;
             }
 
-            if (GcsSchedulerIdentity::isGcsManaged($entry)) {
+            if (SchedulerIdentity::isGcsManaged($entry)) {
                 $managed++;
             } else {
                 $unmanaged++;

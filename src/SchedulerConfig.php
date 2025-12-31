@@ -2,7 +2,9 @@
 declare(strict_types=1);
 
 /**
- * GcsConfig
+ * SchedulerConfig
+ * 
+ * POSSIBLE LEGACY CODE
  *
  * Central configuration container for GoogleCalendarScheduler.
  *
@@ -22,7 +24,7 @@ declare(strict_types=1);
  * - Persisted config is always merged over defaults
  * - Missing keys are backfilled automatically
  */
-final class GcsConfig
+final class SchedulerConfig
 {
     /**
      * Canonical default configuration.

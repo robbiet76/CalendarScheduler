@@ -43,7 +43,7 @@ require_once __DIR__ . '/src/cleanup/SchedulerCleanupApplier.php';
 require_once __DIR__ . '/src/Infrastructure/DiffPreviewer.php';
 
 
-$cfg = GcsConfig::load();
+$cfg = SchedulerConfig::load();
 
 /*
  * --------------------------------------------------------------------
@@ -58,9 +58,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
             $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
 
-            GcsConfig::save($cfg);
+            SchedulerConfig::save($cfg);
             clearstatcache();
-            $cfg = GcsConfig::load();
+            $cfg = SchedulerConfig::load();
         }
 
         // Sync = plan-only, never writes (UI removed in Phase 19.3)
@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
     } catch (Throwable $e) {
-        GcsLogger::instance()->error('GoogleCalendarScheduler error', [
+        SchedulerLogger::instance()->error('GoogleCalendarScheduler error', [
             'error' => $e->getMessage(),
         ]);
     }

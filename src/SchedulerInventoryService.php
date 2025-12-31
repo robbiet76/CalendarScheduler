@@ -48,7 +48,7 @@ final class SchedulerInventoryService
 
             $total++;
 
-            if (GcsSchedulerIdentity::isGcsManaged($entry)) {
+            if (SchedulerIdentity::isGcsManaged($entry)) {
                 $managed++;
                 continue;
             }

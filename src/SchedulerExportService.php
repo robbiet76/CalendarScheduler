@@ -64,7 +64,7 @@ final class SchedulerExportService
                 continue;
             }
 
-            if (!GcsSchedulerIdentity::isGcsManaged($entry)) {
+            if (!SchedulerIdentity::isGcsManaged($entry)) {
                 $unmanaged[] = $entry;
             }
         }

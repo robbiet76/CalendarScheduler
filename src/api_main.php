@@ -28,14 +28,14 @@ $action = $_POST['action'] ?? '';
  * --------------------------------------------------------------------
  */
 if ($action === 'save') {
-    $cfg = GcsConfig::load();
+    $cfg = SchedulerConfig::load();
 
     $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
     $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
 
-    GcsConfig::save($cfg);
+    SchedulerConfig::save($cfg);
 
-    GcsLog::info('Settings saved', [
+    SchedulerLog::info('Settings saved', [
         'dryRun' => $cfg['runtime']['dry_run'],
     ]);
 }
@@ -46,10 +46,10 @@ if ($action === 'save') {
  * --------------------------------------------------------------------
  */
 if ($action === 'sync') {
-    $cfg    = GcsConfig::load();
+    $cfg    = SchedulerConfig::load();
     $dryRun = !empty($cfg['runtime']['dry_run']);
 
-    GcsLog::info('Starting scheduler sync', [
+    SchedulerLog::info('Starting scheduler sync', [
         'dryRun' => $dryRun,
         'mode'   => $dryRun ? 'dry-run' : 'live',
     ]);
@@ -60,7 +60,7 @@ if ($action === 'sync') {
      * - Passed only to satisfy runner constructor
      * - Planning scope is owned by SchedulerPlanner
      */
-    $runner = new GcsSchedulerRunner(
+    $runner = new SchedulerRunner(
         $cfg,
         365,
         $dryRun
@@ -68,7 +68,7 @@ if ($action === 'sync') {
 
     $result = $runner->run();
 
-    GcsLog::info(
+    SchedulerLog::info(
         'Scheduler sync completed',
         array_merge(
             $result,

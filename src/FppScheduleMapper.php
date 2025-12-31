@@ -1,7 +1,7 @@
 <?php
 
 /**
- * GcsFppScheduleMapper (LEGACY)
+ * FppScheduleMapper (LEGACY)
  *
  * ⚠️ LEGACY FILE — DO NOT EXTEND ⚠️
  *
@@ -29,7 +29,7 @@
  * ⚠️ DO NOT ADD NEW CALLERS
  * ⚠️ DO NOT USE FOR NEW FEATURES
  */
-class GcsFppScheduleMapper
+class FppScheduleMapper
 {
     // Legacy FPP day enum values
     const DAY_SUN      = 0;
@@ -138,7 +138,7 @@ class GcsFppScheduleMapper
     /**
      * Legacy ownership detection (playlist field based).
      *
-     * @deprecated Use GcsSchedulerIdentity::isGcsManaged()
+     * @deprecated Use SchedulerIdentity::isGcsManaged()
      */
     public static function isPluginManaged(array $entry): bool
     {
@@ -149,7 +149,7 @@ class GcsFppScheduleMapper
     /**
      * Legacy identity extractor.
      *
-     * @deprecated Use GcsSchedulerIdentity::extractKey()
+     * @deprecated Use SchedulerIdentity::extractKey()
      */
     public static function pluginKey(array $entry): ?string
     {
@@ -169,7 +169,7 @@ class GcsFppScheduleMapper
     {
         $uid   = (string)($ri['uid'] ?? '');
         $range = (string)($ri['startDate'] ?? '') . '..' . (string)($ri['endDate'] ?? '');
-        $days  = GcsIntentConsolidator::weekdayMaskToShortDays(
+        $days  = IntentConsolidator::weekdayMaskToShortDays(
             intval($ri['weekdayMask'] ?? 0)
         );
 
@@ -184,19 +184,19 @@ class GcsFppScheduleMapper
         $weekdayMask = $weekdayMask & 127;
 
         $weekdaysMask = (
-            GcsIntentConsolidator::WD_MON |
-            GcsIntentConsolidator::WD_TUE |
-            GcsIntentConsolidator::WD_WED |
-            GcsIntentConsolidator::WD_THU |
-            GcsIntentConsolidator::WD_FRI
+            IntentConsolidator::WD_MON |
+            IntentConsolidator::WD_TUE |
+            IntentConsolidator::WD_WED |
+            IntentConsolidator::WD_THU |
+            IntentConsolidator::WD_FRI
         );
 
         $weekendsMask = (
-            GcsIntentConsolidator::WD_SUN |
-            GcsIntentConsolidator::WD_SAT
+            IntentConsolidator::WD_SUN |
+            IntentConsolidator::WD_SAT
         );
 
-        if ($weekdayMask === GcsIntentConsolidator::WD_ALL) {
+        if ($weekdayMask === IntentConsolidator::WD_ALL) {
             return ['day' => self::DAY_EVERYDAY];
         }
 

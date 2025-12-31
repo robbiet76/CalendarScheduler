@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * GcsSchedulerRunner
+ * SchedulerRunner
  *
  * Pure calendar ingestion and intent generation engine.
  *
@@ -22,7 +22,7 @@ declare(strict_types=1);
  * scheduler intent generation. Persistence and diff logic
  * are handled downstream.
  */
-final class GcsSchedulerRunner
+final class SchedulerRunner
 {
     private array $cfg;
     private int $horizonDays;
@@ -50,7 +50,7 @@ final class GcsSchedulerRunner
         // ------------------------------------------------------------
         $icsUrl = trim((string)($this->cfg['calendar']['ics_url'] ?? ''));
         if ($icsUrl === '') {
-            GcsLogger::instance()->warn('No ICS URL configured');
+            SchedulerLogger::instance()->warn('No ICS URL configured');
             return $this->emptyResult();
         }
 
@@ -307,7 +307,7 @@ final class GcsSchedulerRunner
             }
 
             try {
-                $consolidator = new GcsIntentConsolidator();
+                $consolidator = new IntentConsolidator();
                 $maybe = $consolidator->consolidate($rawIntents);
                 if (is_array($maybe)) {
                     foreach ($maybe as $row) {

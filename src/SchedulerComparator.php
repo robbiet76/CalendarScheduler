@@ -29,12 +29,12 @@ final class SchedulerComparator
      * If this returns true, the planner will treat the entry as a NO-OP.
      * If false, the entry will be scheduled for UPDATE.
      *
-     * @param GcsExistingScheduleEntry $existing Existing scheduler entry
+     * @param ExistingScheduleEntry $existing Existing scheduler entry
      * @param array<string,mixed>      $desired  Desired scheduler entry
      * @return bool True if equivalent; false if update required
      */
     public static function isEquivalent(
-        GcsExistingScheduleEntry $existing,
+        ExistingScheduleEntry $existing,
         array $desired
     ): bool {
         $a = $existing->raw();

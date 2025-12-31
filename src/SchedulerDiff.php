@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * GcsSchedulerDiff
+ * SchedulerDiff
  *
  * Computes semantic differences between desired scheduler entries and
  * existing scheduler state.
@@ -22,23 +22,23 @@ declare(strict_types=1);
  * - Modify scheduler state
  * - Perform persistence or apply operations
  */
-final class GcsSchedulerDiff
+final class SchedulerDiff
 {
     /** @var array<int,array<string,mixed>> */
     private array $desired;
 
-    private GcsSchedulerState $state;
+    private SchedulerState $state;
 
     /**
      * @param array<int,array<string,mixed>> $desired
      */
-    public function __construct(array $desired, GcsSchedulerState $state)
+    public function __construct(array $desired, SchedulerState $state)
     {
         $this->desired = $desired;
         $this->state   = $state;
     }
 
-    public function compute(): GcsSchedulerDiffResult
+    public function compute(): SchedulerDiffResult
     {
         // Index existing scheduler entries by GCS UID
         $existingByUid = [];
@@ -60,7 +60,7 @@ final class GcsSchedulerDiff
                 continue;
             }
 
-            $uid = GcsSchedulerIdentity::extractKey($desiredEntry);
+            $uid = SchedulerIdentity::extractKey($desiredEntry);
             if ($uid === null) {
                 // Desired entries without GCS identity are ignored
                 continue;
@@ -96,7 +96,7 @@ final class GcsSchedulerDiff
             }
         }
 
-        return new GcsSchedulerDiffResult($toCreate, $toUpdate, $toDelete);
+        return new SchedulerDiffResult($toCreate, $toUpdate, $toDelete);
     }
 
     /**

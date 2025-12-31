@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * GcsLog
+ * SchedulerLog
  *
  * Low-level static logger used by the Google Calendar Scheduler plugin.
  *
@@ -17,7 +17,7 @@ declare(strict_types=1);
  *
  * This class is intentionally minimal and static.
  */
-final class GcsLog
+final class SchedulerLog
 {
     /**
      * Write a single log entry.
@@ -68,19 +68,19 @@ final class GcsLog
 }
 
 /**
- * GcsLogger
+ * SchedulerLogger
  *
  * Compatibility wrapper used throughout the codebase.
  *
  * Provides a minimal instance-based interface to the static
- * GcsLog implementation.
+ * SchedulerLog implementation.
  *
  * Allows call sites such as:
- *   GcsLogger::instance()->info(...)
+ *   SchedulerLogger::instance()->info(...)
  *
  * This wrapper exists solely to avoid refactoring older code.
  */
-final class GcsLogger
+final class SchedulerLogger
 {
     private static ?self $instance = null;
 
@@ -101,7 +101,7 @@ final class GcsLogger
      */
     public function info(string $message, array $context = []): void
     {
-        GcsLog::info($message, $context);
+        SchedulerLog::info($message, $context);
     }
 
     /**
@@ -109,7 +109,7 @@ final class GcsLogger
      */
     public function warn(string $message, array $context = []): void
     {
-        GcsLog::warn($message, $context);
+        SchedulerLog::warn($message, $context);
     }
 
     /**
@@ -117,6 +117,6 @@ final class GcsLogger
      */
     public function error(string $message, array $context = []): void
     {
-        GcsLog::error($message, $context);
+        SchedulerLog::error($message, $context);
     }
 }

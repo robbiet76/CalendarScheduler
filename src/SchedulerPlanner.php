@@ -52,7 +52,7 @@ final class SchedulerPlanner
         /* -----------------------------------------------------------------
          * 1. Calendar ingestion → scheduling intents
          * ----------------------------------------------------------------- */
-        $runner = new GcsSchedulerRunner(
+        $runner = new SchedulerRunner(
             $config,
             self::HORIZON_DAYS
         );
@@ -83,19 +83,19 @@ final class SchedulerPlanner
         $existingEntries = [];
         foreach ($existingRaw as $row) {
             if (is_array($row)) {
-                $existingEntries[] = new GcsExistingScheduleEntry($row);
+                $existingEntries[] = new ExistingScheduleEntry($row);
             }
         }
 
         /* -----------------------------------------------------------------
          * 4. Immutable scheduler state
          * ----------------------------------------------------------------- */
-        $state = new GcsSchedulerState($existingEntries);
+        $state = new SchedulerState($existingEntries);
 
         /* -----------------------------------------------------------------
          * 5. Compute diff
          * ----------------------------------------------------------------- */
-        $diff = (new GcsSchedulerDiff($desired, $state))->compute();
+        $diff = (new SchedulerDiff($desired, $state))->compute();
 
         return [
             'creates'        => $diff->creates(),
