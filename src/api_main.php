@@ -20,13 +20,6 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
-/*
- * TEMPORARY / LEGACY:
- * - Horizon abstraction will be removed
- * - Future behavior will hardcode a safe fixed window (e.g., 365 days)
- */
-require_once __DIR__ . '/FppSchedulerHorizon.php';
-
 $action = $_POST['action'] ?? '';
 
 /*
@@ -63,26 +56,28 @@ if ($action === 'sync') {
 
     /*
      * Horizon:
-     * - Currently delegated to helper for compatibility
-     * - Will be replaced with a fixed large window (Phase 26+)
+     * - Fixed, non-configurable
+     * - Passed only to satisfy runner constructor
+     * - Planning scope is owned by SchedulerPlanner
      */
-    $horizonDays = GcsFppSchedulerHorizon::getDays();
-
     $runner = new GcsSchedulerRunner(
         $cfg,
-        $horizonDays,
+        365,
         $dryRun
     );
 
     $result = $runner->run();
 
-    GcsLog::info('Scheduler sync completed', array_merge(
-        $result,
-        [
-            'dryRun' => $dryRun,
-            'mode'   => $dryRun ? 'dry-run' : 'live',
-        ]
-    ));
+    GcsLog::info(
+        'Scheduler sync completed',
+        array_merge(
+            $result,
+            [
+                'dryRun' => $dryRun,
+                'mode'   => $dryRun ? 'dry-run' : 'live',
+            ]
+        )
+    );
 }
 
 /*

@@ -23,6 +23,15 @@ declare(strict_types=1);
 final class SchedulerPlanner
 {
     /**
+     * Fixed planning horizon (days).
+     *
+     * Planner-owned, deterministic, and intentionally not configurable.
+     * This bounds planning scope for release stability and prevents
+     * cross-layer or UI influence over scheduler behavior.
+     */
+    private const HORIZON_DAYS = 365;
+
+    /**
      * Compute a scheduler plan (diff) without side effects.
      *
      * The returned structure is used by:
@@ -45,7 +54,7 @@ final class SchedulerPlanner
          * ----------------------------------------------------------------- */
         $runner = new GcsSchedulerRunner(
             $config,
-            GcsFppSchedulerHorizon::getDays()
+            self::HORIZON_DAYS
         );
 
         $runnerResult = $runner->run();
