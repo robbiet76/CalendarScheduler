@@ -30,8 +30,8 @@ define('GCS_LOG_PATH', '/home/fpp/media/logs/google-calendar-scheduler.log');
  * - Configuration
  * - Logging
  */
-require_once __DIR__ . '/Config.php';
-require_once __DIR__ . '/Log.php';
+require_once __DIR__ . '/SchedulerConfig.php';
+require_once __DIR__ . '/SchedulerLog.php';
 
 /*
  * --------------------------------------------------------------------
