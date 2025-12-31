@@ -109,7 +109,7 @@ final class GcsSchedulerRunner
 
             // Resolve scheduler target from summary
             $summary = (string)($refEv['summary'] ?? '');
-            $resolved = GcsTargetResolver::resolve($summary);
+            $resolved = TargetResolver::resolve($summary);
             if (!$resolved) {
                 continue;
             }
@@ -165,7 +165,7 @@ final class GcsSchedulerRunner
                 }
 
                 $desc = self::extractDescriptionFromEvent($sourceEv);
-                $yaml = GcsYamlMetadata::parse($desc, [
+                $yaml = YamlMetadata::parse($desc, [
                     'uid'     => $uid,
                     'summary' => $summary,
                     'start'   => $occ['start'],
