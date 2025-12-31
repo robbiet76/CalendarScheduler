@@ -74,9 +74,9 @@ require_once __DIR__ . '/Core/ScheduleEntryExportAdapter.php';
 require_once __DIR__ . '/Planner/SchedulerSync.php';
 require_once __DIR__ . '/Planner/SchedulerRunner.php';
 require_once __DIR__ . '/Planner/SchedulerDiff.php';
-require_once __DIR__ . '/Planner/SchedulerInventory.php';
-require_once __DIR__ . '/Planner/SchedulerInventoryService.php';
-require_once __DIR__ . '/Planner/SchedulerExportService.php';
+require_once __DIR__ . '/Planner/InventorySnapshot.php';
+require_once __DIR__ . '/Planner/InventoryService.php';
+require_once __DIR__ . '/Planner/ExportService.php';
 require_once __DIR__ . '/Planner/SchedulerPlanner.php';
 
 /*

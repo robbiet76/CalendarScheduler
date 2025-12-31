@@ -39,8 +39,8 @@ require_once __DIR__ . '/src/Core/ScheduleEntryExportAdapter.php';
 // ---------------------------------------------------------------------
 // Planner services (PURE — no writes)
 // ---------------------------------------------------------------------
-require_once __DIR__ . '/src/Planner/SchedulerExportService.php';
-require_once __DIR__ . '/src/Planner/SchedulerInventoryService.php';
+require_once __DIR__ . '/src/Planner/ExportService.php';
+require_once __DIR__ . '/src/Planner/InventoryService.php';
 
 // ---------------------------------------------------------------------
 // Apply services (WRITE boundary — guarded, never auto-run)
@@ -166,7 +166,7 @@ if (isset($_GET['endpoint'])) {
         // Export unmanaged scheduler entries to ICS
         if ($_GET['endpoint'] === 'export_unmanaged_ics') {
 
-            $result = SchedulerExportService::exportUnmanaged();
+            $result = ExportService::exportUnmanaged();
 
             if (empty($result['ics'])) {
                 header('Content-Type: application/json');
@@ -191,7 +191,7 @@ if (isset($_GET['endpoint'])) {
             header('Content-Type: application/json');
 
             try {
-                $inv = SchedulerInventoryService::getInventory();
+                $inv = InventoryService::getInventory();
 
                 echo json_encode([
                     'ok' => true,
