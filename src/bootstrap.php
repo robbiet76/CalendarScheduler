@@ -30,8 +30,8 @@ define('GCS_LOG_PATH', '/home/fpp/media/logs/google-calendar-scheduler.log');
  * - Configuration
  * - Logging
  */
-require_once __DIR__ . '/SchedulerConfig.php';
-require_once __DIR__ . '/SchedulerLog.php';
+require_once __DIR__ . '/Core/SchedulerConfig.php';
+require_once __DIR__ . '/Core/SchedulerLog.php';
 
 /*
  * --------------------------------------------------------------------
@@ -73,7 +73,7 @@ require_once __DIR__ . '/FppScheduleMapper.php';
  * - Canonical GCS identity extraction
  * - Semantic comparison (update vs no-op)
  */
-require_once __DIR__ . '/SchedulerIdentity.php';
+require_once __DIR__ . '/Core/SchedulerIdentity.php';
 require_once __DIR__ . '/SchedulerComparator.php';
 
 /*
@@ -84,7 +84,7 @@ require_once __DIR__ . '/SchedulerComparator.php';
  * - Diff computation
  * - Diff result value objects
  */
-require_once __DIR__ . '/ExistingScheduleEntry.php';
+require_once __DIR__ . '/Core/ExistingScheduleEntry.php';
 require_once __DIR__ . '/ComparableScheduleEntry.php';
 require_once __DIR__ . '/SchedulerState.php';
 require_once __DIR__ . '/SchedulerDiffResult.php';
