@@ -88,7 +88,7 @@ require_once __DIR__ . '/Core/ExistingScheduleEntry.php';
 require_once __DIR__ . '/ComparableScheduleEntry.php';
 require_once __DIR__ . '/SchedulerState.php';
 require_once __DIR__ . '/SchedulerDiffResult.php';
-require_once __DIR__ . '/SchedulerDiff.php';
+require_once __DIR__ . '/Planner/SchedulerDiff.php';
 
 /*
  * --------------------------------------------------------------------
@@ -106,7 +106,7 @@ require_once __DIR__ . '/SchedulerSync.php';
  * - Orchestrates fetch → parse → intent generation
  * - No scheduler writes
  */
-require_once __DIR__ . '/SchedulerRunner.php';
+require_once __DIR__ . '/Planner/SchedulerRunner.php';
 
 /*
  * --------------------------------------------------------------------
@@ -115,7 +115,7 @@ require_once __DIR__ . '/SchedulerRunner.php';
  * - Combines desired intents + existing scheduler state
  * - Produces create/update/delete diff
  */
-require_once __DIR__ . '/SchedulerPlanner.php';
+require_once __DIR__ . '/Planner/SchedulerPlanner.php';
 
 /*
  * --------------------------------------------------------------------
