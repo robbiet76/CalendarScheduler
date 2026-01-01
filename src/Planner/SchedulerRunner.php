@@ -207,6 +207,7 @@ final class SchedulerRunner
                 $occYaml[$rid] = $yaml;
             }
 
+            // If occurrences span multiple weekdays, a single intent cannot represent them safely.
             $canEmitSingle = (
                 !$hasOverride &&
                 !$timesVary &&
