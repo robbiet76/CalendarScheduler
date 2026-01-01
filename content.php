@@ -252,17 +252,6 @@ $canSave    = ($isEmpty || $isIcsValid);
 
 <div class="settings">
 
-<div class="gcs-global-links">
-    <a
-        href="https://calendar.google.com"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="gcs-external-link"
-    >
-        Open Google Calendar ↗
-    </a>
-</div>
-
 <div id="gcs-status-bar" class="gcs-status gcs-status--info">
     <span class="gcs-status-dot"></span>
     <span class="gcs-status-text">
@@ -303,6 +292,16 @@ $canSave    = ($isEmpty || $isIcsValid);
     >
         Save Settings
     </button>
+
+    <a
+        href="https://calendar.google.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="gcs-external-link"
+        style="margin-left:12px;"
+    >
+        Open Google Calendar ↗
+    </a>
 
     <div class="gcs-dev-toggle">
         <label>
@@ -365,13 +364,6 @@ $canSave    = ($isEmpty || $isIcsValid);
 .settings {
     position: relative;
     padding-bottom: 36px; /* space for dev toggle */
-}
-
-.gcs-global-links {
-    position: absolute;
-    top: 6px;
-    right: 8px;
-    font-size: 0.9em;
 }
 
 .gcs-external-link {
