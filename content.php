@@ -283,25 +283,25 @@ $canSave    = ($isEmpty || $isIcsValid);
         >
     </div>
 
-    <button
-        type="submit"
-        class="buttons"
-        id="gcs-save-btn"
-        style="margin-top:8px;"
-        <?php if (!$canSave) echo 'disabled'; ?>
-    >
-        Save Settings
-    </button>
+    <div class="gcs-save-row">
+        <button
+            type="submit"
+            class="buttons"
+            id="gcs-save-btn"
+            <?php if (!$canSave) echo 'disabled'; ?>
+        >
+            Save Settings
+        </button>
 
-    <a
-        href="https://calendar.google.com"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="gcs-external-link"
-        style="margin-left:12px;"
-    >
-        Open Google Calendar ↗
-    </a>
+        <a
+            href="https://calendar.google.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="gcs-open-calendar-link"
+        >
+            Open Google Calendar ↗
+        </a>
+    </div>
 
     <div class="gcs-dev-toggle">
         <label>
@@ -366,13 +366,21 @@ $canSave    = ($isEmpty || $isIcsValid);
     padding-bottom: 36px; /* space for dev toggle */
 }
 
-.gcs-external-link {
-    color: #2563eb;
-    font-weight: 600;
-    text-decoration: none;
+.gcs-save-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
 }
 
-.gcs-external-link:hover {
+.gcs-open-calendar-link {
+    color: #000;
+    font-weight: normal;
+    text-decoration: none;
+    font-size: 0.95em;
+}
+
+.gcs-open-calendar-link:hover {
     text-decoration: underline;
 }
 
