@@ -4,31 +4,32 @@ declare(strict_types=1);
 /**
  * IntentConsolidator
  *
- * Consolidates per-occurrence scheduling intents into the minimum number
- * of FPP-native ranged intents while remaining strictly LOSSLESS.
+ * Consolidates per-occurrence scheduling intents into a single ranged intent
+ * (FPP-native approach) using:
+ * - A date range (startDate..endDate)
+ * - A day mask (Su..Sa)
  *
- * FPP Semantics:
- * - An entry is defined by: start/end times + date range + weekday mask + action
- * - The weekday mask controls which days within the date range run
- * - Date continuity is NOT required (weekly schedules are naturally sparse)
+ * MUST-HOLD RULES (per project requirements):
+ * 1) startDate MUST be the original DTSTART date for the series when available,
+ *    even if DTSTART is in the past and the first expanded occurrence is later.
+ * 2) If every calendar day between startDate and endDate has an occurrence,
+ *    the day mask MUST be treated as "Everyday" (all 7 days).
  *
  * HARD GUARANTEES:
- * - Occurrences with differing start/end TIMES are NEVER merged
+ * - Different start/end TIMES are NEVER merged
  * - Overrides are NEVER merged with non-overrides
- * - Consolidation is strictly lossless:
- *   For any emitted range, every calendar date inside the range whose DOW
- *   matches the mask MUST exist as an occurrence. Otherwise the range is split.
+ * - Consolidation is lossless w.r.t. occurrence set (day mask + range)
  *
  * This class does NOT:
- * - Infer scheduling policy
- * - Modify intent semantics
  * - Perform scheduler I/O
+ * - Enforce planner caps (horizon policy)
  */
 final class IntentConsolidator
 {
     /* ---------------------------------------------------------------------
      * Weekday bitmask constants (Sunday = 0, matches DateTime::format('w'))
      * ------------------------------------------------------------------ */
+
     public const WD_SUN = 1 << 0; // 1
     public const WD_MON = 1 << 1; // 2
     public const WD_TUE = 1 << 2; // 4
@@ -46,9 +47,6 @@ final class IntentConsolidator
         self::WD_FRI |
         self::WD_SAT;
 
-    /* ---------------------------------------------------------------------
-     * Internal metrics (diagnostic only)
-     * ------------------------------------------------------------------ */
     private int $skipped = 0;
     private int $rangeCount = 0;
 
@@ -64,9 +62,9 @@ final class IntentConsolidator
             return [];
         }
 
-        /* -------------------------------------------------------------
-         * 1. Group intents by immutable identity (FPP entry invariants)
-         * ---------------------------------------------------------- */
+        // -------------------------------------------------------------
+        // 1) Group intents by immutable identity (including TIME + override)
+        // -------------------------------------------------------------
         $groups = [];
 
         foreach ($intents as $intent) {
@@ -75,19 +73,23 @@ final class IntentConsolidator
                 continue;
             }
 
-            $start = new DateTime((string)$intent['start']);
-            $end   = new DateTime((string)$intent['end']);
+            try {
+                $start = new DateTime((string)$intent['start']);
+                $end   = new DateTime((string)$intent['end']);
+            } catch (\Throwable $e) {
+                $this->skipped++;
+                continue;
+            }
 
             $startTime = $start->format('H:i:s');
             $endTime   = $end->format('H:i:s');
 
-            // Stable identity MUST include time and override flag
             $key = implode('|', [
+                (string)($intent['uid'] ?? ''),               // keep per-UID ranges stable
                 (string)($intent['type'] ?? ''),
                 (string)$intent['target'],
                 (string)($intent['stopType'] ?? ''),
                 (string)($intent['repeat'] ?? ''),
-                (!empty($intent['isAllDay']) ? '1' : '0'),
                 $startTime,
                 $endTime,
                 (!empty($intent['isOverride']) ? '1' : '0'),
@@ -96,175 +98,159 @@ final class IntentConsolidator
             $groups[$key][] = $intent;
         }
 
-        /* -------------------------------------------------------------
-         * 2. For each group, derive:
-         *    - weekday mask from actual occurrences
-         *    - one or more date ranges that are LOSSLESS under that mask
-         * ---------------------------------------------------------- */
+        // -------------------------------------------------------------
+        // 2) For each group, compute ONE range + mask
+        // -------------------------------------------------------------
         $result = [];
 
         foreach ($groups as $items) {
-            $groupOut = $this->consolidateGroupFppNative($items);
-            foreach ($groupOut as $row) {
-                $result[] = $row;
+            // Sort by start date for stable behavior
+            usort(
+                $items,
+                fn($a, $b) => strcmp((string)($a['start'] ?? ''), (string)($b['start'] ?? ''))
+            );
+
+            $minOccDate = null;   // earliest occurrence date
+            $maxOccDate = null;   // latest occurrence date
+            $daysMask   = 0;      // union of DOWs present in occurrences
+            $dateSet    = [];     // set of YYYY-mm-dd dates with occurrences
+
+            // Template should be any representative intent for this group
+            $template = $items[0];
+
+            // Series DTSTART/END (preferred range anchors if provided)
+            $seriesStartDate = $this->pickSeriesStartDate($items);
+            $seriesEndDate   = $this->pickSeriesEndDate($items); // optional; may be null
+
+            foreach ($items as $intent) {
+                try {
+                    $s = new DateTime((string)$intent['start']);
+                } catch (\Throwable $e) {
+                    $this->skipped++;
+                    continue;
+                }
+
+                $d = $s->format('Y-m-d');
+                $dateSet[$d] = true;
+
+                if ($minOccDate === null || $d < $minOccDate) {
+                    $minOccDate = $d;
+                }
+                if ($maxOccDate === null || $d > $maxOccDate) {
+                    $maxOccDate = $d;
+                }
+
+                $dow = (int)$s->format('w'); // 0=Sun..6=Sat
+                $daysMask |= (1 << $dow);
             }
+
+            if ($minOccDate === null || $maxOccDate === null) {
+                $this->skipped++;
+                continue;
+            }
+
+            // ---------------------------------------------------------
+            // RANGE START: MUST be original DTSTART when available
+            // ---------------------------------------------------------
+            $rangeStart = $seriesStartDate ?? $minOccDate;
+
+            // RANGE END: prefer seriesEndDate if present, else last occurrence
+            // (planner may cap elsewhere; this consolidator stays lossless)
+            $rangeEnd = $seriesEndDate ?? $maxOccDate;
+
+            // ---------------------------------------------------------
+            // EVERYDAY RULE:
+            // If EVERY calendar day in [rangeStart..rangeEnd] has an occurrence,
+            // force mask to ALL days (Everyday).
+            // ---------------------------------------------------------
+            if ($this->hasEveryDayCoverage($rangeStart, $rangeEnd, $dateSet)) {
+                $daysMask = self::WD_ALL;
+            }
+
+            $result[] = [
+                'template' => $template,
+                'range' => [
+                    'start' => $rangeStart,
+                    'end'   => $rangeEnd,
+                    'days'  => self::weekdayMaskToShortDays($daysMask),
+                ],
+            ];
+            $this->rangeCount++;
         }
 
         return $result;
     }
 
     /**
-     * Consolidate a single identity group using FPP-native semantics.
-     *
+     * Prefer seriesStartDate from intents (set by SchedulerRunner).
      * @param array<int,array<string,mixed>> $items
-     * @return array<int,array<string,mixed>>
      */
-    private function consolidateGroupFppNative(array $items): array
+    private function pickSeriesStartDate(array $items): ?string
     {
-        // Collect unique occurrence dates (Y-m-d) and DOW set
-        $activeDates = []; // set: 'Y-m-d' => true
-        $mask = 0;
-
-        // Template: pick the first valid intent as the base template
-        $template = null;
-
-        foreach ($items as $intent) {
-            try {
-                $dt = new DateTime((string)$intent['start']);
-            } catch (Throwable) {
-                $this->skipped++;
-                continue;
+        foreach ($items as $it) {
+            $v = (string)($it['seriesStartDate'] ?? '');
+            if ($this->isValidYmd($v)) {
+                return $v;
             }
-
-            if ($template === null) {
-                $template = $intent;
-            }
-
-            $date = $dt->format('Y-m-d');
-            $activeDates[$date] = true;
-
-            $dow = (int)$dt->format('w'); // 0..6
-            $mask |= (1 << $dow);
         }
-
-        if (empty($activeDates) || $template === null) {
-            return [];
-        }
-
-        ksort($activeDates);
-        $dates = array_keys($activeDates);
-        $minDate = $dates[0];
-        $maxDate = $dates[count($dates) - 1];
-
-        $ranges = $this->buildLosslessRanges($activeDates, $mask, $minDate, $maxDate);
-
-        $out = [];
-        foreach ($ranges as [$startYmd, $endYmd]) {
-            $out[] = [
-                'template' => $template,
-                'range' => [
-                    'start' => $startYmd,
-                    'end'   => $endYmd,
-                    'days'  => self::weekdayMaskToShortDays($mask),
-                ],
-            ];
-            $this->rangeCount++;
-        }
-
-        return $out;
+        return null;
     }
 
     /**
-     * Build the minimum set of date ranges that remain LOSSLESS for the given mask.
-     *
-     * Lossless rule:
-     * For any date inside [rangeStart..rangeEnd] where (mask includes that DOW),
-     * that date MUST exist in $activeDates. If it doesn't, we must split ranges
-     * to avoid scheduling extra runs.
-     *
-     * @param array<string,bool> $activeDates  set of 'Y-m-d'
-     * @return array<int,array{0:string,1:string}> list of [start,end] Y-m-d
+     * Prefer seriesEndDate from intents when provided (optional).
+     * @param array<int,array<string,mixed>> $items
      */
-    private function buildLosslessRanges(array $activeDates, int $mask, string $minYmd, string $maxYmd): array
+    private function pickSeriesEndDate(array $items): ?string
     {
-        $ranges = [];
-
-        $cursor = DateTime::createFromFormat('Y-m-d', $minYmd);
-        $end    = DateTime::createFromFormat('Y-m-d', $maxYmd);
-
-        if (!$cursor || !$end) {
-            // Fallback: single range
-            return [[$minYmd, $maxYmd]];
-        }
-
-        $rangeStart = null; // DateTime|null
-        $prev = null;       // DateTime|null
-
-        while ($cursor <= $end) {
-            $ymd = $cursor->format('Y-m-d');
-            $dow = (int)$cursor->format('w');
-            $expectedActive = (bool)($mask & (1 << $dow));
-            $actualActive   = !empty($activeDates[$ymd]);
-
-            if ($rangeStart === null) {
-                // We only start a range on an actual active date
-                if ($actualActive) {
-                    $rangeStart = clone $cursor;
-                }
-            } else {
-                // If this day would run under the mask but is missing, we must split
-                if ($expectedActive && !$actualActive) {
-                    // Close at previous day
-                    if ($prev !== null) {
-                        $ranges[] = [
-                            $rangeStart->format('Y-m-d'),
-                            $prev->format('Y-m-d'),
-                        ];
-                    } else {
-                        // Should not happen, but be safe
-                        $ranges[] = [
-                            $rangeStart->format('Y-m-d'),
-                            $rangeStart->format('Y-m-d'),
-                        ];
-                    }
-                    $rangeStart = null;
-                }
+        foreach ($items as $it) {
+            $v = (string)($it['seriesEndDate'] ?? '');
+            if ($this->isValidYmd($v)) {
+                return $v;
             }
+        }
+        return null;
+    }
 
-            $prev = clone $cursor;
-            $cursor->modify('+1 day');
+    /**
+     * True if there is an occurrence on EVERY date from start..end inclusive.
+     * @param array<string,bool> $dateSet
+     */
+    private function hasEveryDayCoverage(string $start, string $end, array $dateSet): bool
+    {
+        if (!$this->isValidYmd($start) || !$this->isValidYmd($end) || $start > $end) {
+            return false;
         }
 
-        if ($rangeStart !== null) {
-            $ranges[] = [
-                $rangeStart->format('Y-m-d'),
-                $prev ? $prev->format('Y-m-d') : $rangeStart->format('Y-m-d'),
-            ];
+        try {
+            $d = new DateTime($start);
+            $e = new DateTime($end);
+        } catch (\Throwable $ignored) {
+            return false;
         }
 
-        // Defensive cleanup: remove any inverted/empty ranges
-        $clean = [];
-        foreach ($ranges as [$a, $b]) {
-            if ($a === '' || $b === '') continue;
-            if ($a > $b) continue;
-            $clean[] = [$a, $b];
+        while ($d <= $e) {
+            $k = $d->format('Y-m-d');
+            if (empty($dateSet[$k])) {
+                return false;
+            }
+            $d->modify('+1 day');
         }
+        return true;
+    }
 
-        // If everything got filtered (shouldn't), fallback single
-        if (empty($clean)) {
-            $clean[] = [$minYmd, $maxYmd];
+    private function isValidYmd(string $s): bool
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) {
+            return false;
         }
-
-        return $clean;
+        $dt = DateTime::createFromFormat('Y-m-d', $s);
+        return ($dt instanceof DateTime) && ($dt->format('Y-m-d') === $s);
     }
 
     /* ---------------------------------------------------------------------
-     * Shared helpers (used by FppScheduleMapper and others)
+     * Shared helpers (used by mappers, tests, etc.)
      * ------------------------------------------------------------------ */
 
-    /**
-     * Convert short-day string (e.g. "SuMoTu") to weekday bitmask.
-     */
     public static function shortDaysToWeekdayMask(string $days): int
     {
         $map = [
@@ -287,9 +273,6 @@ final class IntentConsolidator
         return $mask;
     }
 
-    /**
-     * Convert weekday bitmask to short-day string (e.g. "SuMoTu").
-     */
     public static function weekdayMaskToShortDays(int $mask): string
     {
         $map = [
@@ -308,7 +291,6 @@ final class IntentConsolidator
                 $out .= $abbr;
             }
         }
-
         return $out;
     }
 
