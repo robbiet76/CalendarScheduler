@@ -8,77 +8,38 @@ declare(strict_types=1);
  *
  * Ownership rules:
  * - A scheduler entry is considered GCS-managed if it contains a
- *   valid GCS identity tag in args[]
+ *   valid GCS v1 identity tag in args[]
  *
- * Identity rules (Phase 29+):
- * - Identity is the UID ONLY
- * - Planner semantics must not leak into scheduler state
+ * Identity rules:
+ * - Identity is the FULL GCS tag string
+ *   (uid + range + days)
  *
- * Tag format (two-part):
- *   |M|GCS:v1|<uid>
+ * Rationale:
+ * - UID-only identity is insufficient once recurring calendar
+ *   events expand into multiple scheduler entries
+ * - Apply and delete operations must reason about exact raw
+ *   scheduler entries, not logical event groupings
  *
- * Where:
- * - |M|        = human-visible "Managed" marker (future FPP UI use)
- * - |GCS:v1|   = internal ownership + versioning
- * - <uid>      = canonical calendar series UID
- *
- * Backward compatibility:
- * - Legacy tags beginning with |GCS:v1|uid=... are still recognized
- * - UID is extracted safely for update/delete semantics
+ * This class defines the single source of truth for determining
+ * scheduler ownership and identity.
  */
 final class SchedulerIdentity
 {
-    /**
-     * Human-visible managed marker (Phase 29+)
-     */
-    public const DISPLAY_TAG = '|M|';
+    public const TAG_MARKER = '|GCS:v1|';
 
     /**
-     * Internal ownership/version marker
-     */
-    public const INTERNAL_TAG = '|GCS:v1|';
-
-    /**
-     * Full canonical prefix for new tags
-     */
-    public const FULL_PREFIX = self::DISPLAY_TAG . self::INTERNAL_TAG;
-
-    /**
-     * Extract the canonical GCS identity key (UID) from a scheduler entry.
+     * Extract the canonical GCS identity key from a scheduler entry.
+     *
+     * IMPORTANT:
+     * - The returned value is the FULL GCS tag string
+     * - Returning UID-only values will break delete and update semantics
      *
      * @param array<string,mixed> $entry
-     * @return string|null UID if managed, otherwise null
+     * @return string|null Canonical identity tag or null if not present
      */
     public static function extractKey(array $entry): ?string
     {
-        if (!isset($entry['args']) || !is_array($entry['args'])) {
-            return null;
-        }
-
-        foreach ($entry['args'] as $arg) {
-            if (!is_string($arg)) {
-                continue;
-            }
-
-            // ---------------------------------------------------------
-            // Phase 29+ canonical format: |M|GCS:v1|<uid>
-            // ---------------------------------------------------------
-            if (str_starts_with($arg, self::FULL_PREFIX)) {
-                $uid = substr($arg, strlen(self::FULL_PREFIX));
-                return $uid !== '' ? $uid : null;
-            }
-
-            // ---------------------------------------------------------
-            // Backward compatibility: legacy |GCS:v1|uid=... tags
-            // ---------------------------------------------------------
-            if (str_starts_with($arg, self::INTERNAL_TAG)) {
-                if (preg_match('/uid=([^|]+)/', $arg, $m)) {
-                    return $m[1];
-                }
-            }
-        }
-
-        return null;
+        return self::extractTag($entry);
     }
 
     /**
@@ -100,13 +61,28 @@ final class SchedulerIdentity
     }
 
     /**
-     * Build args[] tag for a managed scheduler entry.
+     * Extract the raw GCS identity tag from args[].
      *
-     * @param string $uid Canonical calendar UID
-     * @return string Tag suitable for args[]
+     * @param array<string,mixed> $entry
+     * @return string|null Raw GCS tag or null if not found
      */
-    public static function buildArgsTag(string $uid): string
+    private static function extractTag(array $entry): ?string
     {
-        return self::FULL_PREFIX . $uid;
+        if (!isset($entry['args']) || !is_array($entry['args'])) {
+            return null;
+        }
+
+        foreach ($entry['args'] as $arg) {
+            if (!is_string($arg)) {
+                continue;
+            }
+
+            // Canonical tags must start with the marker
+            if (strpos($arg, self::TAG_MARKER) === 0) {
+                return $arg;
+            }
+        }
+
+        return null;
     }
 }
