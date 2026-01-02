@@ -37,9 +37,12 @@ final class SchedulerRunner
 
     public function run(): array
     {
-        // DEBUG: heartbeat proving runner executes
-        @file_put_contents('/tmp/gcs_runner_ran.txt', date('c') . PHP_EOL, FILE_APPEND);
+        // heartbeat
+        file_put_contents('/tmp/gcs_runner_ran.txt', date('c') . PHP_EOL, FILE_APPEND);
 
+        /* ------------------------------------------------------------
+         * Calendar fetch
+         * ---------------------------------------------------------- */
         $icsUrl = trim((string)($this->cfg['calendar']['ics_url'] ?? ''));
         if ($icsUrl === '') {
             GcsLogger::instance()->warn('No ICS URL configured');
@@ -51,31 +54,34 @@ final class SchedulerRunner
             return $this->emptyResult();
         }
 
+        /* ------------------------------------------------------------
+         * Horizon
+         * ---------------------------------------------------------- */
         $now = new DateTime('now');
+        $guardYear  = ((int)$now->format('Y')) + 2;
+        $horizonEnd = new DateTime(sprintf('%04d-12-31 23:59:59', $guardYear));
 
-        $currentYear = (int)$now->format('Y');
-        $guardYear   = $currentYear + 2;
-        $horizonEnd  = new DateTime(sprintf('%04d-12-31 23:59:59', $guardYear));
-
+        /* ------------------------------------------------------------
+         * Parse ICS
+         * ---------------------------------------------------------- */
         $parser = new IcsParser();
         $events = $parser->parse($ics, $now, $horizonEnd);
 
-        // DEBUG: dump parsed events
-        @file_put_contents(
+        file_put_contents(
             '/tmp/gcs_parsed_events_debug.json',
-            json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+            json_encode($events, JSON_PRETTY_PRINT)
         );
 
         if (empty($events)) {
             return $this->emptyResult();
         }
 
-        // Group events by UID (base event + overrides)
+        /* ------------------------------------------------------------
+         * Group by UID
+         * ---------------------------------------------------------- */
         $byUid = [];
         foreach ($events as $ev) {
-            if (!is_array($ev)) {
-                continue;
-            }
+            if (!is_array($ev)) continue;
             $uid = (string)($ev['uid'] ?? '');
             if ($uid !== '') {
                 $byUid[$uid][] = $ev;
@@ -83,349 +89,258 @@ final class SchedulerRunner
         }
 
         $intentsOut = [];
-        $trace = []; // init once
+        $trace = [];
 
+        /* ------------------------------------------------------------
+         * Per-UID processing
+         * ---------------------------------------------------------- */
         foreach ($byUid as $uid => $items) {
-            try {
-                $base = null;
-                $overrides = [];
 
-                foreach ($items as $ev) {
-                    if (!is_array($ev)) {
-                        continue;
-                    }
+            $base = null;
+            $overrides = [];
 
-                    if (!empty($ev['isOverride']) && !empty($ev['recurrenceId'])) {
-                        $overrides[(string)$ev['recurrenceId']] = $ev;
-                    } elseif ($base === null) {
-                        $base = $ev;
-                    }
+            foreach ($items as $ev) {
+                if (!is_array($ev)) continue;
+                if (!empty($ev['isOverride']) && !empty($ev['recurrenceId'])) {
+                    $overrides[(string)$ev['recurrenceId']] = $ev;
+                } elseif ($base === null) {
+                    $base = $ev;
                 }
+            }
 
-                $refEv = $base ?? $items[0];
-                if (!is_array($refEv)) {
-                    $trace[] = [
-                        'uid' => $uid,
-                        'note' => 'ref_event_not_array',
-                    ];
-                    continue;
-                }
+            $refEv = $base ?? $items[0];
+            if (!is_array($refEv)) continue;
+            if (!empty($refEv['isAllDay'])) continue;
 
-                // Skip all-day events (unsupported by scheduler)
-                if (!empty($refEv['isAllDay'])) {
-                    $trace[] = [
-                        'uid' => $uid,
-                        'summary' => (string)($refEv['summary'] ?? ''),
-                        'note' => 'skipped_all_day',
-                    ];
-                    continue;
-                }
-
-                // Resolve scheduler target from summary
-                $summary = (string)($refEv['summary'] ?? '');
-                $resolved = TargetResolver::resolve($summary);
-                if (!$resolved) {
-                    $trace[] = [
-                        'uid' => $uid,
-                        'summary' => $summary,
-                        'note' => 'unresolved_summary',
-                    ];
-                    continue;
-                }
-
-                // Expand occurrences within horizon
-                $occurrences = self::expandEventOccurrences(
-                    $base,
-                    $overrides,
-                    $now,
-                    $horizonEnd
-                );
-
-                // Trace after expansion (vars exist)
+            $summary = (string)($refEv['summary'] ?? '');
+            $resolved = TargetResolver::resolve($summary);
+            if (!$resolved) {
                 $trace[] = [
                     'uid' => $uid,
                     'summary' => $summary,
-                    'rrule' => (is_array($base) ? ($base['rrule'] ?? null) : null),
-                    'override_count' => count($overrides),
-                    'occurrence_count' => count($occurrences),
-                ];
-
-                if (empty($occurrences)) {
-                    continue;
-                }
-
-                // Determine if a single intent can safely represent all occurrences
-                $hasOverride = false;
-                $timeKey = null;
-                $timesVary = false;
-
-                $yamlSig = null;
-                $yamlVaries = false;
-                $occYaml = [];
-
-                foreach ($occurrences as $occ) {
-                    if (!is_array($occ)) {
-                        continue;
-                    }
-
-                    if (!empty($occ['isOverride'])) {
-                        $hasOverride = true;
-                    }
-
-                    $s = new DateTime((string)($occ['start'] ?? ''));
-                    $e = new DateTime((string)($occ['end'] ?? ''));
-
-                    $k = $s->format('H:i:s') . '|' . $e->format('H:i:s');
-                    if ($timeKey === null) {
-                        $timeKey = $k;
-                    } elseif ($timeKey !== $k) {
-                        $timesVary = true;
-                    }
-
-                    $rid = (string)($occ['start'] ?? '');
-                    $sourceEv = $base;
-
-                    if (!empty($occ['isOverride']) && $rid !== '' && isset($overrides[$rid])) {
-                        $sourceEv = $overrides[$rid];
-                    }
-
-                    $desc = self::extractDescriptionFromEvent($sourceEv);
-                    $yaml = YamlMetadata::parse($desc, [
-                        'uid'     => $uid,
-                        'summary' => $summary,
-                        'start'   => $occ['start'] ?? null,
-                    ]);
-
-                    if (is_array($yaml)) {
-                        ksort($yaml);
-                    }
-
-                    $sig = json_encode($yaml);
-                    if ($yamlSig === null) {
-                        $yamlSig = $sig;
-                    } elseif ($yamlSig !== $sig) {
-                        $yamlVaries = true;
-                    }
-
-                    $occYaml[$rid] = $yaml;
-                }
-
-                $canEmitSingle = (!$hasOverride && !$timesVary && !$yamlVaries);
-
-                // Single-intent path
-                if ($canEmitSingle) {
-                    $first = $occurrences[0];
-                    if (!is_array($first) || empty($first['start']) || empty($first['end'])) {
-                        $trace[] = [
-                            'uid' => $uid,
-                            'summary' => $summary,
-                            'note' => 'first_occurrence_missing_start_or_end',
-                        ];
-                        continue;
-                    }
-
-                    $occStart = new DateTime((string)$first['start']);
-                    $occEnd   = new DateTime((string)$first['end']);
-
-                    // Determine series date range
-                    $seriesStartDate = $occStart->format('Y-m-d');
-                    if ($base && !empty($base['start'])) {
-                        $tmp = substr((string)$base['start'], 0, 10);
-                        if (self::isValidYmd($tmp)) {
-                            $seriesStartDate = $tmp;
-                        }
-                    }
-
-                    $lastOccDate = $occStart->format('Y-m-d');
-                    foreach ($occurrences as $occ) {
-                        if (!is_array($occ) || empty($occ['start'])) {
-                            continue;
-                        }
-                        $d = substr((string)$occ['start'], 0, 10);
-                        if (self::isValidYmd($d) && $d > $lastOccDate) {
-                            $lastOccDate = $d;
-                        }
-                    }
-
-                    $seriesEndDate = $lastOccDate;
-
-                    // Prefer RRULE UNTIL if present
-                    $rrule = ($base && isset($base['rrule']) && is_array($base['rrule'])) ? $base['rrule'] : null;
-                    if (is_array($rrule) && !empty($rrule['UNTIL'])) {
-                        $until = self::parseRruleUntil((string)$rrule['UNTIL']);
-                        if ($until instanceof DateTime) {
-                            try {
-                                $until->setTimezone(new DateTimeZone(date_default_timezone_get()));
-                            } catch (Throwable $ignored) {
-                                // ignore
-                            }
-                            $untilDate = $until->format('Y-m-d');
-                            if (self::isValidYmd($untilDate)) {
-                                $seriesEndDate = $untilDate;
-                            }
-                        }
-                    }
-
-                    // Determine days mask
-                    $daysShort = '';
-                    if (is_array($rrule)) {
-                        $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
-                        if ($freq === 'DAILY') {
-                            $daysShort = 'SuMoTuWeThFrSa';
-                        } elseif ($freq === 'WEEKLY') {
-                            $daysShort = self::shortDaysFromByDay((string)($rrule['BYDAY'] ?? ''));
-                        }
-                    }
-                    if ($daysShort === '') {
-                        $daysShort = self::dowToShortDay((int)$occStart->format('w'));
-                    }
-
-                    $rid0  = (string)$first['start'];
-                    $yaml0 = $occYaml[$rid0] ?? [];
-
-                    $eff = self::applyYamlToTemplate([
-                        'stopType' => 'graceful',
-                        'repeat'   => 'immediate',
-                    ], is_array($yaml0) ? $yaml0 : []);
-
-                    $intentsOut[] = [
-                        'uid'      => $uid,
-                        'template' => [
-                            'uid'        => $uid,
-                            'summary'    => $summary,
-                            'type'       => (string)$resolved['type'],
-                            'target'     => (string)$resolved['target'],
-                            'start'      => $occStart->format('Y-m-d H:i:s'),
-                            'end'        => $occEnd->format('Y-m-d H:i:s'),
-                            'stopType'   => $eff['stopType'],
-                            'repeat'     => $eff['repeat'],
-                            'isOverride' => false,
-                        ],
-                        'range'    => [
-                            'start' => $seriesStartDate,
-                            'end'   => $seriesEndDate,
-                            'days'  => $daysShort,
-                        ],
-                    ];
-
-                    continue;
-                }
-
-                // Fallback: per-occurrence intents (lossless)
-                $rawIntents = [];
-                foreach ($occurrences as $occ) {
-                    if (!is_array($occ) || empty($occ['start']) || empty($occ['end'])) {
-                        continue;
-                    }
-
-                    $yaml = $occYaml[(string)$occ['start']] ?? [];
-
-                    $eff = self::applyYamlToTemplate([
-                        'stopType' => 'graceful',
-                        'repeat'   => 'immediate',
-                    ], is_array($yaml) ? $yaml : []);
-
-                    $rawIntents[] = [
-                        'uid'        => $uid,
-                        'summary'    => $summary,
-                        'type'       => $resolved['type'],
-                        'target'     => $resolved['target'],
-                        'start'      => $occ['start'],
-                        'end'        => $occ['end'],
-                        'stopType'   => $eff['stopType'],
-                        'repeat'     => $eff['repeat'],
-                        'isOverride' => !empty($occ['isOverride']),
-                    ];
-                }
-
-                try {
-                    $consolidator = new IntentConsolidator();
-                    $maybe = $consolidator->consolidate($rawIntents);
-                    if (is_array($maybe)) {
-                        foreach ($maybe as $row) {
-                            if (is_array($row)) {
-                                $intentsOut[] = $row;
-                            }
-                        }
-                    }
-                } catch (Throwable $ignored) {
-                    foreach ($rawIntents as $ri) {
-                        $intentsOut[] = $ri;
-                    }
-                }
-            } catch (Throwable $t) {
-                // Keep runner alive and record error in trace
-                $trace[] = [
-                    'uid' => $uid,
-                    'note' => 'exception',
-                    'message' => $t->getMessage(),
+                    'note' => 'unresolved_target',
                 ];
                 continue;
             }
-        }
 
-        // DEBUG: Trace dump (one file per run)
-        @file_put_contents(
-            '/tmp/gcs_runner_trace.json',
-            json_encode($trace, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+            /* --------------------------------------------------------
+             * Expand occurrences
+             * ------------------------------------------------------ */
+            $occurrences = self::expandEventOccurrences(
+                $base,
+                $overrides,
+                $now,
+                $horizonEnd
+            );
 
-        return [
-            'ok'           => true,
-            'intents'      => $intentsOut,
-            'intents_seen' => count($intentsOut),
-            'errors'       => [],
-        ];
-    }
+            $trace[] = [
+                'uid' => $uid,
+                'summary' => $summary,
+                'rrule' => $base['rrule'] ?? null,
+                'override_count' => count($overrides),
+                'occurrence_count' => count($occurrences),
+            ];
 
-    private function emptyResult(): array
-    {
-        return [
-            'ok'           => true,
-            'intents'      => [],
-            'intents_seen' => 0,
-            'errors'       => [],
-        ];
-    }
+            if (empty($occurrences)) continue;
 
-    /**
-     * Apply YAML metadata onto a defaults template.
-     *
-     * Supported YAML keys:
-     * - stopType: graceful | graceful_loop | hard
-     * - repeat: none | immediate | <minutes as int>
-     */
-    private static function applyYamlToTemplate(array $defaults, array $yaml): array
-    {
-        $out = $defaults;
+            /* --------------------------------------------------------
+             * Determine invariants
+             * ------------------------------------------------------ */
+            $hasOverride = false;
+            $timeKey = null;
+            $timesVary = false;
 
-        if (isset($yaml['stopType']) && is_string($yaml['stopType']) && trim($yaml['stopType']) !== '') {
-            $out['stopType'] = strtolower(trim($yaml['stopType']));
-        }
+            $yamlSig = null;
+            $yamlVaries = false;
+            $occYaml = [];
 
-        if (isset($yaml['repeat'])) {
-            if (is_string($yaml['repeat']) && trim($yaml['repeat']) !== '') {
-                $out['repeat'] = strtolower(trim($yaml['repeat']));
-            } elseif (is_int($yaml['repeat'])) {
-                $out['repeat'] = $yaml['repeat'];
-            } elseif (is_string($yaml['repeat']) && ctype_digit(trim($yaml['repeat']))) {
-                $out['repeat'] = (int)trim($yaml['repeat']);
+            // 🔑 DISTINCT DAY MASK DETECTION (THE FIX)
+            $maskSet = [];
+
+            foreach ($occurrences as $occ) {
+                if (!is_array($occ)) continue;
+
+                if (!empty($occ['isOverride'])) {
+                    $hasOverride = true;
+                }
+
+                $s = new DateTime($occ['start']);
+                $e = new DateTime($occ['end']);
+
+                $k = $s->format('H:i:s') . '|' . $e->format('H:i:s');
+                if ($timeKey === null) {
+                    $timeKey = $k;
+                } elseif ($timeKey !== $k) {
+                    $timesVary = true;
+                }
+
+                $maskSet[(int)$s->format('w')] = true;
+
+                $rid = $occ['start'];
+                $sourceEv = (!empty($occ['isOverride']) && isset($overrides[$rid]))
+                    ? $overrides[$rid]
+                    : $base;
+
+                $desc = self::extractDescriptionFromEvent($sourceEv);
+                $yaml = YamlMetadata::parse($desc, [
+                    'uid'     => $uid,
+                    'summary' => $summary,
+                    'start'   => $occ['start'],
+                ]);
+
+                if (is_array($yaml)) ksort($yaml);
+
+                $sig = json_encode($yaml);
+                if ($yamlSig === null) {
+                    $yamlSig = $sig;
+                } elseif ($yamlSig !== $sig) {
+                    $yamlVaries = true;
+                }
+
+                $occYaml[$rid] = $yaml;
+            }
+
+            $distinctDayCount = count($maskSet);
+
+            /* --------------------------------------------------------
+             * SINGLE-INTENT GATE (CORRECT)
+             * ------------------------------------------------------ */
+            $canEmitSingle = (
+                !$hasOverride &&
+                !$timesVary &&
+                !$yamlVaries &&
+                $distinctDayCount === 1
+            );
+
+            /* --------------------------------------------------------
+             * Single intent
+             * ------------------------------------------------------ */
+            if ($canEmitSingle) {
+                $first = $occurrences[0];
+                $occStart = new DateTime($first['start']);
+                $occEnd   = new DateTime($first['end']);
+
+                $seriesStartDate = substr($occStart->format('c'), 0, 10);
+                $seriesEndDate   = $seriesStartDate;
+
+                foreach ($occurrences as $occ) {
+                    $d = substr($occ['start'], 0, 10);
+                    if ($d > $seriesEndDate) $seriesEndDate = $d;
+                }
+
+                $rrule = $base['rrule'] ?? null;
+                $daysShort = '';
+
+                if (is_array($rrule)) {
+                    $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
+                    if ($freq === 'DAILY') {
+                        $daysShort = 'SuMoTuWeThFrSa';
+                    } elseif ($freq === 'WEEKLY') {
+                        $daysShort = self::shortDaysFromByDay((string)($rrule['BYDAY'] ?? ''));
+                    }
+                }
+
+                if ($daysShort === '') {
+                    $daysShort = self::dowToShortDay((int)$occStart->format('w'));
+                }
+
+                $yaml0 = $occYaml[$first['start']] ?? [];
+                $eff = self::applyYamlToTemplate(
+                    ['stopType' => 'graceful', 'repeat' => 'immediate'],
+                    $yaml0
+                );
+
+                $intentsOut[] = [
+                    'uid' => $uid,
+                    'template' => [
+                        'uid' => $uid,
+                        'summary' => $summary,
+                        'type' => $resolved['type'],
+                        'target' => $resolved['target'],
+                        'start' => $occStart->format('Y-m-d H:i:s'),
+                        'end' => $occEnd->format('Y-m-d H:i:s'),
+                        'stopType' => $eff['stopType'],
+                        'repeat' => $eff['repeat'],
+                        'isOverride' => false,
+                    ],
+                    'range' => [
+                        'start' => $seriesStartDate,
+                        'end' => $seriesEndDate,
+                        'days' => $daysShort,
+                    ],
+                ];
+
+                continue;
+            }
+
+            /* --------------------------------------------------------
+             * Fallback → consolidator
+             * ------------------------------------------------------ */
+            $raw = [];
+            foreach ($occurrences as $occ) {
+                $yaml = $occYaml[$occ['start']] ?? [];
+                $eff = self::applyYamlToTemplate(
+                    ['stopType' => 'graceful', 'repeat' => 'immediate'],
+                    $yaml
+                );
+
+                $raw[] = [
+                    'uid' => $uid,
+                    'summary' => $summary,
+                    'type' => $resolved['type'],
+                    'target' => $resolved['target'],
+                    'start' => $occ['start'],
+                    'end' => $occ['end'],
+                    'stopType' => $eff['stopType'],
+                    'repeat' => $eff['repeat'],
+                    'isOverride' => !empty($occ['isOverride']),
+                ];
+            }
+
+            $con = new IntentConsolidator();
+            foreach ($con->consolidate($raw) as $row) {
+                $intentsOut[] = $row;
             }
         }
 
+        file_put_contents(
+            '/tmp/gcs_runner_trace.json',
+            json_encode($trace, JSON_PRETTY_PRINT)
+        );
+
+        return [
+            'ok' => true,
+            'intents' => $intentsOut,
+            'intents_seen' => count($intentsOut),
+            'errors' => [],
+        ];
+    }
+
+    /* ============================================================
+     * Helpers (unchanged)
+     * ========================================================== */
+
+    private function emptyResult(): array
+    {
+        return ['ok' => true, 'intents' => [], 'intents_seen' => 0, 'errors' => []];
+    }
+
+    private static function applyYamlToTemplate(array $defaults, array $yaml): array
+    {
+        $out = $defaults;
+        if (isset($yaml['stopType'])) $out['stopType'] = strtolower((string)$yaml['stopType']);
+        if (isset($yaml['repeat']))   $out['repeat']   = is_numeric($yaml['repeat'])
+            ? (int)$yaml['repeat']
+            : strtolower((string)$yaml['repeat']);
         return $out;
     }
 
     private static function extractDescriptionFromEvent(?array $ev): ?string
     {
         if (!$ev) return null;
-
-        foreach (['description', 'DESCRIPTION', 'desc', 'body'] as $k) {
-            if (isset($ev[$k]) && is_string($ev[$k]) && trim($ev[$k]) !== '') {
-                return trim($ev[$k]);
-            }
+        foreach (['description','DESCRIPTION','desc','body'] as $k) {
+            if (!empty($ev[$k])) return trim((string)$ev[$k]);
         }
-
         return null;
     }
 
