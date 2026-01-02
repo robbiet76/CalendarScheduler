@@ -582,7 +582,8 @@ final class SchedulerPlanner
         }
 
         // Date range intersection (lexicographic safe for YYYY-MM-DD)
-        if ($aEndDate < $bStartDate || $bEndDate < $aStartDate) {
+        // NOTE: touching ranges (end == start) are NOT overlapping in FPP semantics
+        if ($aEndDate <= $bStartDate || $bEndDate <= $aStartDate) {
             return false;
         }
 
