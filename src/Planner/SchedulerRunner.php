@@ -35,23 +35,10 @@ final class SchedulerRunner
         $this->cfg = $cfg;
     }
 
-    /**
-     * Execute calendar ingestion and intent generation.
-     *
-     * @return array{
-     *   ok: bool,
-     *   intents: array<int,array<string,mixed>>,
-     *   intents_seen: int,
-     *   errors: array<int,string>
-     * }
-     */
     public function run(): array
     {
         file_put_contents('/tmp/gcs_runner_ran.txt', date('c') . PHP_EOL, FILE_APPEND);
 
-        // ------------------------------------------------------------
-        // Calendar fetch & parse
-        // ------------------------------------------------------------
         $icsUrl = trim((string)($this->cfg['calendar']['ics_url'] ?? ''));
         if ($icsUrl === '') {
             GcsLogger::instance()->warn('No ICS URL configured');
@@ -63,15 +50,11 @@ final class SchedulerRunner
             return $this->emptyResult();
         }
 
-        // Horizon start is "now" (FPP system time)
         $now = new DateTime('now');
 
-        // Fixed, calendar-aligned horizon end:
-        // Dec 31 of (currentYear + 2) at 23:59:59 local time
         $currentYear = (int)$now->format('Y');
         $guardYear   = $currentYear + 2;
-
-        $horizonEnd = new DateTime(sprintf('%04d-12-31 23:59:59', $guardYear));
+        $horizonEnd  = new DateTime(sprintf('%04d-12-31 23:59:59', $guardYear));
 
         $parser = new IcsParser();
         $events = $parser->parse($ics, $now, $horizonEnd);
@@ -86,9 +69,6 @@ final class SchedulerRunner
             return $this->emptyResult();
         }
 
-        // ------------------------------------------------------------
-        // Group events by UID (base event + overrides)
-        // ------------------------------------------------------------
         $byUid = [];
         foreach ($events as $ev) {
             if (!is_array($ev)) continue;
@@ -99,19 +79,9 @@ final class SchedulerRunner
         }
 
         $intentsOut = [];
+        $trace = []; // ✅ init once
 
-        // ------------------------------------------------------------
-        // Per-UID intent generation
-        // ------------------------------------------------------------
         foreach ($byUid as $uid => $items) {
-            
-            //Debug trace of processing
-            $trace[] = [
-                'uid' => $uid,
-                'summary' => $summary,
-                'rrule' => $base['rrule'] ?? null,
-                'occurrence_count' => count($occurrences),
-            ];
 
             $base = null;
             $overrides = [];
@@ -129,27 +99,37 @@ final class SchedulerRunner
             $refEv = $base ?? $items[0];
             if (!is_array($refEv)) continue;
 
-            // Skip all-day events (unsupported by scheduler)
             if (!empty($refEv['isAllDay'])) {
                 continue;
             }
 
-            // Resolve scheduler target from summary
             $summary = (string)($refEv['summary'] ?? '');
             $resolved = TargetResolver::resolve($summary);
             if (!$resolved) {
+                // Optional trace for unresolved
+                $trace[] = [
+                    'uid' => $uid,
+                    'summary' => $summary,
+                    'note' => 'unresolved_summary',
+                ];
                 continue;
             }
 
-            // --------------------------------------------------------
-            // Expand occurrences within horizon
-            // --------------------------------------------------------
             $occurrences = self::expandEventOccurrences(
                 $base,
                 $overrides,
                 $now,
                 $horizonEnd
             );
+
+            // ✅ Trace goes HERE (variables exist now)
+            $trace[] = [
+                'uid' => $uid,
+                'summary' => $summary,
+                'rrule' => (is_array($base) ? ($base['rrule'] ?? null) : null),
+                'override_count' => count($overrides),
+                'occurrence_count' => count($occurrences),
+            ];
 
             if (empty($occurrences)) {
                 continue;
