@@ -4,27 +4,27 @@ declare(strict_types=1);
 /**
  * SchedulerRunner
  *
- * Pure calendar ingestion and intent generation engine.
+ * Pure calendar ingestion and analysis engine.
  *
  * Responsibilities:
  * - Fetch and parse ICS calendar data
- * - Expand recurring events within a bounded window
+ * - Expand occurrences within a bounded horizon (analysis-only)
  * - Resolve scheduler targets from event summaries
- * - Apply YAML metadata overrides
- * - Generate scheduler intents suitable for consolidation
+ * - Parse YAML metadata per occurrence (analysis-only)
+ * - Emit series analysis suitable for Planner semantic projection
  *
  * Guarantees:
  * - No scheduler writes
- * - No scheduler state mutation
- * - Deterministic output for a given calendar and guard window
+ * - No schedule.json mutation
+ * - Deterministic output for a given calendar and horizon window
  *
  * Guard window:
  * - Based on FPP system time
  * - End boundary is fixed to Dec 31 of (currentYear + 2)
  *
  * NOTE:
- * Final scheduling policy (start-date validity + end-date capping + max entries)
- * is enforced in SchedulerPlanner. This runner only bounds occurrence expansion.
+ * Final scheduling policy (start-date validity, end-date capping, max entries)
+ * is enforced in SchedulerPlanner.
  */
 final class SchedulerRunner
 {
@@ -37,7 +37,7 @@ final class SchedulerRunner
 
     public function run(): array
     {
-        // heartbeat
+        // heartbeat (debug only; safe side-effect)
         file_put_contents('/tmp/gcs_runner_ran.txt', date('c') . PHP_EOL, FILE_APPEND);
 
         /* ------------------------------------------------------------
@@ -55,7 +55,7 @@ final class SchedulerRunner
         }
 
         /* ------------------------------------------------------------
-         * Horizon
+         * Horizon (analysis bound only)
          * ---------------------------------------------------------- */
         $now = new DateTime('now');
         $guardYear  = ((int)$now->format('Y')) + 2;
@@ -88,14 +88,13 @@ final class SchedulerRunner
             }
         }
 
-        $intentsOut = [];
+        $seriesOut = [];
         $trace = [];
 
         /* ------------------------------------------------------------
-         * Per-UID processing
+         * Per-UID processing (analysis only; no intent emission)
          * ---------------------------------------------------------- */
         foreach ($byUid as $uid => $items) {
-
             $base = null;
             $overrides = [];
 
@@ -123,9 +122,7 @@ final class SchedulerRunner
                 continue;
             }
 
-            /* --------------------------------------------------------
-             * Expand occurrences
-             * ------------------------------------------------------ */
+            // Expand occurrences (bounded). This is analysis-only now.
             $occurrences = self::expandEventOccurrences(
                 $base,
                 $overrides,
@@ -136,210 +133,73 @@ final class SchedulerRunner
             $trace[] = [
                 'uid' => $uid,
                 'summary' => $summary,
-                'rrule' => $base['rrule'] ?? null,
+                'rrule' => is_array($base) ? ($base['rrule'] ?? null) : null,
                 'override_count' => count($overrides),
                 'occurrence_count' => count($occurrences),
             ];
 
-            if (empty($occurrences)) continue;
-
-            /* --------------------------------------------------------
-             * Determine invariants
-             * ------------------------------------------------------ */
-            $hasOverride = false;
-            $timeKey = null;
-            $timesVary = false;
-
-            $yamlSig = null;
-            $yamlVaries = false;
-            $occYaml = [];
-
-            // 🔑 DISTINCT DAY MASK DETECTION (THE FIX)
-            $maskSet = [];
-
-            foreach ($occurrences as $occ) {
-                if (!is_array($occ)) continue;
-
-                if (!empty($occ['isOverride'])) {
-                    $hasOverride = true;
-                }
-
-                $s = new DateTime($occ['start']);
-                $e = new DateTime($occ['end']);
-
-                $k = $s->format('H:i:s') . '|' . $e->format('H:i:s');
-                if ($timeKey === null) {
-                    $timeKey = $k;
-                } elseif ($timeKey !== $k) {
-                    $timesVary = true;
-                }
-
-                $maskSet[(int)$s->format('w')] = true;
-
-                $rid = $occ['start'];
-                $sourceEv = (!empty($occ['isOverride']) && isset($overrides[$rid]))
-                    ? $overrides[$rid]
-                    : $base;
-
-                $desc = self::extractDescriptionFromEvent($sourceEv);
+            // Parse a stable YAML blob for base (prefer base description, else empty)
+            $baseYaml = [];
+            if (is_array($base)) {
+                $desc = self::extractDescriptionFromEvent($base);
                 $yaml = YamlMetadata::parse($desc, [
                     'uid'     => $uid,
                     'summary' => $summary,
-                    'start'   => $occ['start'],
+                    'start'   => (string)($base['start'] ?? ''),
                 ]);
-
-                if (is_array($yaml)) ksort($yaml);
-
-                $sig = json_encode($yaml);
-                if ($yamlSig === null) {
-                    $yamlSig = $sig;
-                } elseif ($yamlSig !== $sig) {
-                    $yamlVaries = true;
+                if (is_array($yaml)) {
+                    ksort($yaml);
+                    $baseYaml = $yaml;
                 }
-
-                $occYaml[$rid] = $yaml;
             }
 
-            $distinctDayCount = count($maskSet);
-
-            /* --------------------------------------------------------
-             * SINGLE-INTENT GATE (CORRECT)
-             * ------------------------------------------------------ */
-            //Remove later
-            $canEmitSingle = (
-                !$hasOverride &&
-                !$timesVary &&
-                !$yamlVaries &&
-                $distinctDayCount >= 1
-            );
-
-            /* --------------------------------------------------------
-            * Single intent
-            * ------------------------------------------------------ */
-            if ($canEmitSingle) {
-
-                $first = $occurrences[0];
-                $occStart = new DateTime($first['start']);
-                $occEnd   = new DateTime($first['end']);
-
-                // --- SERIES START / END (already patched earlier) ---
-                if ($base && !empty($base['start'])) {
-                    $tmp = substr((string)$base['start'], 0, 10);
-                    $seriesStartDate = self::isValidYmd($tmp)
-                        ? $tmp
-                        : substr($occStart->format('c'), 0, 10);
-                } else {
-                    $seriesStartDate = substr($occStart->format('c'), 0, 10);
-                }
-
-                $seriesEndDate = $seriesStartDate;
-                foreach ($occurrences as $occ) {
-                    $d = substr($occ['start'], 0, 10);
-                    if ($d > $seriesEndDate) {
-                        $seriesEndDate = $d;
-                    }
-                }
-
-                // EVERYDAY DETECTION:
-                // --- RRULE / BYDAY logic ---
-                $rrule = $base['rrule'] ?? null;
-                $daysShort = '';
-
-                if (is_array($rrule)) {
-                    $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
-                    if ($freq === 'DAILY') {
-                        $daysShort = 'SuMoTuWeThFrSa';
-                    } elseif ($freq === 'WEEKLY') {
-                        $daysShort = self::shortDaysFromByDay((string)($rrule['BYDAY'] ?? ''));
-                    }
-                }
-
-                // Fallback if RRULE missing/unsupported
-                if ($daysShort === '') {
-                    $daysShort = self::dowToShortDay((int)$occStart->format('w'));
-                }
-
-                // EVERYDAY DETECTION (post-rrule):
-                // If every calendar day between seriesStartDate and seriesEndDate
-                // is represented, force mask to Everyday.
-                $hasEveryDayCoverage = true;
-                try {
-                    $d = new DateTime($seriesStartDate);
-                    $e = new DateTime($seriesEndDate);
-
-                    while ($d <= $e) {
-                        $dow = (int)$d->format('w');
-                        if (empty($maskSet[$dow])) {
-                            $hasEveryDayCoverage = false;
-                            break;
-                        }
-                        $d->modify('+1 day');
-                    }
-                } catch (Throwable $ignored) {
-                    $hasEveryDayCoverage = false;
-                }
-
-                if ($hasEveryDayCoverage) {
-                    $daysShort = 'SuMoTuWeThFrSa';
-                }
-
-                $yaml0 = $occYaml[$first['start']] ?? [];
-                $eff = self::applyYamlToTemplate(
-                    ['stopType' => 'graceful', 'repeat' => 'immediate'],
-                    $yaml0
-                );
-
-                $intentsOut[] = [
-                    'uid' => $uid,
-                    'template' => [
-                        'uid' => $uid,
-                        'summary' => $summary,
-                        'type' => $resolved['type'],
-                        'target' => $resolved['target'],
-                        'start' => $occStart->format('Y-m-d H:i:s'),
-                        'end' => $occEnd->format('Y-m-d H:i:s'),
-                        'stopType' => $eff['stopType'],
-                        'repeat' => $eff['repeat'],
-                        'isOverride' => false,
-                    ],
-                    'range' => [
-                        'start' => $seriesStartDate,
-                        'end' => $seriesEndDate,
-                        'days' => $daysShort,
-                    ],
-                ];
-
-                continue;
-            }
-
-            /* --------------------------------------------------------
-             * Fallback → consolidator
-             * ------------------------------------------------------ */
-            $raw = [];
+            // Extract override occurrences (only those occurrences that are overrides)
+            $overrideOccs = [];
             foreach ($occurrences as $occ) {
-                $yaml = $occYaml[$occ['start']] ?? [];
-                $eff = self::applyYamlToTemplate(
-                    ['stopType' => 'graceful', 'repeat' => 'immediate'],
-                    $yaml
-                );
+                if (!is_array($occ) || empty($occ['isOverride'])) {
+                    continue;
+                }
 
-                $raw[] = [
-                    'uid' => $uid,
-                    'summary' => $summary,
-                    'type' => $resolved['type'],
-                    'target' => $resolved['target'],
-                    'start' => $occ['start'],
-                    'end' => $occ['end'],
-                    'stopType' => $eff['stopType'],
-                    'repeat' => $eff['repeat'],
-                    'isOverride' => !empty($occ['isOverride']),
+                $rid = (string)($occ['start'] ?? '');
+                $sourceEv = (isset($overrides[$rid]) && is_array($overrides[$rid])) ? $overrides[$rid] : null;
+
+                $yaml = [];
+                if ($sourceEv) {
+                    $desc = self::extractDescriptionFromEvent($sourceEv);
+                    $parsed = YamlMetadata::parse($desc, [
+                        'uid'     => $uid,
+                        'summary' => $summary,
+                        'start'   => $rid,
+                    ]);
+                    if (is_array($parsed)) {
+                        ksort($parsed);
+                        $yaml = $parsed;
+                    }
+                }
+
+                $overrideOccs[] = [
+                    'start' => $rid,
+                    'end'   => (string)($occ['end'] ?? ''),
+                    'yaml'  => $yaml,
                 ];
             }
 
-            $con = new IntentConsolidator();
-            foreach ($con->consolidate($raw) as $row) {
-                $intentsOut[] = $row;
-            }
+            // IMPORTANT: do not gate series existence on occurrences.
+            // Planner will create a base schedule from DTSTART/RRULE even if occurrence_count == 0.
+            $seriesOut[] = [
+                'uid'          => $uid,
+                'summary'      => $summary,
+                'resolved'     => $resolved,
+                'base'         => $base,
+                'overrides'    => $overrides,
+                'occurrences'  => $occurrences,
+                'overrideOccs' => $overrideOccs,
+                'yamlBase'     => $baseYaml,
+                'horizon'      => [
+                    'start' => $now->format('Y-m-d H:i:s'),
+                    'end'   => $horizonEnd->format('Y-m-d H:i:s'),
+                ],
+            ];
         }
 
         file_put_contents(
@@ -348,30 +208,15 @@ final class SchedulerRunner
         );
 
         return [
-            'ok' => true,
-            'intents' => $intentsOut,
-            'intents_seen' => count($intentsOut),
+            'ok'     => true,
+            'series' => $seriesOut,
             'errors' => [],
         ];
     }
 
-    /* ============================================================
-     * Helpers (unchanged)
-     * ========================================================== */
-
     private function emptyResult(): array
     {
-        return ['ok' => true, 'intents' => [], 'intents_seen' => 0, 'errors' => []];
-    }
-
-    private static function applyYamlToTemplate(array $defaults, array $yaml): array
-    {
-        $out = $defaults;
-        if (isset($yaml['stopType'])) $out['stopType'] = strtolower((string)$yaml['stopType']);
-        if (isset($yaml['repeat']))   $out['repeat']   = is_numeric($yaml['repeat'])
-            ? (int)$yaml['repeat']
-            : strtolower((string)$yaml['repeat']);
-        return $out;
+        return ['ok' => true, 'series' => [], 'errors' => []];
     }
 
     private static function extractDescriptionFromEvent(?array $ev): ?string
@@ -386,6 +231,9 @@ final class SchedulerRunner
     /**
      * Expand recurring and non-recurring events into concrete
      * occurrences intersecting the horizon.
+     *
+     * Returns items shaped:
+     *   ['start' => 'Y-m-d H:i:s', 'end' => 'Y-m-d H:i:s', 'isOverride' => bool, 'source' => array]
      */
     private static function expandEventOccurrences(
         ?array $base,
@@ -398,12 +246,18 @@ final class SchedulerRunner
 
         // Include overrides first
         foreach ($overrides as $rid => $ov) {
-            $s = new DateTime($ov['start']);
+            try {
+                $s = new DateTime((string)$ov['start']);
+                $e = new DateTime((string)$ov['end']);
+            } catch (\Throwable $e) {
+                continue;
+            }
+
             if ($s >= $horizonStart && $s <= $horizonEnd) {
                 $overrideKeys[$rid] = true;
                 $out[] = [
                     'start'      => $s->format('Y-m-d H:i:s'),
-                    'end'        => (new DateTime($ov['end']))->format('Y-m-d H:i:s'),
+                    'end'        => $e->format('Y-m-d H:i:s'),
                     'isOverride' => true,
                     'source'     => $ov,
                 ];
@@ -414,11 +268,11 @@ final class SchedulerRunner
             return $out;
         }
 
-        $start = new DateTime($base['start']);
-        $end   = new DateTime($base['end']);
+        $start = new DateTime((string)$base['start']);
+        $end   = new DateTime((string)$base['end']);
         $duration = max(0, $end->getTimestamp() - $start->getTimestamp());
 
-        // Non-recurring events
+        // Non-recurring
         if (empty($base['rrule'])) {
             if ($start >= $horizonStart && $start <= $horizonEnd) {
                 $rid = $start->format('Y-m-d H:i:s');
@@ -434,7 +288,7 @@ final class SchedulerRunner
             return $out;
         }
 
-        // Recurring events (DAILY / WEEKLY)
+        // Recurring (DAILY/WEEKLY)
         $rrule = $base['rrule'];
         $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
         $interval = max(1, (int)($rrule['INTERVAL'] ?? 1));
@@ -443,9 +297,9 @@ final class SchedulerRunner
         $countLimit = isset($rrule['COUNT']) ? max(1, (int)$rrule['COUNT']) : null;
 
         $exDates = [];
-        if (!empty($base['exDates'])) {
+        if (!empty($base['exDates']) && is_array($base['exDates'])) {
             foreach ($base['exDates'] as $ex) {
-                $exDates[$ex] = true;
+                $exDates[(string)$ex] = true;
             }
         }
 
@@ -460,6 +314,7 @@ final class SchedulerRunner
             &$overrideKeys,
             &$exDates
         ): bool {
+            // NOTE: we still generate occurrences only within horizon (analysis bound)
             if ($s < $horizonStart || $s > $horizonEnd) return true;
             if ($until && $s > $until) return false;
 
@@ -555,69 +410,7 @@ final class SchedulerRunner
             if (preg_match('/^\d{8}T\d{6}$/', $raw)) {
                 return new DateTime($raw);
             }
-        } catch (Throwable) {}
+        } catch (\Throwable) {}
         return null;
-    }
-
-    private static function isValidYmd(string $s): bool
-    {
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) {
-            return false;
-        }
-        $dt = DateTime::createFromFormat('Y-m-d', $s);
-        return ($dt instanceof DateTime) && ($dt->format('Y-m-d') === $s);
-    }
-
-    private static function dowToShortDay(int $dow): string
-    {
-        return match ($dow) {
-            0 => 'Su',
-            1 => 'Mo',
-            2 => 'Tu',
-            3 => 'We',
-            4 => 'Th',
-            5 => 'Fr',
-            6 => 'Sa',
-            default => '',
-        };
-    }
-
-    /**
-     * Convert RRULE BYDAY (e.g. "SU,MO,TU") into compact form ("SuMoTu").
-     * Returns empty string if BYDAY is missing or invalid.
-     */
-    private static function shortDaysFromByDay(string $bydayRaw): string
-    {
-        $bydayRaw = strtoupper(trim($bydayRaw));
-        if ($bydayRaw === '') return '';
-
-        $tokens = explode(',', $bydayRaw);
-        $present = [
-            'SU' => false,
-            'MO' => false,
-            'TU' => false,
-            'WE' => false,
-            'TH' => false,
-            'FR' => false,
-            'SA' => false,
-        ];
-
-        foreach ($tokens as $tok) {
-            $tok = preg_replace('/^[+-]?\d+/', '', trim($tok));
-            if (isset($present[$tok])) {
-                $present[$tok] = true;
-            }
-        }
-
-        $out = '';
-        if ($present['SU']) $out .= 'Su';
-        if ($present['MO']) $out .= 'Mo';
-        if ($present['TU']) $out .= 'Tu';
-        if ($present['WE']) $out .= 'We';
-        if ($present['TH']) $out .= 'Th';
-        if ($present['FR']) $out .= 'Fr';
-        if ($present['SA']) $out .= 'Sa';
-
-        return $out;
     }
 }
