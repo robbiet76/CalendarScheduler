@@ -4,23 +4,25 @@ declare(strict_types=1);
 /**
  * IntentConsolidator
  *
- * Losslessly consolidates per-occurrence scheduling intents into
- * contiguous date ranges suitable for scheduler entry creation.
+ * Consolidates per-occurrence scheduling intents into a single ranged intent
+ * (FPP-native approach) using:
+ * - A date range (startDate..endDate)
+ * - A day mask (Su..Sa)
  *
- * Responsibilities:
- * - Group compatible occurrences by immutable intent characteristics
- * - Merge consecutive calendar dates into a single range
- * - Preserve weekday coverage exactly
+ * MUST-HOLD RULES (per project requirements):
+ * 1) startDate MUST be the original DTSTART date for the series when available,
+ *    even if DTSTART is in the past and the first expanded occurrence is later.
+ * 2) If every calendar day between startDate and endDate has an occurrence,
+ *    the day mask MUST be treated as "Everyday" (all 7 days).
  *
  * HARD GUARANTEES:
- * - Occurrences with differing start/end TIMES are NEVER merged
+ * - Different start/end TIMES are NEVER merged
  * - Overrides are NEVER merged with non-overrides
- * - Consolidation is strictly lossless
+ * - Consolidation is lossless w.r.t. occurrence set (day mask + range)
  *
  * This class does NOT:
- * - Infer scheduling policy
- * - Modify intent semantics
  * - Perform scheduler I/O
+ * - Enforce planner caps (horizon policy)
  */
 final class IntentConsolidator
 {
@@ -45,10 +47,6 @@ final class IntentConsolidator
         self::WD_FRI |
         self::WD_SAT;
 
-    /* ---------------------------------------------------------------------
-     * Internal metrics (diagnostic only)
-     * ------------------------------------------------------------------ */
-
     private int $skipped = 0;
     private int $rangeCount = 0;
 
@@ -64,9 +62,9 @@ final class IntentConsolidator
             return [];
         }
 
-        /* -------------------------------------------------------------
-         * 1. Group intents by immutable identity
-         * ---------------------------------------------------------- */
+        // -------------------------------------------------------------
+        // 1) Group intents by immutable identity (including TIME + override)
+        // -------------------------------------------------------------
         $groups = [];
 
         foreach ($intents as $intent) {
@@ -75,19 +73,23 @@ final class IntentConsolidator
                 continue;
             }
 
-            $start = new DateTime((string)$intent['start']);
-            $end   = new DateTime((string)$intent['end']);
+            try {
+                $start = new DateTime((string)$intent['start']);
+                $end   = new DateTime((string)$intent['end']);
+            } catch (\Throwable $e) {
+                $this->skipped++;
+                continue;
+            }
 
             $startTime = $start->format('H:i:s');
             $endTime   = $end->format('H:i:s');
 
-            // Stable identity MUST include time and override flag
             $key = implode('|', [
+                (string)($intent['uid'] ?? ''),               // keep per-UID ranges stable
                 (string)($intent['type'] ?? ''),
                 (string)$intent['target'],
                 (string)($intent['stopType'] ?? ''),
                 (string)($intent['repeat'] ?? ''),
-                (!empty($intent['isAllDay']) ? '1' : '0'),
                 $startTime,
                 $endTime,
                 (!empty($intent['isOverride']) ? '1' : '0'),
@@ -96,96 +98,159 @@ final class IntentConsolidator
             $groups[$key][] = $intent;
         }
 
-        /* -------------------------------------------------------------
-         * 2. Merge consecutive dates within each group
-         * ---------------------------------------------------------- */
+        // -------------------------------------------------------------
+        // 2) For each group, compute ONE range + mask
+        // -------------------------------------------------------------
         $result = [];
 
         foreach ($groups as $items) {
+            // Sort by start date for stable behavior
             usort(
                 $items,
-                fn($a, $b) => strcmp((string)$a['start'], (string)$b['start'])
+                fn($a, $b) => strcmp((string)($a['start'] ?? ''), (string)($b['start'] ?? ''))
             );
 
-            $range = null;
+            $minOccDate = null;   // earliest occurrence date
+            $maxOccDate = null;   // latest occurrence date
+            $daysMask   = 0;      // union of DOWs present in occurrences
+            $dateSet    = [];     // set of YYYY-mm-dd dates with occurrences
+
+            // Template should be any representative intent for this group
+            $template = $items[0];
+
+            // Series DTSTART/END (preferred range anchors if provided)
+            $seriesStartDate = $this->pickSeriesStartDate($items);
+            $seriesEndDate   = $this->pickSeriesEndDate($items); // optional; may be null
 
             foreach ($items as $intent) {
-                $start = new DateTime((string)$intent['start']);
-                $dow   = (int)$start->format('w'); // 0=Sun..6=Sat
-
-                if ($range === null) {
-                    $range = [
-                        'template'  => $intent,
-                        'startDate' => $start,
-                        'endDate'   => $start,
-                        'days'      => [$dow => true],
-                    ];
+                try {
+                    $s = new DateTime((string)$intent['start']);
+                } catch (\Throwable $e) {
+                    $this->skipped++;
                     continue;
                 }
 
-                $expected = (clone $range['endDate'])->modify('+1 day');
+                $d = $s->format('Y-m-d');
+                $dateSet[$d] = true;
 
-                if ($start->format('Y-m-d') === $expected->format('Y-m-d')) {
-                    $range['endDate'] = $start;
-                    $range['days'][$dow] = true;
-                } else {
-                    $result[] = $this->finalizeRange($range);
-                    $this->rangeCount++;
-
-                    $range = [
-                        'template'  => $intent,
-                        'startDate' => $start,
-                        'endDate'   => $start,
-                        'days'      => [$dow => true],
-                    ];
+                if ($minOccDate === null || $d < $minOccDate) {
+                    $minOccDate = $d;
                 }
+                if ($maxOccDate === null || $d > $maxOccDate) {
+                    $maxOccDate = $d;
+                }
+
+                $dow = (int)$s->format('w'); // 0=Sun..6=Sat
+                $daysMask |= (1 << $dow);
             }
 
-            if ($range !== null) {
-                $result[] = $this->finalizeRange($range);
-                $this->rangeCount++;
+            if ($minOccDate === null || $maxOccDate === null) {
+                $this->skipped++;
+                continue;
             }
+
+            // ---------------------------------------------------------
+            // RANGE START: MUST be original DTSTART when available
+            // ---------------------------------------------------------
+            $rangeStart = $seriesStartDate ?? $minOccDate;
+
+            // RANGE END: prefer seriesEndDate if present, else last occurrence
+            // (planner may cap elsewhere; this consolidator stays lossless)
+            $rangeEnd = $seriesEndDate ?? $maxOccDate;
+
+            // ---------------------------------------------------------
+            // EVERYDAY RULE:
+            // If EVERY calendar day in [rangeStart..rangeEnd] has an occurrence,
+            // force mask to ALL days (Everyday).
+            // ---------------------------------------------------------
+            if ($this->hasEveryDayCoverage($rangeStart, $rangeEnd, $dateSet)) {
+                $daysMask = self::WD_ALL;
+            }
+
+            $result[] = [
+                'template' => $template,
+                'range' => [
+                    'start' => $rangeStart,
+                    'end'   => $rangeEnd,
+                    'days'  => self::weekdayMaskToShortDays($daysMask),
+                ],
+            ];
+            $this->rangeCount++;
         }
 
         return $result;
     }
 
     /**
-     * Finalize a range structure into a consolidated intent.
+     * Prefer seriesStartDate from intents (set by SchedulerRunner).
+     * @param array<int,array<string,mixed>> $items
      */
-    private function finalizeRange(array $range): array
+    private function pickSeriesStartDate(array $items): ?string
     {
-        return [
-            'template' => $range['template'],
-            'range' => [
-                'start' => $range['startDate']->format('Y-m-d'),
-                'end'   => $range['endDate']->format('Y-m-d'),
-                'days'  => self::weekdayMaskToShortDays(
-                    self::daysArrayToMask($range['days'])
-                ),
-            ],
-        ];
+        foreach ($items as $it) {
+            $v = (string)($it['seriesStartDate'] ?? '');
+            if ($this->isValidYmd($v)) {
+                return $v;
+            }
+        }
+        return null;
     }
 
     /**
-     * Convert an array of weekdays into a bitmask.
+     * Prefer seriesEndDate from intents when provided (optional).
+     * @param array<int,array<string,mixed>> $items
      */
-    private static function daysArrayToMask(array $days): int
+    private function pickSeriesEndDate(array $items): ?string
     {
-        $mask = 0;
-        foreach ($days as $dow => $_) {
-            $mask |= (1 << (int)$dow);
+        foreach ($items as $it) {
+            $v = (string)($it['seriesEndDate'] ?? '');
+            if ($this->isValidYmd($v)) {
+                return $v;
+            }
         }
-        return $mask;
+        return null;
+    }
+
+    /**
+     * True if there is an occurrence on EVERY date from start..end inclusive.
+     * @param array<string,bool> $dateSet
+     */
+    private function hasEveryDayCoverage(string $start, string $end, array $dateSet): bool
+    {
+        if (!$this->isValidYmd($start) || !$this->isValidYmd($end) || $start > $end) {
+            return false;
+        }
+
+        try {
+            $d = new DateTime($start);
+            $e = new DateTime($end);
+        } catch (\Throwable $ignored) {
+            return false;
+        }
+
+        while ($d <= $e) {
+            $k = $d->format('Y-m-d');
+            if (empty($dateSet[$k])) {
+                return false;
+            }
+            $d->modify('+1 day');
+        }
+        return true;
+    }
+
+    private function isValidYmd(string $s): bool
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) {
+            return false;
+        }
+        $dt = DateTime::createFromFormat('Y-m-d', $s);
+        return ($dt instanceof DateTime) && ($dt->format('Y-m-d') === $s);
     }
 
     /* ---------------------------------------------------------------------
-     * Shared helpers (used by FppScheduleMapper and others)
+     * Shared helpers (used by mappers, tests, etc.)
      * ------------------------------------------------------------------ */
 
-    /**
-     * Convert short-day string (e.g. "SuMoTu") to weekday bitmask.
-     */
     public static function shortDaysToWeekdayMask(string $days): int
     {
         $map = [
@@ -208,9 +273,6 @@ final class IntentConsolidator
         return $mask;
     }
 
-    /**
-     * Convert weekday bitmask to short-day string (e.g. "SuMoTu").
-     */
     public static function weekdayMaskToShortDays(int $mask): string
     {
         $map = [
@@ -229,7 +291,6 @@ final class IntentConsolidator
                 $out .= $abbr;
             }
         }
-
         return $out;
     }
 
