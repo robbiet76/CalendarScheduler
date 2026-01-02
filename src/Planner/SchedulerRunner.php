@@ -104,6 +104,15 @@ final class SchedulerRunner
         // Per-UID intent generation
         // ------------------------------------------------------------
         foreach ($byUid as $uid => $items) {
+            
+            //Debug trace of processing
+            $trace[] = [
+                'uid' => $uid,
+                'summary' => $summary,
+                'rrule' => $base['rrule'] ?? null,
+                'occurrence_count' => count($occurrences),
+            ];
+
             $base = null;
             $overrides = [];
 
@@ -340,6 +349,13 @@ final class SchedulerRunner
                 }
             }
         }
+
+        //Debug trace dump
+        file_put_contents(
+        '/tmp/gcs_runner_trace.json',
+        json_encode($trace ?? [], JSON_PRETTY_PRINT)
+        );
+
 
         return [
             'ok'           => true,
