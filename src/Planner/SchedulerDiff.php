@@ -9,7 +9,8 @@ declare(strict_types=1);
  *
  * Phase 29 identity model:
  * - Identity = UID ONLY
- * - No planner semantics are inferred from tags
+ * - Exactly one scheduler entry per UID is permitted
+ * - Planner is responsible for consolidation and ordering
  *
  * Responsibilities:
  * - Match scheduler entries by UID
@@ -45,7 +46,10 @@ final class SchedulerDiff
     public function compute(): SchedulerDiffResult
     {
         /*
-         * Index existing managed entries by UID
+         * Index existing managed scheduler entries by UID.
+         *
+         * Phase 29 invariant:
+         * - There must be at most one existing entry per UID.
          */
         $existingByUid = [];
 
@@ -61,7 +65,10 @@ final class SchedulerDiff
         $seenUids = [];
 
         /*
-         * Process desired scheduler entries
+         * Process desired scheduler entries.
+         *
+         * Desired set is authoritative and must also obey:
+         * - Exactly one entry per UID
          */
         foreach ($this->desired as $desiredEntry) {
             if (!is_array($desiredEntry)) {
@@ -72,6 +79,16 @@ final class SchedulerDiff
             if ($uid === null) {
                 // Desired entries without UID identity are ignored
                 continue;
+            }
+
+            /*
+             * Defensive guard:
+             * Planner must not emit multiple entries with the same UID.
+             */
+            if (isset($seenUids[$uid])) {
+                throw new RuntimeException(
+                    "SchedulerDiff invariant violation: duplicate desired UID '{$uid}'"
+                );
             }
 
             $seenUids[$uid] = true;
@@ -92,7 +109,7 @@ final class SchedulerDiff
         }
 
         /*
-         * Any existing managed entry not present in desired must be deleted
+         * Any existing managed entry not present in desired must be deleted.
          */
         $toDelete = [];
 
