@@ -66,15 +66,30 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        // Handle 24:00:00 as next-day midnight
+        // Parse end datetime using END DATE (not start date).
+        // This is critical for multi-day entries and midnight-crossing schedules.
+        $dtEnd = null;
+
         if ($endTime === '24:00:00') {
-            $dtEnd = (clone $dtStart)->modify('+1 day')->setTime(0, 0, 0);
-        } else {
-            $dtEnd = self::parseDateTime($startDateRaw, $endTime);
-            if (!$dtEnd) {
-                $warnings[] = "Skipped '{$summary}': invalid end datetime";
-                return null;
+            // Treat as midnight at startDate+1 day (FPP-style 24:00)
+            $base = self::parseDateTime($startDateRaw, '00:00:00');
+            if ($base instanceof DateTime) {
+                $dtEnd = (clone $base)->modify('+1 day'); // 00:00:00 next day
             }
+        } else {
+            // Prefer the schedule's endDate for DTEND.
+            $dtEnd = self::parseDateTime($endDateRaw, $endTime);
+        }
+
+        if (!$dtEnd) {
+            $warnings[] = "Skipped '{$summary}': invalid end datetime";
+            return null;
+        }
+
+        // Export-safety: ensure dtEnd is strictly after dtStart.
+        // If not, assume a midnight rollover and push dtEnd forward 1 day.
+        if ($dtEnd <= $dtStart) {
+            $dtEnd = (clone $dtEnd)->modify('+1 day');
         }
 
         // Build RRULE if entry represents a recurring schedule
@@ -124,25 +139,35 @@ final class ScheduleEntryExportAdapter
 
     /**
      * Build an RRULE string based on FPP scheduler fields.
+     *
+     * IMPORTANT (Phase 30):
+     * - DTSTART is a DATE-TIME, therefore UNTIL must be DATE-TIME (RFC5545).
+     * - We emit UNTIL in UTC form as YYYYMMDDT235959Z, using the entry endDate.
+     * - IcsWriter emits DTSTART/DTEND as UTC; RRULE UNTIL must align.
      */
     private static function buildRrule(array $entry, string $endDate): ?string
     {
         $dayEnum = (int)($entry['day'] ?? -1);
 
         // Single-day schedule (no recurrence)
-        if ($entry['startDate'] === $entry['endDate']) {
+        if (($entry['startDate'] ?? null) === ($entry['endDate'] ?? null)) {
             return null;
         }
 
+        // UNTIL at inclusive end-of-day in UTC format.
+        // (We don't do timezone conversion here; writer handles UTC for DTSTART/DTEND.
+        // UNTIL is expressed as UTC wall time end-of-day to match Google import behavior.)
+        $untilUtc = str_replace('-', '', $endDate) . 'T235959Z';
+
         // Everyday
         if ($dayEnum === 7) {
-            return 'FREQ=DAILY;UNTIL=' . str_replace('-', '', $endDate);
+            return 'FREQ=DAILY;UNTIL=' . $untilUtc;
         }
 
         // Weekly patterns
         $byDay = self::fppDayEnumToByDay($dayEnum);
         if ($byDay !== '') {
-            return 'FREQ=WEEKLY;BYDAY=' . $byDay . ';UNTIL=' . str_replace('-', '', $endDate);
+            return 'FREQ=WEEKLY;BYDAY=' . $byDay . ';UNTIL=' . $untilUtc;
         }
 
         return null;

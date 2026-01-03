@@ -4,8 +4,6 @@ declare(strict_types=1);
 /**
  * IcsWriter
  *
- * Phase 23.2
- *
  * Pure ICS generator.
  *
  * PURPOSE:
@@ -14,14 +12,19 @@ declare(strict_types=1);
  *
  * RESPONSIBILITIES:
  * - Serialize VEVENT blocks from pre-sanitized export intents
- * - Emit minimal but valid calendar + timezone metadata
+ * - Emit minimal but valid calendar metadata
  * - Encode YAML metadata into DESCRIPTION field
  *
  * HARD RULES:
  * - No scheduler knowledge
  * - No filtering or validation
  * - No mutation of inputs
- * - Assumes all DateTime values are valid and timezone-correct
+ * - Assumes all DateTime values are valid
+ *
+ * EXPORT RULE (Phase 30):
+ * - Unmanaged export must be timezone-agnostic, so we emit UTC-only.
+ * - DTSTART/DTEND are written as UTC "Z" values.
+ * - No TZID parameters and no VTIMEZONE block.
  */
 final class IcsWriter
 {
@@ -29,15 +32,10 @@ final class IcsWriter
      * Generate a complete ICS calendar document.
      *
      * @param array<int,array<string,mixed>> $events Export intents
-     * @param DateTimeZone|null $tz Timezone for DTSTART/DTEND (defaults to system TZ)
      * @return string RFC5545-compatible ICS content
      */
-    public static function build(array $events, ?DateTimeZone $tz = null): string
+    public static function build(array $events): string
     {
-        if ($tz === null) {
-            $tz = new DateTimeZone(date_default_timezone_get());
-        }
-
         $lines = [];
 
         // --------------------------------------------------
@@ -49,8 +47,8 @@ final class IcsWriter
         $lines[] = 'CALSCALE:GREGORIAN';
         $lines[] = 'METHOD:PUBLISH';
 
-        // Minimal timezone block (Google Calendar tolerant)
-        $lines = array_merge($lines, self::buildTimezoneBlock($tz));
+        // Helpful for importers; harmless even if ignored.
+        $lines[] = 'X-WR-TIMEZONE:UTC';
 
         // --------------------------------------------------
         // Events
@@ -59,11 +57,12 @@ final class IcsWriter
             if (!is_array($ev)) {
                 continue;
             }
-            $lines = array_merge($lines, self::buildEventBlock($ev, $tz));
+            $lines = array_merge($lines, self::buildEventBlock($ev));
         }
 
         $lines[] = 'END:VCALENDAR';
 
+        // RFC5545 prefers CRLF line endings
         return implode("\r\n", $lines) . "\r\n";
     }
 
@@ -75,10 +74,9 @@ final class IcsWriter
      * Build a single VEVENT block.
      *
      * @param array<string,mixed> $ev Export intent
-     * @param DateTimeZone        $tz Timezone used for DTSTART/DTEND
      * @return array<int,string> RFC5545 VEVENT lines
      */
-    private static function buildEventBlock(array $ev, DateTimeZone $tz): array
+    private static function buildEventBlock(array $ev): array
     {
         /** @var DateTime $dtStart */
         $dtStart = $ev['dtstart'];
@@ -88,13 +86,14 @@ final class IcsWriter
         $summary = (string)($ev['summary'] ?? '');
         $rrule   = $ev['rrule'] ?? null;
         $yaml    = (array)($ev['yaml'] ?? []);
+        $uid     = (string)($ev['uid'] ?? '');
 
         $lines = [];
         $lines[] = 'BEGIN:VEVENT';
 
-        // DTSTART / DTEND with explicit TZID
-        $lines[] = 'DTSTART;TZID=' . $tz->getName() . ':' . $dtStart->format('Ymd\THis');
-        $lines[] = 'DTEND;TZID='   . $tz->getName() . ':' . $dtEnd->format('Ymd\THis');
+        // DTSTART / DTEND in UTC ("Z") for timezone-agnostic import.
+        $lines[] = 'DTSTART:' . self::formatUtc($dtStart);
+        $lines[] = 'DTEND:'   . self::formatUtc($dtEnd);
 
         // RRULE (optional)
         if (is_string($rrule) && $rrule !== '') {
@@ -113,31 +112,21 @@ final class IcsWriter
 
         // Required metadata
         $lines[] = 'DTSTAMP:' . gmdate('Ymd\THis\Z');
-        $lines[] = 'UID:' . self::generateUid();
+        $lines[] = 'UID:' . ($uid !== '' ? $uid : self::generateUid());
 
         $lines[] = 'END:VEVENT';
 
         return $lines;
     }
 
-    /* ==========================================================
-     * Calendar helpers
-     * ========================================================== */
-
     /**
-     * Build a minimal VTIMEZONE block.
-     *
-     * NOTE:
-     * - Google Calendar accepts simplified timezone definitions
-     *   as long as TZID matches DTSTART/DTEND.
+     * Format a DateTime as UTC date-time (RFC5545 basic format with "Z").
      */
-    private static function buildTimezoneBlock(DateTimeZone $tz): array
+    private static function formatUtc(DateTime $dt): string
     {
-        return [
-            'BEGIN:VTIMEZONE',
-            'TZID:' . $tz->getName(),
-            'END:VTIMEZONE',
-        ];
+        $utc = clone $dt;
+        $utc->setTimezone(new DateTimeZone('UTC'));
+        return $utc->format('Ymd\THis\Z');
     }
 
     /**
