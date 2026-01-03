@@ -33,7 +33,8 @@ final class ExportService
 
         $unmanagedTotal = count($unmanaged);
 
-        $effective = self::applyPerPlaylistOverrideExdates($unmanaged, $warnings);
+        // Apply FPP-faithful precedence: first match wins within the same summary (playlist/command)
+        $effective = self::applyPerPlaylistFirstWins($unmanaged, $warnings);
 
         $exportEvents = [];
         $skipped = 0;
@@ -66,106 +67,101 @@ final class ExportService
     }
 
     /**
-     * Apply per-playlist (summary) override logic.
+     * FPP-faithful export precedence (FIRST WINS):
      *
-     * Rules:
-     * - Conflicts are evaluated ONLY within the same summary and same date
-     * - Higher entry (later in schedule.json) wins
-     * - Identical DTSTART windows → lower priority is explicitly EXDATE’d
-     * - Non-overlapping windows are both allowed
+     * For each summary (playlist/command), and for each occurrence date:
+     * - Build occurrences in scheduler.json order (top-down).
+     * - If an occurrence is IDENTICAL to an already-kept occurrence
+     *   (same start/end window), drop it silently (FPP would ignore it).
+     * - If an occurrence OVERLAPS an already-kept occurrence, exclude the later
+     *   one via EXDATE on the later entry (first wins).
+     * - If it does not overlap, keep it (multiple same-name events per day allowed).
+     *
+     * EXDATE is stored as exact DTSTART timestamps in:
+     *   __gcs_export_exdates_dtstart: array<int,string> "YYYY-MM-DD HH:MM:SS"
      */
-    private static function applyPerPlaylistOverrideExdates(array $entries, array &$warnings): array
+    private static function applyPerPlaylistFirstWins(array $entries, array &$warnings): array
     {
+        // occurrences[summary][date] = list of occurrences in scheduler order
         $occurrences = [];
-        $totalByIdx = [];
-        $excludedByIdx = [];
+
+        // Collect occurrences for each entry index so we can write EXDATEs to losers
+        // exdtstartByIdx[idx]["YYYY-MM-DD HH:MM:SS"] = true
         $exdtstartByIdx = [];
 
-        // Build occurrences
+        // Track which (summary,date,window) has been claimed by the FIRST entry
+        // claimed[summary][date][] = list of accepted windows with metadata
+        // Each accepted window: ['s'=>int,'e'=>int,'idx'=>int,'dtstartText'=>string]
+        $claimed = [];
+
+        // Expand occurrences in scheduler order (TOP DOWN)
         foreach ($entries as $idx => $entry) {
             $summary = self::summaryForEntry($entry);
-            if ($summary === '') continue;
+            if ($summary === '') {
+                continue;
+            }
 
             $sd = (string)($entry['startDate'] ?? '');
             $ed = (string)($entry['endDate'] ?? '');
-            if (!self::isValidYmd($sd) || !self::isValidYmd($ed)) continue;
+            if (!self::isValidYmd($sd) || !self::isValidYmd($ed)) {
+                continue;
+            }
 
             $startTime = (string)($entry['startTime'] ?? '00:00:00');
             $endTime   = (string)($entry['endTime'] ?? '00:00:00');
 
             $win = self::windowSeconds($startTime, $endTime);
-            if ($win === null) continue;
+            if ($win === null) {
+                continue;
+            }
 
             $dates = self::expandDatesForEntry($entry, $sd, $ed);
-            if (empty($dates)) continue;
-
-            $totalByIdx[$idx] = count($dates);
-            $excludedByIdx[$idx] = 0;
-            $exdtstartByIdx[$idx] = [];
+            if (empty($dates)) {
+                continue;
+            }
 
             foreach ($dates as $ymd) {
-                [$s, $e] = self::occurrenceAbsRange($ymd, $win);
-                $occurrences[$summary][$ymd][] = [
+                [$sAbs, $eAbs] = self::occurrenceAbsRange($ymd, $win);
+                $dtstartText = $ymd . ' ' . $startTime;
+
+                // Initialize structures
+                $claimed[$summary][$ymd] ??= [];
+                $exdtstartByIdx[$idx] ??= [];
+
+                // If this window is IDENTICAL to an existing accepted window for this summary/date:
+                // - FPP would ignore this later identical entry
+                // - We also ignore it (no EXDATE needed; it simply doesn’t represent a new runtime behavior)
+                $identical = self::findIdenticalWindow($claimed[$summary][$ymd], $sAbs, $eAbs);
+                if ($identical !== null) {
+                    // optional warning (comment out if too noisy)
+                    // $warnings[] = "Export dedupe: '{$summary}' {$ymd} identical window ignored (entry #" . ($idx + 1) . ")";
+                    continue;
+                }
+
+                // If this window OVERLAPS any accepted window for this summary/date:
+                // - first wins => this later one must be excluded
+                $overlap = self::overlapsAny($claimed[$summary][$ymd], $sAbs, $eAbs);
+                if ($overlap) {
+                    $exdtstartByIdx[$idx][$dtstartText] = true;
+                    continue;
+                }
+
+                // Otherwise, accept it
+                $claimed[$summary][$ymd][] = [
+                    's' => $sAbs,
+                    'e' => $eAbs,
                     'idx' => $idx,
-                    's' => $s,
-                    'e' => $e,
-                    'dtstartText' => $ymd . ' ' . $startTime,
+                    'dtstartText' => $dtstartText,
                 ];
             }
         }
 
-        // Resolve conflicts per summary + per date
-        foreach ($occurrences as $summary => $byDate) {
-            foreach ($byDate as $ymd => $list) {
-                if (count($list) <= 1) continue;
-
-                // Higher index = higher priority
-                usort($list, fn($a, $b) => $b['idx'] <=> $a['idx']);
-
-                $accepted = [];
-
-                foreach ($list as $occ) {
-                    $conflictIdx = self::findConflictIndex($accepted, $occ['s'], $occ['e']);
-
-                    if ($conflictIdx !== null) {
-                        // Identical DTSTART window → exclude lower priority explicitly
-                        if (
-                            $accepted[$conflictIdx][0] === $occ['s'] &&
-                            $accepted[$conflictIdx][1] === $occ['e']
-                        ) {
-                            $exdtstartByIdx[$occ['idx']][$occ['dtstartText']] = true;
-                            $excludedByIdx[$occ['idx']]++;
-                            continue;
-                        }
-
-                        // General overlap → lower priority loses
-                        $exdtstartByIdx[$occ['idx']][$occ['dtstartText']] = true;
-                        $excludedByIdx[$occ['idx']]++;
-                    } else {
-                        $accepted[] = [$occ['s'], $occ['e']];
-                    }
-                }
-            }
-        }
-
-        // Apply EXDATEs / suppress fully overridden entries
+        // Apply EXDATEs to entries (losers only). We do NOT suppress whole entries.
         $out = [];
         foreach ($entries as $idx => $entry) {
-            if (!isset($totalByIdx[$idx])) {
-                $out[] = $entry;
-                continue;
+            if (isset($exdtstartByIdx[$idx]) && !empty($exdtstartByIdx[$idx])) {
+                $entry['__gcs_export_exdates_dtstart'] = array_values(array_keys($exdtstartByIdx[$idx]));
             }
-
-            if ($excludedByIdx[$idx] >= $totalByIdx[$idx]) {
-                $warnings[] = "Export suppress: entry #" . ($idx + 1) . " fully overridden";
-                continue;
-            }
-
-            if (!empty($exdtstartByIdx[$idx])) {
-                $entry['__gcs_export_exdates_dtstart'] =
-                    array_values(array_keys($exdtstartByIdx[$idx]));
-            }
-
             $out[] = $entry;
         }
 
@@ -206,21 +202,23 @@ final class ExportService
     private static function matchesDayEnum(DateTime $d, int $e): bool
     {
         $w = (int)$d->format('w'); // 0=Sun … 6=Sat
-
         if ($e === 7) return true;
 
         return match ($e) {
             0,1,2,3,4,5,6 => $w === $e,
             8  => $w >= 1 && $w <= 5,          // MO–FR
             9  => $w === 0 || $w === 6,        // SU,SA
-            10 => in_array($w, [1,3,5], true),
-            11 => in_array($w, [2,4], true),
-            12 => $w <= 4,                     // SU–TH  ✅ Jan 7 works
+            10 => in_array($w, [1,3,5], true), // MO,WE,FR
+            11 => in_array($w, [2,4], true),   // TU,TH
+            12 => $w <= 4,                     // SU–TH
             13 => $w >= 5,                     // FR,SA
             default => true,
         };
     }
 
+    /**
+     * @return array{0:int,1:int}|null  [startAbs,endAbs] where endAbs may be > 86400 for midnight cross
+     */
     private static function windowSeconds(string $s, string $e): ?array
     {
         $ss = self::hmsToSeconds($s);
@@ -233,6 +231,7 @@ final class ExportService
         $es = self::hmsToSeconds($e);
         if ($es === null) return null;
 
+        // If end <= start, it crosses midnight: represent end on next-day axis
         return [$ss, ($es <= $ss) ? $es + 86400 : $es];
     }
 
@@ -243,18 +242,41 @@ final class ExportService
         return $h * 3600 + $m * 60 + $s;
     }
 
-    private static function occurrenceAbsRange(string $_, array $w): array
+    private static function occurrenceAbsRange(string $_ymd, array $w): array
     {
         return [$w[0], $w[1]];
     }
 
-    private static function findConflictIndex(array $acc, int $s, int $e): ?int
+    /**
+     * Find an identical accepted window (same start & end).
+     *
+     * @param array<int,array{s:int,e:int,idx:int,dtstartText:string}> $accepted
+     */
+    private static function findIdenticalWindow(array $accepted, int $s, int $e): ?int
     {
-        foreach ($acc as $i => [$a, $b]) {
-            if (max($a, $s) <= min($b, $e)) {
+        foreach ($accepted as $i => $iv) {
+            if ((int)$iv['s'] === $s && (int)$iv['e'] === $e) {
                 return $i;
             }
         }
         return null;
+    }
+
+    /**
+     * Overlap test against accepted windows.
+     * We treat "touching" as overlap for same-summary/day (first wins).
+     *
+     * @param array<int,array{s:int,e:int,idx:int,dtstartText:string}> $accepted
+     */
+    private static function overlapsAny(array $accepted, int $s, int $e): bool
+    {
+        foreach ($accepted as $iv) {
+            $a = (int)$iv['s'];
+            $b = (int)$iv['e'];
+            if (max($a, $s) <= min($b, $e)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
