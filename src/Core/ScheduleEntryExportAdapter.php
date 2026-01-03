@@ -7,6 +7,11 @@ declare(strict_types=1);
  * Converts a single unmanaged FPP scheduler entry into a
  * calendar export intent suitable for ICS generation.
  *
+ * EXPORT SEMANTICS (Phase 30 – FINAL):
+ * - DTSTART / DTEND represent ONE occurrence only
+ * - RRULE defines recurrence and series end
+ * - This matches Google Calendar's expected model for timed recurring events
+ *
  * Responsibilities:
  * - Translate one scheduler entry into one calendar event
  * - Preserve runtime semantics via YAML metadata
@@ -16,9 +21,6 @@ declare(strict_types=1);
  * - Read-only (never mutates scheduler entries)
  * - Never exports GCS-managed entries (caller responsibility)
  * - Invalid entries are skipped with warnings, not exceptions
- *
- * This adapter performs no scheduling logic and is used
- * exclusively by export orchestration services.
  */
 final class ScheduleEntryExportAdapter
 {
@@ -56,7 +58,7 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        // Parse start datetime
+        // Parse start time
         $startTime = (string)($entry['startTime'] ?? '00:00:00');
         $endTime   = (string)($entry['endTime'] ?? '00:00:00');
 
@@ -66,19 +68,21 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        // Parse end datetime using END DATE (not start date).
-        // This is critical for multi-day entries and midnight-crossing schedules.
+        /**
+         * IMPORTANT:
+         * DTEND must represent the end of ONE occurrence only.
+         * Series end is expressed via RRULE UNTIL.
+         */
         $dtEnd = null;
 
         if ($endTime === '24:00:00') {
-            // Treat as midnight at startDate+1 day (FPP-style 24:00)
+            // FPP-style midnight rollover
             $base = self::parseDateTime($startDateRaw, '00:00:00');
             if ($base instanceof DateTime) {
-                $dtEnd = (clone $base)->modify('+1 day'); // 00:00:00 next day
+                $dtEnd = (clone $base)->modify('+1 day');
             }
         } else {
-            // Prefer the schedule's endDate for DTEND.
-            $dtEnd = self::parseDateTime($endDateRaw, $endTime);
+            $dtEnd = self::parseDateTime($startDateRaw, $endTime);
         }
 
         if (!$dtEnd) {
@@ -86,13 +90,12 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        // Export-safety: ensure dtEnd is strictly after dtStart.
-        // If not, assume a midnight rollover and push dtEnd forward 1 day.
+        // Safety: handle midnight-crossing windows (e.g. 23:00 → 01:00)
         if ($dtEnd <= $dtStart) {
             $dtEnd = (clone $dtEnd)->modify('+1 day');
         }
 
-        // Build RRULE if entry represents a recurring schedule
+        // Build RRULE (recurrence only; series end handled via UNTIL)
         $rrule = self::buildRrule($entry, $endDateRaw);
 
         // Preserve runtime semantics via YAML metadata
@@ -140,10 +143,9 @@ final class ScheduleEntryExportAdapter
     /**
      * Build an RRULE string based on FPP scheduler fields.
      *
-     * IMPORTANT (Phase 30):
-     * - DTSTART is a DATE-TIME, therefore UNTIL must be DATE-TIME (RFC5545).
-     * - We emit UNTIL in UTC form as YYYYMMDDT235959Z, using the entry endDate.
-     * - IcsWriter emits DTSTART/DTEND as UTC; RRULE UNTIL must align.
+     * RULE:
+     * - DTSTART is DATE-TIME → UNTIL must be DATE-TIME (RFC5545)
+     * - UNTIL is inclusive end-of-day in UTC
      */
     private static function buildRrule(array $entry, string $endDate): ?string
     {
@@ -154,12 +156,10 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        // UNTIL at inclusive end-of-day in UTC format.
-        // (We don't do timezone conversion here; writer handles UTC for DTSTART/DTEND.
-        // UNTIL is expressed as UTC wall time end-of-day to match Google import behavior.)
+        // Inclusive series end
         $untilUtc = str_replace('-', '', $endDate) . 'T235959Z';
 
-        // Everyday
+        // Daily
         if ($dayEnum === 7) {
             return 'FREQ=DAILY;UNTIL=' . $untilUtc;
         }
