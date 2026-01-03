@@ -17,8 +17,11 @@ declare(strict_types=1);
  * - Never exports GCS-managed entries
  * - Best-effort processing: invalid entries are skipped with warnings
  *
- * This service performs no scheduling logic and is intended strictly for
- * export and interoperability use cases.
+ * Export correctness note (Phase 30):
+ * - FPP can tolerate overlapping unmanaged entries for the same playlist/time window
+ *   due to internal precedence logic. Google Calendar cannot.
+ * - To prevent duplicate/shifted-looking events in Google, we clamp overlapping date
+ *   ranges for identical schedule patterns during export only.
  */
 final class ExportService
 {
@@ -63,13 +66,15 @@ final class ExportService
             if (!is_array($entry)) {
                 continue;
             }
-
             if (!SchedulerIdentity::isGcsManaged($entry)) {
                 $unmanaged[] = $entry;
             }
         }
 
         $unmanagedTotal = count($unmanaged);
+
+        // Clamp overlapping date ranges for identical patterns to avoid duplicate events in Google Calendar.
+        $unmanaged = self::clampOverlapsForExport($unmanaged, $warnings);
 
         // Convert unmanaged scheduler entries into export intents
         $exportEvents = [];
@@ -104,5 +109,142 @@ final class ExportService
             'errors' => $errors,
             'ics' => $ics,
         ];
+    }
+
+    /**
+     * Clamp overlapping date ranges for identical schedule patterns.
+     *
+     * We define "identical pattern" as:
+     * - same summary (playlist or command)
+     * - same day enum (repeat selector)
+     * - same startTime / endTime
+     *
+     * If two entries in the same pattern group overlap in date range, we clamp
+     * the earlier entry's endDate to (next.startDate - 1 day), but only when
+     * the next entry starts on a strictly later date.
+     *
+     * @param array<int,array<string,mixed>> $entries
+     * @param array<int,string> $warnings
+     * @return array<int,array<string,mixed>>
+     */
+    private static function clampOverlapsForExport(array $entries, array &$warnings): array
+    {
+        // Group by pattern key
+        $groups = [];
+        foreach ($entries as $e) {
+            if (!is_array($e)) continue;
+            $key = self::patternKey($e);
+            if ($key === '') {
+                // Can't safely group; leave as-is
+                $groups['__ungrouped__'][] = $e;
+                continue;
+            }
+            $groups[$key][] = $e;
+        }
+
+        $out = [];
+
+        foreach ($groups as $key => $group) {
+            if (count($group) <= 1 || $key === '__ungrouped__') {
+                foreach ($group as $e) $out[] = $e;
+                continue;
+            }
+
+            // Sort by startDate ascending (and then by startTime as tie-breaker)
+            usort($group, static function (array $a, array $b): int {
+                $sdA = (string)($a['startDate'] ?? '');
+                $sdB = (string)($b['startDate'] ?? '');
+                if ($sdA !== $sdB) {
+                    return strcmp($sdA, $sdB);
+                }
+                $stA = (string)($a['startTime'] ?? '');
+                $stB = (string)($b['startTime'] ?? '');
+                return strcmp($stA, $stB);
+            });
+
+            $n = count($group);
+            for ($i = 0; $i < $n; $i++) {
+                $curr = $group[$i];
+
+                $currStart = (string)($curr['startDate'] ?? '');
+                $currEnd   = (string)($curr['endDate'] ?? '');
+
+                // If dates missing, just pass through.
+                if ($currStart === '' || $currEnd === '') {
+                    $out[] = $curr;
+                    continue;
+                }
+
+                // Clamp against next entry if it overlaps.
+                if ($i < $n - 1) {
+                    $next = $group[$i + 1];
+                    $nextStart = (string)($next['startDate'] ?? '');
+
+                    if ($nextStart !== '' && $nextStart > $currStart && $nextStart <= $currEnd) {
+                        $clampedEnd = self::dayBefore($nextStart);
+                        if ($clampedEnd !== null && $clampedEnd < $currEnd) {
+                            $curr2 = $curr;
+                            $curr2['endDate'] = $clampedEnd;
+
+                            $warnings[] =
+                                "Export clamp: '{$key}' endDate {$currEnd} -> {$clampedEnd} " .
+                                "(to avoid overlap with next starting {$nextStart})";
+
+                            $out[] = $curr2;
+                            continue;
+                        }
+                    }
+                }
+
+                $out[] = $curr;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Build a stable grouping key for "same schedule pattern".
+     * Returns '' if a summary cannot be determined.
+     */
+    private static function patternKey(array $entry): string
+    {
+        $summary = self::summaryForEntry($entry);
+        if ($summary === '') {
+            return '';
+        }
+
+        $day = (string)($entry['day'] ?? '');
+        $st  = (string)($entry['startTime'] ?? '');
+        $et  = (string)($entry['endTime'] ?? '');
+
+        return $summary . '|day=' . $day . '|start=' . $st . '|end=' . $et;
+    }
+
+    /**
+     * Summary is playlist preferred, else command (mirrors adapter intent).
+     */
+    private static function summaryForEntry(array $entry): string
+    {
+        if (!empty($entry['playlist']) && is_string($entry['playlist'])) {
+            return trim($entry['playlist']);
+        }
+        if (!empty($entry['command']) && is_string($entry['command'])) {
+            return trim($entry['command']);
+        }
+        return '';
+    }
+
+    /**
+     * Compute YYYY-MM-DD for (date - 1 day).
+     */
+    private static function dayBefore(string $ymd): ?string
+    {
+        $dt = DateTime::createFromFormat('Y-m-d', $ymd);
+        if (!($dt instanceof DateTime)) {
+            return null;
+        }
+        $dt->modify('-1 day');
+        return $dt->format('Y-m-d');
     }
 }
