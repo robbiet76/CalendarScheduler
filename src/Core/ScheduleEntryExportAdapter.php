@@ -1,42 +1,21 @@
 <?php
 declare(strict_types=1);
 
-/**
- * ScheduleEntryExportAdapter
- *
- * Converts a single unmanaged FPP scheduler entry into a
- * calendar export intent suitable for ICS generation.
- *
- * FINAL EXPORT MODEL:
- * - DTSTART / DTEND represent ONE occurrence only
- * - RRULE defines recurrence and series end
- * - EXDATE represents per-occurrence overrides (per-playlist precedence)
- */
 final class ScheduleEntryExportAdapter
 {
-    /**
-     * Convert a scheduler entry to an export intent.
-     *
-     * @param array<string,mixed> $entry Raw scheduler.json entry
-     * @param array<int,string>   $warnings Collected warnings (appended)
-     * @return array<string,mixed>|null Export intent or null if skipped
-     */
     public static function adapt(array $entry, array &$warnings): ?array
     {
-        // Determine event summary (playlist preferred, else command)
         $summary = '';
         if (!empty($entry['playlist']) && is_string($entry['playlist'])) {
             $summary = trim($entry['playlist']);
         } elseif (!empty($entry['command']) && is_string($entry['command'])) {
             $summary = trim($entry['command']);
         }
-
         if ($summary === '') {
             $warnings[] = 'Skipped entry with no playlist or command name';
             return null;
         }
 
-        // Validate export date range
         $startDateRaw = (string)($entry['startDate'] ?? '');
         $endDateRaw   = (string)($entry['endDate'] ?? '');
 
@@ -57,9 +36,7 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        // DTEND = one occurrence end
         $dtEnd = null;
-
         if ($endTime === '24:00:00') {
             $base = self::parseDateTime($startDateRaw, '00:00:00');
             if ($base instanceof DateTime) {
@@ -68,40 +45,43 @@ final class ScheduleEntryExportAdapter
         } else {
             $dtEnd = self::parseDateTime($startDateRaw, $endTime);
         }
-
         if (!$dtEnd) {
             $warnings[] = "Skipped '{$summary}': invalid end datetime";
             return null;
         }
-
-        // Midnight crossing safety
         if ($dtEnd <= $dtStart) {
             $dtEnd = (clone $dtEnd)->modify('+1 day');
         }
 
         $rrule = self::buildRrule($entry, $endDateRaw);
 
-        // YAML metadata
         $yaml = [
             'stopType' => self::stopTypeToString((int)($entry['stopType'] ?? 0)),
             'repeat'   => self::repeatToYaml($entry['repeat'] ?? 0),
         ];
-
         if (isset($entry['enabled']) && (int)$entry['enabled'] === 0) {
             $yaml['enabled'] = false;
         }
 
-        // EXDATE dates injected by ExportService as YYYY-MM-DD
+        // NEW: exact DTSTART timestamps for EXDATE (preferred)
         $exdates = [];
-        $rawEx = $entry['__gcs_export_exdates'] ?? null;
-        if (is_array($rawEx) && !empty($rawEx)) {
-            foreach ($rawEx as $ymd) {
-                if (!is_string($ymd) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
-                    continue;
+        $rawExact = $entry['__gcs_export_exdates_dtstart'] ?? null;
+        if (is_array($rawExact) && !empty($rawExact)) {
+            foreach ($rawExact as $txt) {
+                if (!is_string($txt)) continue;
+                $d = DateTime::createFromFormat('Y-m-d H:i:s', $txt);
+                if ($d instanceof DateTime) {
+                    $exdates[] = $d;
                 }
-                $ex = self::parseDateTime($ymd, $startTime);
-                if ($ex instanceof DateTime) {
-                    $exdates[] = $ex;
+            }
+        } else {
+            // Fallback legacy (if present)
+            $rawEx = $entry['__gcs_export_exdates'] ?? null;
+            if (is_array($rawEx) && !empty($rawEx)) {
+                foreach ($rawEx as $ymd) {
+                    if (!is_string($ymd) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) continue;
+                    $ex = self::parseDateTime($ymd, $startTime);
+                    if ($ex instanceof DateTime) $exdates[] = $ex;
                 }
             }
         }
@@ -116,13 +96,10 @@ final class ScheduleEntryExportAdapter
         ];
     }
 
-    /* ------------------------------------------------------------------ */
-
     private static function isValidExportDate(string $ymd): bool
     {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) return false;
         if (strpos($ymd, '0000-') === 0) return false;
-
         $dt = DateTime::createFromFormat('Y-m-d', $ymd);
         return ($dt instanceof DateTime) && ($dt->format('Y-m-d') === $ymd);
     }
@@ -133,11 +110,6 @@ final class ScheduleEntryExportAdapter
         return ($dt instanceof DateTime) ? $dt : null;
     }
 
-    /**
-     * RRULE builder (unchanged contract):
-     * - DTSTART is DATE-TIME => UNTIL must be DATE-TIME (RFC5545)
-     * - UNTIL expressed in UTC end-of-day is Google-friendly and stable
-     */
     private static function buildRrule(array $entry, string $endDate): ?string
     {
         $dayEnum = (int)($entry['day'] ?? -1);
