@@ -7,15 +7,10 @@ declare(strict_types=1);
  * Converts a single unmanaged FPP scheduler entry into a
  * calendar export intent suitable for ICS generation.
  *
- * EXPORT SEMANTICS (Phase 30 – FINAL):
+ * FINAL EXPORT MODEL:
  * - DTSTART / DTEND represent ONE occurrence only
- * - RRULE defines recurrence and series end (UNTIL)
- * - EXDATE is used to express FPP schedule precedence overlaps faithfully
- *
- * Guarantees:
- * - Read-only (never mutates scheduler entries)
- * - Never exports GCS-managed entries (caller responsibility)
- * - Invalid entries are skipped with warnings, not exceptions
+ * - RRULE defines recurrence and series end
+ * - EXDATE represents per-occurrence overrides (per-playlist precedence)
  */
 final class ScheduleEntryExportAdapter
 {
@@ -53,7 +48,6 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        // Parse start time
         $startTime = (string)($entry['startTime'] ?? '00:00:00');
         $endTime   = (string)($entry['endTime'] ?? '00:00:00');
 
@@ -63,15 +57,10 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        /**
-         * IMPORTANT:
-         * DTEND must represent the end of ONE occurrence only.
-         * Series end is expressed via RRULE UNTIL.
-         */
+        // DTEND = one occurrence end
         $dtEnd = null;
 
         if ($endTime === '24:00:00') {
-            // FPP-style midnight rollover
             $base = self::parseDateTime($startDateRaw, '00:00:00');
             if ($base instanceof DateTime) {
                 $dtEnd = (clone $base)->modify('+1 day');
@@ -85,15 +74,14 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        // Safety: handle midnight-crossing windows (e.g. 23:00 → 01:00)
+        // Midnight crossing safety
         if ($dtEnd <= $dtStart) {
             $dtEnd = (clone $dtEnd)->modify('+1 day');
         }
 
-        // Build RRULE (recurrence only; series end handled via UNTIL)
         $rrule = self::buildRrule($entry, $endDateRaw);
 
-        // Preserve runtime semantics via YAML metadata
+        // YAML metadata
         $yaml = [
             'stopType' => self::stopTypeToString((int)($entry['stopType'] ?? 0)),
             'repeat'   => self::repeatToYaml($entry['repeat'] ?? 0),
@@ -103,7 +91,7 @@ final class ScheduleEntryExportAdapter
             $yaml['enabled'] = false;
         }
 
-        // Optional EXDATEs (export-only), provided as YYYY-MM-DD dates
+        // EXDATE dates injected by ExportService as YYYY-MM-DD
         $exdates = [];
         $rawEx = $entry['__gcs_export_exdates'] ?? null;
         if (is_array($rawEx) && !empty($rawEx)) {
@@ -119,12 +107,12 @@ final class ScheduleEntryExportAdapter
         }
 
         return [
-            'summary'  => $summary,
-            'dtstart'  => $dtStart,
-            'dtend'    => $dtEnd,
-            'rrule'    => $rrule,
-            'exdates'  => $exdates,
-            'yaml'     => $yaml,
+            'summary' => $summary,
+            'dtstart' => $dtStart,
+            'dtend'   => $dtEnd,
+            'rrule'   => $rrule,
+            'exdates' => $exdates,
+            'yaml'    => $yaml,
         ];
     }
 
@@ -132,12 +120,9 @@ final class ScheduleEntryExportAdapter
 
     private static function isValidExportDate(string $ymd): bool
     {
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
-            return false;
-        }
-        if (strpos($ymd, '0000-') === 0) {
-            return false;
-        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) return false;
+        if (strpos($ymd, '0000-') === 0) return false;
+
         $dt = DateTime::createFromFormat('Y-m-d', $ymd);
         return ($dt instanceof DateTime) && ($dt->format('Y-m-d') === $ymd);
     }
@@ -149,32 +134,24 @@ final class ScheduleEntryExportAdapter
     }
 
     /**
-     * Build an RRULE string based on FPP scheduler fields.
-     *
-     * RULE:
-     * - DTSTART is DATE-TIME → UNTIL must be DATE-TIME (RFC5545)
-     * - UNTIL is inclusive end-of-day in UTC (Google-friendly)
-     *
-     * Note: UNTIL is an absolute instant; we keep it in UTC end-of-day to match Google behavior.
-     * DTSTART/DTEND are local with TZID (writer handles TZID).
+     * RRULE builder (unchanged contract):
+     * - DTSTART is DATE-TIME => UNTIL must be DATE-TIME (RFC5545)
+     * - UNTIL expressed in UTC end-of-day is Google-friendly and stable
      */
     private static function buildRrule(array $entry, string $endDate): ?string
     {
         $dayEnum = (int)($entry['day'] ?? -1);
 
-        // Single-day schedule (no recurrence)
         if (($entry['startDate'] ?? null) === ($entry['endDate'] ?? null)) {
             return null;
         }
 
         $untilUtc = str_replace('-', '', $endDate) . 'T235959Z';
 
-        // Daily
         if ($dayEnum === 7) {
             return 'FREQ=DAILY;UNTIL=' . $untilUtc;
         }
 
-        // Weekly patterns
         $byDay = self::fppDayEnumToByDay($dayEnum);
         if ($byDay !== '') {
             return 'FREQ=WEEKLY;BYDAY=' . $byDay . ';UNTIL=' . $untilUtc;
@@ -193,8 +170,8 @@ final class ScheduleEntryExportAdapter
             4  => 'TH',
             5  => 'FR',
             6  => 'SA',
-            8  => 'MO,TU,WE,TH,FR', // Weekdays
-            9  => 'SU,SA',          // Weekends
+            8  => 'MO,TU,WE,TH,FR',
+            9  => 'SU,SA',
             10 => 'MO,WE,FR',
             11 => 'TU,TH',
             12 => 'SU,MO,TU,WE,TH',

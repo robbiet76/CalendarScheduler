@@ -6,19 +6,19 @@ declare(strict_types=1);
  *
  * Orchestrates read-only export of unmanaged FPP scheduler entries to ICS.
  *
- * Phase 30 (faithful export model):
- * - FPP schedule precedence is order-based (top-down schedule.json).
- * - Google Calendar has no precedence, so overlaps render as duplicates.
- * - To match FPP behavior without breaking legitimate same-day same-name entries:
- *   - Simulate scheduler evaluation across the date horizon.
- *   - Track occupied time windows per date (local wall clock).
- *   - For each entry occurrence, if its window overlaps an already-occupied window,
- *     mark that occurrence as excluded via EXDATE.
+ * Phase 30 — Per-playlist override model (FINAL):
+ * - Overlaps are allowed across different playlists/summaries.
+ * - Conflicts are only evaluated within the same playlist/summary.
+ * - For a given summary and occurrence date, overlapping time windows are resolved
+ *   by schedule.json order: higher (later) entry wins.
+ * - Same-name entries on the same day are allowed if their windows do NOT overlap.
+ * - Losing occurrences are excluded via EXDATE on the losing VEVENT.
+ * - If all occurrences of an entry are excluded, that entry is not exported.
  *
  * Guarantees:
  * - Never mutates scheduler.json
  * - Never exports GCS-managed entries
- * - Best-effort processing: invalid entries are skipped with warnings
+ * - Best-effort: invalid entries are skipped with warnings, not exceptions
  */
 final class ExportService
 {
@@ -70,14 +70,14 @@ final class ExportService
 
         $unmanagedTotal = count($unmanaged);
 
-        // Compute EXDATE exclusions by simulating effective schedule precedence (time-window overlap)
-        $unmanagedWithExdates = self::applyOrderBasedExdates($unmanaged, $warnings);
+        // Compute per-playlist EXDATEs using scheduler precedence within same summary only
+        $effective = self::applyPerPlaylistOverrideExdates($unmanaged, $warnings);
 
-        // Convert unmanaged scheduler entries into export intents
+        // Convert effective unmanaged scheduler entries into export intents
         $exportEvents = [];
         $skipped = 0;
 
-        foreach ($unmanagedWithExdates as $entry) {
+        foreach ($effective as $entry) {
             $intent = ScheduleEntryExportAdapter::adapt($entry, $warnings);
             if ($intent === null) {
                 $skipped++;
@@ -88,7 +88,7 @@ final class ExportService
 
         $exported = count($exportEvents);
 
-        // Generate ICS output (may be empty; caller can handle messaging)
+        // Generate ICS output
         $ics = '';
         try {
             $ics = IcsWriter::build($exportEvents);
@@ -109,98 +109,132 @@ final class ExportService
     }
 
     /**
-     * Apply order-based precedence by generating EXDATE lists for occurrences that would be
-     * shadowed by previously processed unmanaged entries due to overlapping time windows.
+     * Apply per-playlist conflict resolution:
+     * - Group occurrences by (summary, occurrenceDate)
+     * - Within each group, resolve overlapping windows by schedule.json order:
+     *   higher (later index) wins; losers get EXDATE for that date.
+     * - Same-name non-overlapping windows are both kept (multiple events).
      *
-     * - Processes entries in the same order as schedule.json (top-to-bottom).
-     * - Tracks occupied time intervals per date in local seconds [0..86400).
-     * - Allows multiple entries on the same day (even same name) as long as windows do not overlap.
+     * Adds export-only fields:
+     *  - __gcs_export_exdates: array<int,string> YYYY-MM-DD to exclude for this entry
      *
-     * Adds a private export-only field on entries:
-     *   __gcs_export_exdates: array<int,string> (YYYY-MM-DD dates to exclude for this entry)
+     * Entries whose ALL occurrences are excluded are removed from output (to avoid
+     * exporting a one-off VEVENT that EXDATE cannot suppress).
      *
-     * @param array<int,array<string,mixed>> $entries
+     * @param array<int,array<string,mixed>> $entries Unmanaged entries in schedule.json order
      * @param array<int,string> $warnings
      * @return array<int,array<string,mixed>>
      */
-    private static function applyOrderBasedExdates(array $entries, array &$warnings): array
+    private static function applyPerPlaylistOverrideExdates(array $entries, array &$warnings): array
     {
-        // occupied[YYYY-MM-DD] = array<int,array{0:int,1:int}> intervals in seconds (start,end)
-        $occupied = [];
+        // Collect occurrences by summary+date.
+        // occurrences[summary][date] = list of ['idx'=>int,'startAbs'=>int,'endAbs'=>int,'startTime'=>string]
+        $occurrences = [];
 
-        $out = [];
+        // Track counts per entry index for full-suppression logic
+        $totalByIdx = [];
+        $excludedByIdx = [];
+        $exdatesByIdx = [];
 
+        // Expand occurrences for each entry (by its own recurrence definition)
         foreach ($entries as $idx => $entry) {
-            if (!is_array($entry)) {
+            if (!is_array($entry)) continue;
+
+            $summary = self::summaryForEntry($entry);
+            if ($summary === '') {
                 continue;
             }
 
             $sd = (string)($entry['startDate'] ?? '');
             $ed = (string)($entry['endDate'] ?? '');
             if (!self::isValidYmd($sd) || !self::isValidYmd($ed)) {
-                $out[] = $entry;
                 continue;
             }
 
             $startTime = (string)($entry['startTime'] ?? '00:00:00');
             $endTime   = (string)($entry['endTime'] ?? '00:00:00');
 
-            $win = self::timeWindowSeconds($startTime, $endTime);
+            $win = self::windowSeconds($startTime, $endTime);
             if ($win === null) {
-                $out[] = $entry;
                 continue;
             }
 
-            // Build candidate occurrence dates based on FPP day enum and date range
-            $dates = self::expandOccurrenceDates($entry, $sd, $ed);
+            $dates = self::expandDatesForEntry($entry, $sd, $ed);
+            if (empty($dates)) continue;
 
-            if (empty($dates)) {
-                $out[] = $entry;
-                continue;
-            }
-
-            $exdates = [];
+            $totalByIdx[$idx] = count($dates);
+            $excludedByIdx[$idx] = 0;
+            $exdatesByIdx[$idx] = [];
 
             foreach ($dates as $ymd) {
-                // Determine the interval(s) on this date and possibly next date if crossing midnight
-                $intervalsByDate = self::intervalsByDateForOccurrence($ymd, $win);
+                [$startAbs, $endAbs] = self::occurrenceAbsRange($ymd, $win);
 
-                // Check overlap against occupied map
-                $overlaps = false;
-                foreach ($intervalsByDate as $d => $intervals) {
-                    foreach ($intervals as [$s, $e]) {
-                        if ($e <= $s) {
-                            continue;
-                        }
-                        if (self::intervalOverlaps($occupied[$d] ?? [], $s, $e)) {
-                            $overlaps = true;
-                            break 2;
-                        }
-                    }
-                }
+                $occurrences[$summary][$ymd][] = [
+                    'idx' => $idx,
+                    'startAbs' => $startAbs,
+                    'endAbs' => $endAbs,
+                    'startTime' => $startTime,
+                ];
+            }
+        }
 
-                if ($overlaps) {
-                    $exdates[] = $ymd;
+        // Resolve conflicts within each summary+date group
+        foreach ($occurrences as $summary => $byDate) {
+            foreach ($byDate as $ymd => $list) {
+                if (count($list) <= 1) {
                     continue;
                 }
 
-                // Claim the intervals (mark occupied) if no overlap
-                foreach ($intervalsByDate as $d => $intervals) {
-                    foreach ($intervals as [$s, $e]) {
-                        if ($e <= $s) continue;
-                        $occupied[$d][] = [$s, $e];
+                // Higher entry (later in schedule.json) wins => sort by idx DESC
+                usort($list, static function (array $a, array $b): int {
+                    return ($b['idx'] <=> $a['idx']);
+                });
+
+                // Accepted intervals for this summary+date on an absolute axis
+                $accepted = [];
+
+                foreach ($list as $occ) {
+                    $idx = (int)$occ['idx'];
+                    $s = (int)$occ['startAbs'];
+                    $e = (int)$occ['endAbs'];
+
+                    $overlap = self::overlapsAny($accepted, $s, $e);
+
+                    if ($overlap) {
+                        // Loser occurrence: exclude this date for that entry
+                        $exdatesByIdx[$idx][$ymd] = true;
+                        $excludedByIdx[$idx] = ($excludedByIdx[$idx] ?? 0) + 1;
+                    } else {
+                        $accepted[] = [$s, $e];
                     }
                 }
             }
+        }
 
-            if (!empty($exdates)) {
+        // Build output entries with __gcs_export_exdates applied; suppress fully-excluded entries
+        $out = [];
+        foreach ($entries as $idx => $entry) {
+            if (!is_array($entry)) continue;
+
+            if (!isset($totalByIdx[$idx])) {
+                // No expanded occurrences (invalid / unknown); keep as-is and let adapter decide
+                $out[] = $entry;
+                continue;
+            }
+
+            $total = (int)$totalByIdx[$idx];
+            $excluded = (int)($excludedByIdx[$idx] ?? 0);
+
+            if ($total > 0 && $excluded >= $total) {
+                $warnings[] = "Export suppress: entry #" . ($idx + 1) . " fully overridden for its summary; not exported";
+                continue;
+            }
+
+            $exSet = $exdatesByIdx[$idx] ?? [];
+            if (!empty($exSet)) {
                 $entry2 = $entry;
-                $entry2['__gcs_export_exdates'] = $exdates;
-
-                $warnings[] =
-                    "Export EXDATE: entry #" . ($idx + 1) .
-                    " excluded " . count($exdates) . " occurrence(s) due to schedule precedence overlaps";
-
+                $entry2['__gcs_export_exdates'] = array_values(array_keys($exSet));
+                $warnings[] = "Export EXDATE: entry #" . ($idx + 1) . " excluded " . count($entry2['__gcs_export_exdates']) . " occurrence(s) (per-playlist override)";
                 $out[] = $entry2;
             } else {
                 $out[] = $entry;
@@ -210,17 +244,34 @@ final class ExportService
         return $out;
     }
 
-    /**
-     * Expand occurrence dates for an entry based on its 'day' enum and date range.
-     *
-     * @param array<string,mixed> $entry
-     * @param string $startDate
-     * @param string $endDate
-     * @return array<int,string> list of YYYY-MM-DD
-     */
-    private static function expandOccurrenceDates(array $entry, string $startDate, string $endDate): array
+    /* =========================
+     * Helpers
+     * ========================= */
+
+    private static function summaryForEntry(array $entry): string
     {
-        $dayEnum = (int)($entry['day'] ?? -1);
+        if (!empty($entry['playlist']) && is_string($entry['playlist'])) {
+            return trim($entry['playlist']);
+        }
+        if (!empty($entry['command']) && is_string($entry['command'])) {
+            return trim($entry['command']);
+        }
+        return '';
+    }
+
+    private static function isValidYmd(string $ymd): bool
+    {
+        return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd) && strpos($ymd, '0000-') !== 0;
+    }
+
+    /**
+     * Expand dates for this entry based on its 'day' enum and date range.
+     *
+     * @return array<int,string> YYYY-MM-DD dates
+     */
+    private static function expandDatesForEntry(array $entry, string $startDate, string $endDate): array
+    {
+        $dayEnum = (int)($entry['day'] ?? 7);
 
         $start = DateTime::createFromFormat('Y-m-d', $startDate);
         $end   = DateTime::createFromFormat('Y-m-d', $endDate);
@@ -228,20 +279,17 @@ final class ExportService
             return [];
         }
 
-        $dates = [];
-
+        $out = [];
         $cursor = clone $start;
+
         while ($cursor <= $end) {
-            $ymd = $cursor->format('Y-m-d');
-
             if (self::matchesDayEnum($cursor, $dayEnum)) {
-                $dates[] = $ymd;
+                $out[] = $cursor->format('Y-m-d');
             }
-
             $cursor->modify('+1 day');
         }
 
-        return $dates;
+        return $out;
     }
 
     private static function matchesDayEnum(DateTime $dt, int $enum): bool
@@ -255,29 +303,27 @@ final class ExportService
 
         return match ($enum) {
             0,1,2,3,4,5,6 => ($w === $enum),
-            8  => ($w >= 1 && $w <= 5),        // weekdays
-            9  => ($w === 0 || $w === 6),      // weekends
+            8  => ($w >= 1 && $w <= 5),               // MO-FR
+            9  => ($w === 0 || $w === 6),             // SU,SA
             10 => ($w === 1 || $w === 3 || $w === 5), // MO,WE,FR
-            11 => ($w === 2 || $w === 4),      // TU,TH
-            12 => ($w === 0 || ($w >= 1 && $w <= 4)), // SU,MO,TU,WE,TH
-            13 => ($w === 5 || $w === 6),      // FR,SA
-            default => true, // Unknown enum: safest is include (adapter may filter later)
+            11 => ($w === 2 || $w === 4),             // TU,TH
+            12 => ($w === 0 || ($w >= 1 && $w <= 4)), // SU-TH
+            13 => ($w === 5 || $w === 6),             // FR,SA
+            default => true,
         };
     }
 
     /**
-     * Convert startTime/endTime into a window representation in seconds.
-     * Returns [startSec, endSec, crossesMidnight(bool)] where endSec is in [0..86400].
+     * Convert start/end times to seconds in day with crossing flag.
      *
-     * @return array{0:int,1:int,2:bool}|null
+     * @return array{0:int,1:int,2:bool}|null [startSec,endSec,crossesMidnight]
      */
-    private static function timeWindowSeconds(string $startTime, string $endTime): ?array
+    private static function windowSeconds(string $startTime, string $endTime): ?array
     {
         $s = self::hmsToSeconds($startTime);
         if ($s === null) return null;
 
         if ($endTime === '24:00:00') {
-            // Treat as midnight rollover: ends at 00:00 next day
             return [$s, 0, true];
         }
 
@@ -301,66 +347,38 @@ final class ExportService
     }
 
     /**
-     * For a given occurrence date and window, return intervals per date.
+     * Compute an absolute range on a per-date axis (seconds from local midnight of $ymd).
+     * If crossing midnight, endAbs extends beyond 86400.
      *
      * @param string $ymd
      * @param array{0:int,1:int,2:bool} $win
-     * @return array<string,array<int,array{0:int,1:int}>>
+     * @return array{0:int,1:int} [startAbs,endAbs]
      */
-    private static function intervalsByDateForOccurrence(string $ymd, array $win): array
+    private static function occurrenceAbsRange(string $ymd, array $win): array
     {
         [$s, $e, $cross] = $win;
 
         if (!$cross) {
-            // same-day interval
-            return [
-                $ymd => [[$s, $e]],
-            ];
+            return [$s, $e];
         }
 
-        // crosses midnight: [s..86400) on ymd, [0..e) on next day
-        $next = DateTime::createFromFormat('Y-m-d', $ymd);
-        if (!($next instanceof DateTime)) {
-            return [
-                $ymd => [[$s, 86400]],
-            ];
-        }
-        $next->modify('+1 day');
-        $ymdNext = $next->format('Y-m-d');
-
-        $out = [
-            $ymd => [[$s, 86400]],
-        ];
-
-        if ($e > 0) {
-            $out[$ymdNext] = [[0, $e]];
-        }
-
-        return $out;
+        // cross-midnight: represent as [s..(86400+e)]
+        return [$s, 86400 + $e];
     }
 
     /**
-     * Check whether [s,e) overlaps any existing interval.
-     *
-     * @param array<int,array{0:int,1:int}> $intervals
+     * @param array<int,array{0:int,1:int}> $accepted
      */
-    private static function intervalOverlaps(array $intervals, int $s, int $e): bool
+    private static function overlapsAny(array $accepted, int $s, int $e): bool
     {
-        foreach ($intervals as $iv) {
-            $a = (int)($iv[0] ?? 0);
-            $b = (int)($iv[1] ?? 0);
-            if ($b <= $a) continue;
-
+        foreach ($accepted as $iv) {
+            $a = (int)$iv[0];
+            $b = (int)$iv[1];
             // overlap if max(start) < min(end)
             if (max($a, $s) < min($b, $e)) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static function isValidYmd(string $ymd): bool
-    {
-        return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd) && strpos($ymd, '0000-') !== 0;
     }
 }
