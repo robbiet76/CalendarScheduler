@@ -264,23 +264,23 @@ final class SchedulerPlanner
                         ($bEndD   >= $aEndD) &&
                         ($aStartD !== $bStartD || $aEndD !== $bEndD);
 
-                    // A is more general → B must be above
                     if ($aContainsB) {
+                        // B is more specific → bubble above A
                         $moved = array_splice($bundles, $j, 1);
                         array_splice($bundles, $i, 0, $moved);
                         $swapsThisPass++;
+                        $swapsTotal++;
+                        $n = count($bundles);
                         $i = max(-1, $i - 1);
                         continue 2;
                     }
 
-                    // B is more general → keep order
                     if ($bContainsA) {
                         continue;
                     }
 
                     // -------------------------------------------------
-                    // 1) TIME-WINDOW SPECIFICITY (more specific wins)
-                    // Shorter daily duration MUST be ABOVE broader
+                    // 2) TIME-WINDOW SPECIFICITY (shorter wins)
                     // -------------------------------------------------
 
                     $aStartSec = self::timeToSeconds(substr((string)$aBase['template']['start'], 11));
@@ -291,23 +291,9 @@ final class SchedulerPlanner
                     $aDur = self::windowDurationSeconds($aStartSec, $aEndSec);
                     $bDur = self::windowDurationSeconds($bStartSec, $bEndSec);
 
-                    // More specific (shorter) must be ABOVE
                     if ($aDur > $bDur) {
-                        // A is broader → move B above A
-                        if ($debug) {
-                            self::dbg($config, 'swap_time_specificity', [
-                                'from' => $j,
-                                'to'   => $i,
-                                'A'    => self::bundleDebugRow($A),
-                                'B'    => self::bundleDebugRow($B),
-                                'aDur' => $aDur,
-                                'bDur' => $bDur,
-                            ]);
-                        }
-
                         $moved = array_splice($bundles, $j, 1);
                         array_splice($bundles, $i, 0, $moved);
-
                         $swapsThisPass++;
                         $swapsTotal++;
                         $n = count($bundles);
@@ -316,7 +302,6 @@ final class SchedulerPlanner
                     }
 
                     if ($bDur > $aDur) {
-                        // B is broader → order is already correct
                         continue;
                     }
 
