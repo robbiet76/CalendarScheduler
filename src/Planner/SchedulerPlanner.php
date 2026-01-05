@@ -269,12 +269,11 @@ final class SchedulerPlanner
                     $aDays = (string)($aBase['range']['days'] ?? '');
                     $bDays = (string)($bBase['range']['days'] ?? '');
 
+                    // Date-range containment ONLY (date specificity dominates days)
                     $aContainsB =
-                        ($aStartD !== '' && $aEndD !== '' && $bStartD !== '' && $bEndD !== '') &&
                         ($aStartD <= $bStartD) &&
                         ($aEndD   >= $bEndD) &&
-                        ($aStartD !== $bStartD || $aEndD !== $bEndD) &&
-                        self::daysContainShort($bDays, $aDays);
+                        ($aStartD !== $bStartD || $aEndD !== $bEndD);
 
                     $bContainsA =
                         ($aStartD !== '' && $aEndD !== '' && $bStartD !== '' && $bEndD !== '') &&
