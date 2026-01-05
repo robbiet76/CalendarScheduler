@@ -698,6 +698,7 @@ final class SchedulerPlanner
 
         /* -------------------------------------------------------------
         * 1) TIME-WINDOW CONTAINMENT (MOST SPECIFIC)
+        * Narrower daily window overrides broader window.
         * ------------------------------------------------------------- */
         if (self::timeWindowContains($bBase['template'], $aBase['template'])) {
             if ($debug) {
@@ -711,6 +712,7 @@ final class SchedulerPlanner
 
         /* -------------------------------------------------------------
         * 2) DATE-RANGE CONTAINMENT (STRICT)
+        * Fully-contained date range overrides broader one.
         * ------------------------------------------------------------- */
         if ($aStartD !== '' && $aEndD !== '' && $bStartD !== '' && $bEndD !== '') {
             $aInB =
@@ -731,6 +733,7 @@ final class SchedulerPlanner
 
         /* -------------------------------------------------------------
         * 3) DAYS CONTAINMENT (ONLY IF DATE RANGES MATCH)
+        * Subset of days overrides superset.
         * ------------------------------------------------------------- */
         if ($aStartD !== '' && $aEndD !== '' && $aStartD === $bStartD && $aEndD === $bEndD) {
             $aDays = (string)($aBase['range']['days'] ?? '');
@@ -752,6 +755,45 @@ final class SchedulerPlanner
                 }
                 return true;
             }
+        }
+
+        /* -------------------------------------------------------------
+        * 4) OVERLAP OVERRIDE TIE-BREAKER
+        *
+        * If two entries overlap in date+days+time and no containment
+        * rule applies, the later-starting entry is intended to override
+        * the earlier one.
+        * ------------------------------------------------------------- */
+
+        // Later start DATE wins
+        if ($aStartD !== '' && $bStartD !== '' && $aStartD !== $bStartD) {
+            if ($aStartD > $bStartD) {
+                if ($debug) {
+                    self::dbg($cfg, 'dominance_override_later_start_date', [
+                        'A' => self::bundleDebugRow(['base' => $aBase]),
+                        'B' => self::bundleDebugRow(['base' => $bBase]),
+                    ]);
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // Same start date → later daily START TIME wins
+        $aStartT = substr((string)($aBase['template']['start'] ?? ''), 11, 8);
+        $bStartT = substr((string)($bBase['template']['start'] ?? ''), 11, 8);
+
+        if ($aStartT !== '' && $bStartT !== '' && $aStartT !== $bStartT) {
+            if ($aStartT > $bStartT) {
+                if ($debug) {
+                    self::dbg($cfg, 'dominance_override_later_start_time', [
+                        'A' => self::bundleDebugRow(['base' => $aBase]),
+                        'B' => self::bundleDebugRow(['base' => $bBase]),
+                    ]);
+                }
+                return true;
+            }
+            return false;
         }
 
         return false;
