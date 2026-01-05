@@ -699,7 +699,7 @@ final class SchedulerPlanner
             return false;
         }
 
-        // Day mask must include B's start day
+        // Day mask: A must run on B's start day
         $bDow = (int)(new DateTime($bStartDate))->format('w');
         $bDowShort = self::dowToShortDay($bDow);
 
@@ -708,17 +708,29 @@ final class SchedulerPlanner
             return false;
         }
 
-        // Check if B's start time occurs during A's active window
+        // Time windows
         $aStartT = self::timeToSeconds(substr((string)$aBase['template']['start'], 11));
         $aEndT   = self::timeToSeconds(substr((string)$aBase['template']['end'], 11));
         $bStartT = self::timeToSeconds(substr((string)$bBase['template']['start'], 11));
 
-        // Handle overnight wrap
+        // Overnight wrap for A
         if ($aEndT <= $aStartT) {
             $aEndT += 86400;
         }
 
-        return ($bStartT >= $aStartT && $bStartT < $aEndT);
+        // A must already be active at B's start time
+        if (!($bStartT >= $aStartT && $bStartT < $aEndT)) {
+            return false;
+        }
+
+        // 🚨 CRITICAL GUARD:
+        // Earlier-starting daily schedules are background layers
+        // and must NOT block later-starting schedules.
+        if ($aStartT < $bStartT) {
+            return false;
+        }
+
+        return true;
     }
 
     private static function dominates(array $aBase, array $bBase, array $cfg, bool $debug): bool
