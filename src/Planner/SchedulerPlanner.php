@@ -214,32 +214,74 @@ final class SchedulerPlanner
             self::dbg($config, 'order_baseline_done', ['bundle_count' => count($bundles)]);
         }
 
-        // 3b) Iterative passes with non-adjacent bubbling
+        // 3b) Iterative passes with non-adjacent bubbling (suppression-first)
         $passes      = 0;
         $swapsTotal  = 0;
 
         while ($passes < self::MAX_ORDER_PASSES) {
             $passes++;
             $swapsThisPass = 0;
+
             $n = count($bundles);
 
             for ($i = 0; $i < $n - 1; $i++) {
                 $A = $bundles[$i];
                 $aBase = $A['base'] ?? null;
-                if (!is_array($aBase)) continue;
+                if (!is_array($aBase)) {
+                    continue;
+                }
 
                 for ($j = $i + 1; $j < $n; $j++) {
                     $B = $bundles[$j];
                     $bBase = $B['base'] ?? null;
-                    if (!is_array($bBase)) continue;
+                    if (!is_array($bBase)) {
+                        continue;
+                    }
 
-                    // Must overlap at all
+                    // Must overlap at all to compare ordering
                     $ov = self::basesOverlapVerbose($aBase, $bBase, $debug ? $config : null);
-                    if (empty($ov['overlaps'])) continue;
+                    if (empty($ov['overlaps'])) {
+                        continue;
+                    }
 
-                    // -------------------------------------------------
-                    // 1) DATE-RANGE SPECIFICITY (PRIMARY)
-                    // -------------------------------------------------
+                    /* -------------------------------------------------
+                    * 1) RUNTIME SUPPRESSION (TIME CONTAINMENT)
+                    *
+                    * If A fully contains B’s daily window,
+                    * A suppresses B at runtime → B MUST be ABOVE A
+                    * ------------------------------------------------- */
+
+                    if (self::timeWindowContains($aBase['template'], $bBase['template'])) {
+                        if ($debug) {
+                            self::dbg($config, 'swap_time_containment', [
+                                'from' => $j,
+                                'to'   => $i,
+                                'A'    => self::bundleDebugRow($A),
+                                'B'    => self::bundleDebugRow($B),
+                            ]);
+                        }
+
+                        $moved = array_splice($bundles, $j, 1);
+                        array_splice($bundles, $i, 0, $moved);
+
+                        $swapsThisPass++;
+                        $swapsTotal++;
+                        $n = count($bundles);
+                        $i = max(-1, $i - 1);
+                        continue 2;
+                    }
+
+                    if (self::timeWindowContains($bBase['template'], $aBase['template'])) {
+                        // B suppresses A → correct order already
+                        continue;
+                    }
+
+                    /* -------------------------------------------------
+                    * 2) DATE-RANGE CONTAINMENT (INTENT SCOPE)
+                    *
+                    * If A fully contains B’s date range,
+                    * B is more specific → B ABOVE A
+                    * ------------------------------------------------- */
 
                     $aStartD = (string)($aBase['range']['start'] ?? '');
                     $aEndD   = (string)($aBase['range']['end'] ?? '');
@@ -257,23 +299,34 @@ final class SchedulerPlanner
                         ($aStartD !== $bStartD || $aEndD !== $bEndD);
 
                     if ($aContainsB) {
-                        // B is more date-specific → bubble above A
+                        if ($debug) {
+                            self::dbg($config, 'swap_date_containment', [
+                                'from' => $j,
+                                'to'   => $i,
+                                'A'    => self::bundleDebugRow($A),
+                                'B'    => self::bundleDebugRow($B),
+                            ]);
+                        }
+
                         $moved = array_splice($bundles, $j, 1);
                         array_splice($bundles, $i, 0, $moved);
+
                         $swapsThisPass++;
+                        $swapsTotal++;
                         $n = count($bundles);
                         $i = max(-1, $i - 1);
                         continue 2;
                     }
 
                     if ($bContainsA) {
-                        // A already above → correct
                         continue;
                     }
 
-                    // -------------------------------------------------
-                    // 2) TIME-WINDOW SPECIFICITY (SECONDARY)
-                    // -------------------------------------------------
+                    /* -------------------------------------------------
+                    * 3) STABILIZER: NARROWER TIME WINDOW FIRST
+                    *
+                    * Only used when neither suppresses nor contains.
+                    * ------------------------------------------------- */
 
                     $aStart = self::timeToSeconds(substr((string)$aBase['template']['start'], 11));
                     $aEnd   = self::timeToSeconds(substr((string)$aBase['template']['end'], 11));
@@ -287,22 +340,40 @@ final class SchedulerPlanner
                     $bWidth = $bEnd - $bStart;
 
                     if ($aWidth > $bWidth) {
-                        // B narrower → bubble above A
+                        if ($debug) {
+                            self::dbg($config, 'swap_time_width', [
+                                'from' => $j,
+                                'to'   => $i,
+                                'A'    => self::bundleDebugRow($A),
+                                'B'    => self::bundleDebugRow($B),
+                                'A_width' => $aWidth,
+                                'B_width' => $bWidth,
+                            ]);
+                        }
+
                         $moved = array_splice($bundles, $j, 1);
                         array_splice($bundles, $i, 0, $moved);
+
                         $swapsThisPass++;
+                        $swapsTotal++;
                         $n = count($bundles);
                         $i = max(-1, $i - 1);
                         continue 2;
                     }
-
-                    if ($bWidth > $aWidth) {
-                        continue;
-                    }
                 }
             }
 
-            if ($swapsThisPass === 0) break;
+            if ($debug) {
+                self::dbg($config, 'order_pass_done', [
+                    'pass'          => $passes,
+                    'swapsThisPass' => $swapsThisPass,
+                    'swapsTotal'    => $swapsTotal,
+                ]);
+            }
+
+            if ($swapsThisPass === 0) {
+                break;
+            }
         }
 
         if ($debug) {
