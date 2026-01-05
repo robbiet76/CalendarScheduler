@@ -735,13 +735,32 @@ final class SchedulerPlanner
 
     private static function dominates(array $aBase, array $bBase, array $cfg, bool $debug): bool
     {
-        // If A would block B from starting at B's intended start moment,
-        // then B must be ordered above A.
+        // Only meaningful if entries overlap at all
+        $ov = self::basesOverlapVerbose($aBase, $bBase, null);
+        if (empty($ov['overlaps'])) {
+            return false;
+        }
+
+        $aStartT = self::timeToSeconds(substr((string)$aBase['template']['start'], 11));
+        $bStartT = self::timeToSeconds(substr((string)$bBase['template']['start'], 11));
+
+        // Later daily start time must be evaluated first
+        if ($aStartT > $bStartT) {
+            if ($debug) {
+                self::dbg($cfg, 'dominance_later_start_time_overlap', [
+                    'A' => self::bundleDebugRow(['base' => $aBase]),
+                    'B' => self::bundleDebugRow(['base' => $bBase]),
+                ]);
+            }
+            return true;
+        }
+
+        // Fallback: start-moment starvation protection
         if (self::blocksStartAtIntendedMoment($aBase, $bBase)) {
             if ($debug) {
                 self::dbg($cfg, 'dominance_blocks_start_moment', [
-                    'blocker' => self::bundleDebugRow(['base' => $aBase]),
-                    'blocked' => self::bundleDebugRow(['base' => $bBase]),
+                    'A' => self::bundleDebugRow(['base' => $aBase]),
+                    'B' => self::bundleDebugRow(['base' => $bBase]),
                 ]);
             }
             return true;
