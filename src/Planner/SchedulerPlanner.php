@@ -735,7 +735,7 @@ final class SchedulerPlanner
 
     private static function dominates(array $aBase, array $bBase, array $cfg, bool $debug): bool
     {
-        // Only meaningful if entries overlap at all
+        // Only meaningful if entries overlap
         $ov = self::basesOverlapVerbose($aBase, $bBase, null);
         if (empty($ov['overlaps'])) {
             return false;
@@ -744,7 +744,14 @@ final class SchedulerPlanner
         $aStartT = self::timeToSeconds(substr((string)$aBase['template']['start'], 11));
         $bStartT = self::timeToSeconds(substr((string)$bBase['template']['start'], 11));
 
-        // 1) Later daily start time wins when overlapping
+        $aStartD = (string)($aBase['range']['start'] ?? '');
+        $aEndD   = (string)($aBase['range']['end'] ?? '');
+        $bStartD = (string)($bBase['range']['start'] ?? '');
+        $bEndD   = (string)($bBase['range']['end'] ?? '');
+
+        /* -------------------------------------------------------------
+        * 1) Later daily start time wins (overlap only)
+        * ------------------------------------------------------------- */
         if ($aStartT > $bStartT) {
             if ($debug) {
                 self::dbg($cfg, 'dominance_later_start_time_overlap', [
@@ -755,23 +762,44 @@ final class SchedulerPlanner
             return true;
         }
 
-        // 2) SAME daily start time → later calendar start date wins (seasonal override)
-        if ($aStartT === $bStartT) {
-            $aStartD = (string)($aBase['range']['start'] ?? '');
-            $bStartD = (string)($bBase['range']['start'] ?? '');
-
-            if ($aStartD !== '' && $bStartD !== '' && $aStartD > $bStartD) {
-                if ($debug) {
-                    self::dbg($cfg, 'dominance_later_date_same_phase', [
-                        'A' => self::bundleDebugRow(['base' => $aBase]),
-                        'B' => self::bundleDebugRow(['base' => $bBase]),
-                    ]);
-                }
-                return true;
+        /* -------------------------------------------------------------
+        * 2) Same daily start time → later calendar start date wins
+        *    (seasonal override, same phase)
+        * ------------------------------------------------------------- */
+        if ($aStartT === $bStartT && $aStartD !== '' && $bStartD !== '' && $aStartD > $bStartD) {
+            if ($debug) {
+                self::dbg($cfg, 'dominance_later_date_same_start_time', [
+                    'A' => self::bundleDebugRow(['base' => $aBase]),
+                    'B' => self::bundleDebugRow(['base' => $bBase]),
+                ]);
             }
+            return true;
         }
 
-        // 3) Final safety: prevent start-time starvation
+        /* -------------------------------------------------------------
+        * 3) Seasonal override cohesion across phases
+        *    Same date range → later start date dominates
+        * ------------------------------------------------------------- */
+        if (
+            $aStartD !== '' && $bStartD !== '' &&
+            $aEndD !== '' && $bEndD !== '' &&
+            $aStartD === $aBase['range']['start'] &&
+            $aStartD === $bStartD &&
+            $aEndD === $bEndD &&
+            $aStartD > $bStartD
+        ) {
+            if ($debug) {
+                self::dbg($cfg, 'dominance_seasonal_override_cohesion', [
+                    'A' => self::bundleDebugRow(['base' => $aBase]),
+                    'B' => self::bundleDebugRow(['base' => $bBase]),
+                ]);
+            }
+            return true;
+        }
+
+        /* -------------------------------------------------------------
+        * 4) Final safety: prevent start-time starvation
+        * ------------------------------------------------------------- */
         if (self::blocksStartAtIntendedMoment($aBase, $bBase)) {
             if ($debug) {
                 self::dbg($cfg, 'dominance_blocks_start_moment', [
