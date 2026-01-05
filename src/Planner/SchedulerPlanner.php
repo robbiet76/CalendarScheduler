@@ -246,14 +246,6 @@ final class SchedulerPlanner
                         continue;
                     }
 
-                    $btype = (string)($bBase['template']['type'] ?? '');
-                    $btgt  = $bBase['template']['target'] ?? null;
-
-                    // Identity gate: type + target
-                    if ($btype !== $atype || $btgt !== $atgt) {
-                        continue;
-                    }
-
                     // Must overlap
                     $ov = self::basesOverlapVerbose($aBase, $bBase, $debug ? $config : null);
                     if (empty($ov['overlaps'])) {
