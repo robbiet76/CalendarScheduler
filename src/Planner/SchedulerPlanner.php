@@ -254,35 +254,62 @@ final class SchedulerPlanner
                         continue;
                     }
 
-                    // Must overlap (over entire date range model, not day-by-day)
+                    // Must overlap
                     $ov = self::basesOverlapVerbose($aBase, $bBase, $debug ? $config : null);
                     if (empty($ov['overlaps'])) {
                         continue;
                     }
 
-                    // Prefer "most specific" first: full containment (date-range AND days containment)
+                    // -------------------------------------------------
+                    // 1) TIME-WINDOW CONTAINMENT (suppressor dominance)
+                    // Broader daily window MUST be BELOW specific window
+                    // -------------------------------------------------
+
+                    if (self::timeWindowContains($aBase['template'], $bBase['template'])) {
+                        // A suppresses B → B must be above A
+                        if ($debug) {
+                            self::dbg($config, 'swap_time_containment', [
+                                'from' => $j,
+                                'to'   => $i,
+                                'A'    => self::bundleDebugRow($A),
+                                'B'    => self::bundleDebugRow($B),
+                            ]);
+                        }
+
+                        $moved = array_splice($bundles, $j, 1);
+                        array_splice($bundles, $i, 0, $moved);
+
+                        $swapsThisPass++;
+                        $swapsTotal++;
+                        $n = count($bundles);
+                        $i = max(-1, $i - 1);
+                        continue 2;
+                    }
+
+                    if (self::timeWindowContains($bBase['template'], $aBase['template'])) {
+                        // B suppresses A → A already above, keep order
+                        continue;
+                    }
+
+                    // -------------------------------------------------
+                    // 2) DATE-RANGE CONTAINMENT (most specific wins)
+                    // -------------------------------------------------
+
                     $aStartD = (string)($aBase['range']['start'] ?? '');
                     $aEndD   = (string)($aBase['range']['end'] ?? '');
                     $bStartD = (string)($bBase['range']['start'] ?? '');
                     $bEndD   = (string)($bBase['range']['end'] ?? '');
 
-                    $aDays = (string)($aBase['range']['days'] ?? '');
-                    $bDays = (string)($bBase['range']['days'] ?? '');
-
-                    // Date-range containment ONLY (date specificity dominates days)
                     $aContainsB =
                         ($aStartD <= $bStartD) &&
                         ($aEndD   >= $bEndD) &&
                         ($aStartD !== $bStartD || $aEndD !== $bEndD);
 
                     $bContainsA =
-                        ($aStartD !== '' && $aEndD !== '' && $bStartD !== '' && $bEndD !== '') &&
                         ($bStartD <= $aStartD) &&
                         ($bEndD   >= $aEndD) &&
-                        ($aStartD !== $bStartD || $aEndD !== $bEndD) &&
-                        self::daysContainShort($aDays, $bDays);
+                        ($aStartD !== $bStartD || $aEndD !== $bEndD);
 
-                    // If A contains B, then B (more specific) must move above A.
                     if ($aContainsB) {
                         if ($debug) {
                             $swapPairs[] = [
@@ -294,9 +321,10 @@ final class SchedulerPlanner
                                 'overlap_reason' => $ov,
                             ];
                             self::dbg($config, 'swap_containment', [
-                                'from' => $j, 'to' => $i,
-                                'A' => self::bundleDebugRow($A),
-                                'B' => self::bundleDebugRow($B),
+                                'from' => $j,
+                                'to'   => $i,
+                                'A'    => self::bundleDebugRow($A),
+                                'B'    => self::bundleDebugRow($B),
                             ]);
                         }
 
@@ -306,35 +334,28 @@ final class SchedulerPlanner
                         $swapsThisPass++;
                         $swapsTotal++;
                         $n = count($bundles);
-
-                        // Re-check from the same i again after mutation
                         $i = max(-1, $i - 1);
-                        break;
+                        continue 2;
                     }
 
-                    // If B contains A, A is already above (good); no action.
                     if ($bContainsA) {
                         continue;
                     }
 
-                    // Otherwise: overlap exists -> enforce daily start time DESC (later start above earlier)
-                    $aStartSec = self::timeToSeconds(substr((string)($aBase['template']['start'] ?? ''), 11));
-                    $bStartSec = self::timeToSeconds(substr((string)($bBase['template']['start'] ?? ''), 11));
+                    // -------------------------------------------------
+                    // 3) FALLBACK: start-time precedence (later start wins)
+                    // -------------------------------------------------
+
+                    $aStartSec = self::timeToSeconds(substr((string)$aBase['template']['start'], 11));
+                    $bStartSec = self::timeToSeconds(substr((string)$bBase['template']['start'], 11));
 
                     if ($aStartSec < $bStartSec) {
                         if ($debug) {
-                            $swapPairs[] = [
-                                'pass' => $passes,
-                                'rule' => 'start_time_desc',
-                                'move' => ['from' => $j, 'to' => $i],
+                            self::dbg($config, 'swap_start_time', [
+                                'from' => $j,
+                                'to'   => $i,
                                 'A'    => self::bundleDebugRow($A),
                                 'B'    => self::bundleDebugRow($B),
-                                'overlap_reason' => $ov,
-                            ];
-                            self::dbg($config, 'swap_start_time', [
-                                'from' => $j, 'to' => $i,
-                                'A' => self::bundleDebugRow($A),
-                                'B' => self::bundleDebugRow($B),
                             ]);
                         }
 
@@ -344,10 +365,8 @@ final class SchedulerPlanner
                         $swapsThisPass++;
                         $swapsTotal++;
                         $n = count($bundles);
-
-                        // Re-check from the same i again after mutation
                         $i = max(-1, $i - 1);
-                        break;
+                        continue 2;
                     }
                 }
             }
@@ -749,5 +768,25 @@ final class SchedulerPlanner
             $be += 86400; // wrap
         }
         return !($ae <= $bs || $be <= $as);
+    }
+
+    /**
+     * True if A's daily time window fully CONTAINS B's window.
+     * Supports overnight wrapping.
+     */
+    private static function timeWindowContains(array $aTemplate, array $bTemplate): bool
+    {
+        $aStart = self::timeToSeconds(substr((string)$aTemplate['start'], 11));
+        $aEnd   = self::timeToSeconds(substr((string)$aTemplate['end'], 11));
+        $bStart = self::timeToSeconds(substr((string)$bTemplate['start'], 11));
+        $bEnd   = self::timeToSeconds(substr((string)$bTemplate['end'], 11));
+
+        if ($aEnd <= $aStart) $aEnd += 86400;
+        if ($bEnd <= $bStart) $bEnd += 86400;
+
+        return
+            $aStart <= $bStart &&
+            $aEnd   >= $bEnd &&
+            ($aStart !== $bStart || $aEnd !== $bEnd);
     }
 }
