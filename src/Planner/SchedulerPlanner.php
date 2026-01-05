@@ -683,9 +683,11 @@ final class SchedulerPlanner
      * Determine whether A must be evaluated ABOVE B (dominates).
      *
      * Dominance rules (in order):
-     *  1) Date-range containment: if A is strictly contained in B, A dominates
-     *  2) Days containment (same date range): subset days dominate superset days
-     *  3) Time-window containment: contained window dominates container   
+     *  1) Time-window containment (narrower window dominates)
+     *     - Only when days overlap
+     *  2) Date-range containment (narrower range dominates)
+     *  3) Days containment (subset days dominate superset days)
+     *  4) Otherwise: no dominance (chronological fallback)
      */
     private static function dominates(array $aBase, array $bBase, array $cfg, bool $debug): bool
     {
@@ -694,7 +696,30 @@ final class SchedulerPlanner
         $bStartD = (string)($bBase['range']['start'] ?? '');
         $bEndD   = (string)($bBase['range']['end'] ?? '');
 
-        // 1) DATE CONTAINMENT (strict)
+        $aDays = (string)($aBase['range']['days'] ?? '');
+        $bDays = (string)($bBase['range']['days'] ?? '');
+
+        /* ------------------------------------------------------------
+        * 1) TIME-WINDOW CONTAINMENT (highest priority)
+        * ------------------------------------------------------------ */
+        if (
+            $aDays !== '' &&
+            $bDays !== '' &&
+            self::daysOverlapShort($aDays, $bDays) &&
+            self::timeWindowContains($bBase['template'], $aBase['template'])
+        ) {
+            if ($debug) {
+                self::dbg($cfg, 'dominance_time_containment', [
+                    'A' => self::bundleDebugRow(['base' => $aBase]),
+                    'B' => self::bundleDebugRow(['base' => $bBase]),
+                ]);
+            }
+            return true;
+        }
+
+        /* ------------------------------------------------------------
+        * 2) DATE-RANGE CONTAINMENT (strict)
+        * ------------------------------------------------------------ */
         if ($aStartD !== '' && $aEndD !== '' && $bStartD !== '' && $bEndD !== '') {
             $aInB =
                 ($bStartD <= $aStartD) &&
@@ -712,43 +737,21 @@ final class SchedulerPlanner
             }
         }
 
-        // 2) DAYS CONTAINMENT (only meaningful if date ranges equal)
-        $aDays = (string)($aBase['range']['days'] ?? '');
-        $bDays = (string)($bBase['range']['days'] ?? '');
-
-        if ($aStartD !== '' && $aEndD !== '' && $aStartD === $bStartD && $aEndD === $bEndD) {
-            if ($aDays !== '' && $bDays !== '' && self::daysContainShort($aDays, $bDays) && $aDays !== $bDays) {
-                if ($debug) {
-                    self::dbg($cfg, 'dominance_days_subset', [
-                        'A' => self::bundleDebugRow(['base' => $aBase]),
-                        'B' => self::bundleDebugRow(['base' => $bBase]),
-                        'A_days' => $aDays,
-                        'B_days' => $bDays,
-                    ]);
-                }
-                return true;
-            }
-        }
-
-        // 3) TIME-WINDOW CONTAINMENT (narrower contained window dominates)
-        // Only applies when date range AND day mask are identical.
-        // Prevents time logic from interfering with date containment.
-        $aDays = (string)($aBase['range']['days'] ?? '');
-        $bDays = (string)($bBase['range']['days'] ?? '');
-
-        $sameDateRange =
-            ($aStartD !== '' && $aEndD !== '' &&
+        /* ------------------------------------------------------------
+        * 3) DAYS CONTAINMENT (same date range only)
+        * ------------------------------------------------------------ */
+        if (
+            $aStartD !== '' &&
+            $aEndD !== '' &&
             $aStartD === $bStartD &&
-            $aEndD   === $bEndD);
-
-        $sameDays = ($aDays !== '' && $aDays === $bDays);
-
-        if ($sameDateRange && $sameDays &&
-            self::timeWindowContains($bBase['template'], $aBase['template'])) {
-
-            // A is contained inside B → A dominates
+            $aEndD   === $bEndD &&
+            $aDays !== '' &&
+            $bDays !== '' &&
+            self::daysContainShort($aDays, $bDays) &&
+            $aDays !== $bDays
+        ) {
             if ($debug) {
-                self::dbg($cfg, 'dominance_time_containment', [
+                self::dbg($cfg, 'dominance_days_subset', [
                     'A' => self::bundleDebugRow(['base' => $aBase]),
                     'B' => self::bundleDebugRow(['base' => $bBase]),
                 ]);
