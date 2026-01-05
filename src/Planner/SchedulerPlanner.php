@@ -246,24 +246,24 @@ final class SchedulerPlanner
                     }
 
                     // -------------------------------------------------
-                    // 1) TIME-WINDOW SPECIFICITY (dominance)
-                    // Narrower daily window MUST be ABOVE broader window
+                    // 1) TIME-WINDOW SPECIFICITY (primary rule)
+                    // Narrower daily window ALWAYS goes ABOVE broader
                     // -------------------------------------------------
 
-                    $aStartSec = self::timeToSeconds(substr((string)$aBase['template']['start'], 11));
-                    $aEndSec   = self::timeToSeconds(substr((string)$aBase['template']['end'], 11));
-                    $bStartSec = self::timeToSeconds(substr((string)$bBase['template']['start'], 11));
-                    $bEndSec   = self::timeToSeconds(substr((string)$bBase['template']['end'], 11));
+                    $aStart = self::timeToSeconds(substr((string)($aBase['template']['start'] ?? ''), 11));
+                    $aEnd   = self::timeToSeconds(substr((string)($aBase['template']['end'] ?? ''), 11));
+                    $bStart = self::timeToSeconds(substr((string)($bBase['template']['start'] ?? ''), 11));
+                    $bEnd   = self::timeToSeconds(substr((string)($bBase['template']['end'] ?? ''), 11));
 
-                    // Handle overnight wrapping
-                    if ($aEndSec <= $aStartSec) $aEndSec += 86400;
-                    if ($bEndSec <= $bStartSec) $bEndSec += 86400;
+                    // Normalize overnight wrapping
+                    if ($aEnd <= $aStart) { $aEnd += 86400; }
+                    if ($bEnd <= $bStart) { $bEnd += 86400; }
 
-                    $aWidth = $aEndSec - $aStartSec;
-                    $bWidth = $bEndSec - $bStartSec;
+                    $aWidth = $aEnd - $aStart;
+                    $bWidth = $bEnd - $bStart;
 
-                    // Narrower window wins
                     if ($aWidth > $bWidth) {
+                        // B is narrower → bubble above A
                         if ($debug) {
                             self::dbg($config, 'swap_time_specificity', [
                                 'from' => $j,
@@ -286,12 +286,13 @@ final class SchedulerPlanner
                     }
 
                     if ($bWidth > $aWidth) {
-                        // B is broader — broader schedules must stay below narrower ones
+                        // A is already narrower → correct order
                         continue;
                     }
 
                     // -------------------------------------------------
-                    // 2) DATE-RANGE CONTAINMENT (most specific wins)
+                    // 2) DATE-RANGE SPECIFICITY (secondary rule)
+                    // Contained date range goes ABOVE container
                     // -------------------------------------------------
 
                     $aStartD = (string)($aBase['range']['start'] ?? '');
@@ -310,9 +311,19 @@ final class SchedulerPlanner
                         ($aStartD !== $bStartD || $aEndD !== $bEndD);
 
                     if ($aContainsB) {
-                        // B is more specific → bubble above A
+                        // B is more date-specific → bubble above A
+                        if ($debug) {
+                            self::dbg($config, 'swap_date_specificity', [
+                                'from' => $j,
+                                'to'   => $i,
+                                'A'    => self::bundleDebugRow($A),
+                                'B'    => self::bundleDebugRow($B),
+                            ]);
+                        }
+
                         $moved = array_splice($bundles, $j, 1);
                         array_splice($bundles, $i, 0, $moved);
+
                         $swapsThisPass++;
                         $swapsTotal++;
                         $n = count($bundles);
@@ -322,6 +333,21 @@ final class SchedulerPlanner
 
                     if ($bContainsA) {
                         continue;
+                    }
+
+                    // -------------------------------------------------
+                    // 3) FINAL STABLE FALLBACK
+                    // -------------------------------------------------
+
+                    if ($aStart < $bStart) {
+                        $moved = array_splice($bundles, $j, 1);
+                        array_splice($bundles, $i, 0, $moved);
+
+                        $swapsThisPass++;
+                        $swapsTotal++;
+                        $n = count($bundles);
+                        $i = max(-1, $i - 1);
+                        continue 2;
                     }
                 }
             }
