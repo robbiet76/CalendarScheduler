@@ -211,43 +211,35 @@ final class SchedulerPlanner
             self::dbg($config, 'order_baseline_done', ['bundle_count' => count($bundles)]);
         }
 
-        // 3b) Iterative dominance resolution (global, non-adjacent)
+        // 3b) Global dominance relaxation (insertion-style)
         $passes     = 0;
         $swapsTotal = 0;
 
         while ($passes < self::MAX_ORDER_PASSES) {
             $passes++;
-            $swapsThisPass = 0;
+            $changed = false;
             $n = count($bundles);
 
-            for ($i = 0; $i < $n - 1; $i++) {
-                $A = $bundles[$i];
-                $aBase = $A['base'] ?? null;
-                if (!is_array($aBase)) {
+            // For each entry, try to move it upward as far as dominance allows
+            for ($j = 0; $j < $n; $j++) {
+                $B = $bundles[$j];
+                $bBase = $B['base'] ?? null;
+                if (!is_array($bBase)) {
                     continue;
                 }
 
-                for ($j = $i + 1; $j < $n; $j++) {
-                    $B = $bundles[$j];
-                    $bBase = $B['base'] ?? null;
-                    if (!is_array($bBase)) {
+                // Compare against all entries above
+                for ($i = $j - 1; $i >= 0; $i--) {
+                    $A = $bundles[$i];
+                    $aBase = $A['base'] ?? null;
+                    if (!is_array($aBase)) {
                         continue;
                     }
 
-                    // Only comparable if they overlap at all
-                    $ov = self::basesOverlapVerbose($aBase, $bBase, $debug ? $config : null);
-                    if (empty($ov['overlaps'])) {
-                        continue;
-                    }
-
-                    // If B dominates A, bubble B above A
-                    $bd = self::dominates($bBase, $aBase, $config, $debug);
-                    $ad = self::dominates($aBase, $bBase, $config, $debug);
-
-                    // Swap ONLY if dominance is one-way
-                    if ($bd && !$ad) {
+                    // If B should be above A, move it
+                    if (self::dominates($bBase, $aBase, $config, $debug)) {
                         if ($debug) {
-                            self::dbg($config, 'swap_dominance', [
+                            self::dbg($config, 'swap_global_dominance', [
                                 'from' => $j,
                                 'to'   => $i,
                                 'A'    => self::bundleDebugRow($A),
@@ -255,42 +247,31 @@ final class SchedulerPlanner
                             ]);
                         }
 
+                        // Remove B from current position
                         $moved = array_splice($bundles, $j, 1);
+                        // Insert B above A
                         array_splice($bundles, $i, 0, $moved);
 
-                        $swapsThisPass++;
                         $swapsTotal++;
-                        $n = count($bundles);
-                        $i = max(-1, $i - 1);
-                        continue 2;
+                        $changed = true;
+
+                        // Restart scanning from top after modification
+                        break 2;
                     }
-                    // else if A dominates B → explicitly do nothing
                 }
             }
 
             if ($debug) {
                 self::dbg($config, 'order_pass_done', [
-                    'pass'          => $passes,
-                    'swapsThisPass' => $swapsThisPass,
-                    'swapsTotal'    => $swapsTotal,
+                    'pass'       => $passes,
+                    'changed'    => $changed,
+                    'swapsTotal' => $swapsTotal,
                 ]);
             }
 
-            if ($swapsThisPass === 0) {
+            if (!$changed) {
                 break;
             }
-        }
-
-        if ($debug) {
-            self::dbg($config, 'order_done', [
-                'passes'     => $passes,
-                'swapsTotal' => $swapsTotal,
-                'note'       => ($passes >= self::MAX_ORDER_PASSES)
-                    ? 'hit_max_passes_possible_unresolved_overlaps'
-                    : 'stabilized',
-            ]);
-
-            self::dbgWriteHuman('/tmp/gcs_planner_order_after_passes.txt', $bundles);
         }
 
         /* -----------------------------------------------------------------
