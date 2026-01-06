@@ -475,6 +475,7 @@ var diffSummary = document.getElementById('gcs-diff-summary');
 var previewActions = document.getElementById('gcs-preview-actions');
 var applyBtn = document.getElementById('gcs-apply-btn');
 var closePreviewBtn = document.getElementById('gcs-close-preview-btn');
+var dryRunCheckbox = document.getElementById('gcs-dry-run');
 var saveBtn = document.getElementById('gcs-save-btn');
 var icsInput = document.getElementById('gcs-ics-input');
 
@@ -487,7 +488,27 @@ icsInput.addEventListener('input', function () {
     saveBtn.disabled = !(val === '' || looksLikeIcs(val));
 });
 
-/* Phase 19 status precedence logic */
+function syncApplyButtonWithDryRun() {
+    if (!applyBtn) return;
+
+    if (dryRunCheckbox && dryRunCheckbox.checked) {
+        applyBtn.disabled = true;
+        applyBtn.style.opacity = '0.5';
+        applyBtn.style.cursor = 'not-allowed';
+    } else {
+        applyBtn.disabled = false;
+        applyBtn.style.opacity = '';
+        applyBtn.style.cursor = '';
+    }
+}
+
+// Initial state on page load
+syncApplyButtonWithDryRun();
+
+// React immediately to user toggling dry-run
+if (dryRunCheckbox) {
+    dryRunCheckbox.addEventListener('change', syncApplyButtonWithDryRun);
+}
 
 function gcsSetStatus(level, message) {
     var bar = document.getElementById('gcs-status-bar');
