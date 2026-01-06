@@ -35,6 +35,7 @@ require_once __DIR__ . '/src/bootstrap.php';
 // ---------------------------------------------------------------------
 // Core helpers (UI-only)
 /// ---------------------------------------------------------------------
+require_once __DIR__ . '/src/Core/FppSemantics.php';
 require_once __DIR__ . '/src/Core/DiffPreviewer.php';
 require_once __DIR__ . '/src/Core/ScheduleEntryExportAdapter.php';
 require_once __DIR__ . '/src/Core/IcsWriter.php';
