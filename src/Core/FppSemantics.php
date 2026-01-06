@@ -47,6 +47,40 @@ final class FppSemantics
         $out  = $entry;
         $yaml = [];
 
+        /* ---- DATE NORMALIZATION (EXPORT SAFETY) ---- */
+
+        // START DATE
+        if (isset($entry['startDate'])) {
+            $resolved = self::resolveDateForExport(
+                (string)$entry['startDate'],
+                self::inferYearForDateResolution($entry, true)
+            );
+
+            if ($resolved !== null && $resolved !== $entry['startDate']) {
+                $yaml['date']['start'] = [
+                    'symbolic' => $entry['startDate'],
+                    'resolved' => $resolved,
+                ];
+                $out['startDate'] = $resolved;
+            }
+        }
+
+        // END DATE
+        if (isset($entry['endDate'])) {
+            $resolved = self::resolveDateForExport(
+                (string)$entry['endDate'],
+                self::inferYearForDateResolution($entry, false)
+            );
+
+            if ($resolved !== null && $resolved !== $entry['endDate']) {
+                $yaml['date']['end'] = [
+                    'symbolic' => $entry['endDate'],
+                    'resolved' => $resolved,
+                ];
+                $out['endDate'] = $resolved;
+            }
+        }
+
         $repDate = self::representativeDateForEntry($entry, $warnings);
 
         /* ---- START TIME ---- */
@@ -513,5 +547,52 @@ final class FppSemantics
 
         $json = self::readJsonFile($settings);
         return isset($json['Locale']) && is_string($json['Locale']) ? $json['Locale'] : null;
+    }
+
+        /**
+     * Resolve a date value into YYYY-MM-DD for calendar export.
+     * Leaves fixed dates untouched.
+     */
+    private static function resolveDateForExport(string $value, ?int $year): ?string
+    {
+        // Already concrete
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return $value;
+        }
+
+        // FPP sentinel dates should not be rewritten
+        if (str_starts_with($value, '0000-')) {
+            return $value;
+        }
+
+        // Holiday shortName
+        if ($year !== null) {
+            $resolved = self::dateForHoliday($value, $year);
+            if ($resolved !== null) {
+                return $resolved;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Infer a reasonable year to resolve a symbolic date.
+     */
+    private static function inferYearForDateResolution(array $entry, bool $isStart): ?int
+    {
+        $primary = $isStart ? ($entry['startDate'] ?? null) : ($entry['endDate'] ?? null);
+
+        if (is_string($primary) && preg_match('/^(\d{4})-/', $primary, $m)) {
+            return (int)$m[1];
+        }
+
+        $fallback = $isStart ? ($entry['endDate'] ?? null) : ($entry['startDate'] ?? null);
+        if (is_string($fallback) && preg_match('/^(\d{4})-/', $fallback, $m)) {
+            return (int)$m[1];
+        }
+
+        // Export-only fallback: current year
+        return (int)date('Y');
     }
 }
