@@ -4,176 +4,175 @@ declare(strict_types=1);
 /**
  * FppSemantics
  *
- * Central authority for Falcon Player (FPP) domain semantics.
+ * Centralized Falcon Player (FPP) semantic knowledge:
+ * - Holidays (bidirectional lookup)
+ * - Locale awareness
  *
- * RESPONSIBILITIES (Phase 31+):
- * - Load FPP locale definitions (holidays, names, metadata)
- * - Merge user-defined holidays
- * - Provide helpers for resolving FPP-specific tokens:
- *     - Holiday names (e.g. Christmas, Epiphany)
- *     - Day enums
- *     - Sentinel dates (0000-*)
- *     - Dusk/Dawn (future)
- *
- * IMPORTANT:
- * - This class MUST be side-effect free
- * - No scheduler writes
- * - No network calls
- * - File reads only
- *
- * This file intentionally starts as a skeleton and will be
- * expanded incrementally during Phase 31.
+ * This file intentionally contains NO scheduler logic.
+ * It is safe to call from Planner, Export, or Apply layers.
  */
 final class FppSemantics
 {
-    /**
-     * Cached locale JSON (merged locale + user holidays)
-     *
-     * @var array<string,mixed>|null
-     */
-    private static ?array $locale = null;
+    private static bool $loaded = false;
+
+    /** @var array<string,array{month:int,day:int,year:int}> */
+    private static array $holidayByName = [];
+
+    /** @var array<string,string>  MM-DD => shortName */
+    private static array $holidayByMonthDay = [];
 
     /**
-     * Load and return the active FPP locale definition.
-     *
-     * Mirrors FPP logic:
-     * - Determine locale name (default: Global)
-     * - Load /opt/fpp/etc/locale/<Locale>.json
-     * - Fallback to Global.json
-     * - Merge /home/fpp/media/config/user-holidays.json if present
-     *
-     * @return array<string,mixed>
+     * Normalize a scheduler entry (placeholder – step 1 stub).
+     * For now this is a pass-through.
      */
-    public static function getLocale(): array
+    public static function normalizeScheduleEntry(array $entry, array &$warnings): array
     {
-        if (self::$locale !== null) {
-            return self::$locale;
+        self::ensureLoaded();
+        return $entry;
+    }
+
+    /**
+     * Reverse lookup:
+     *   2025-12-25 → "Christmas"
+     */
+    public static function holidayForDate(string $ymd): ?string
+    {
+        self::ensureLoaded();
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
+            return null;
         }
 
-        $localeName = self::getConfiguredLocaleName();
-        $basePath   = '/opt/fpp/etc/locale/';
+        [$y, $m, $d] = explode('-', $ymd);
+        $key = sprintf('%02d-%02d', (int)$m, (int)$d);
 
-        $localeFile = $basePath . $localeName . '.json';
-        if (!is_file($localeFile)) {
-            $localeFile = $basePath . 'Global.json';
+        return self::$holidayByMonthDay[$key] ?? null;
+    }
+
+    /**
+     * Forward lookup:
+     *   "Christmas", 2025 → "2025-12-25"
+     */
+    public static function dateForHoliday(string $holiday, int $year): ?string
+    {
+        self::ensureLoaded();
+
+        $h = self::$holidayByName[$holiday] ?? null;
+        if (!$h) {
+            return null;
         }
 
-        $locale = self::loadJsonFile($localeFile);
+        $y = ($h['year'] > 0) ? $h['year'] : $year;
 
-        // Merge user-defined holidays (if any)
-        $userHolidaysFile = '/home/fpp/media/config/user-holidays.json';
-        if (is_file($userHolidaysFile)) {
-            $userHolidays = self::loadJsonFile($userHolidaysFile);
+        return sprintf(
+            '%04d-%02d-%02d',
+            $y,
+            $h['month'],
+            $h['day']
+        );
+    }
 
-            if (isset($userHolidays[0]) && is_array($userHolidays)) {
-                if (!isset($locale['holidays']) || !is_array($locale['holidays'])) {
-                    $locale['holidays'] = [];
-                }
+    /* -----------------------------------------------------------------
+     * Internal loading
+     * ----------------------------------------------------------------- */
 
-                foreach ($userHolidays as $holiday) {
-                    if (is_array($holiday)) {
-                        $locale['holidays'][] = $holiday;
-                    }
+    private static function ensureLoaded(): void
+    {
+        if (self::$loaded) {
+            return;
+        }
+
+        self::$loaded = true;
+
+        $locale = self::loadLocaleJson();
+        if (!$locale || !isset($locale['holidays']) || !is_array($locale['holidays'])) {
+            return;
+        }
+
+        foreach ($locale['holidays'] as $h) {
+            if (
+                !is_array($h) ||
+                empty($h['shortName']) ||
+                empty($h['month']) ||
+                empty($h['day'])
+            ) {
+                continue;
+            }
+
+            $short = (string)$h['shortName'];
+            $month = (int)$h['month'];
+            $day   = (int)$h['day'];
+            $year  = isset($h['year']) ? (int)$h['year'] : 0;
+
+            self::$holidayByName[$short] = [
+                'month' => $month,
+                'day'   => $day,
+                'year'  => $year,
+            ];
+
+            // Only month/day based holidays participate in reverse lookup
+            if ($year === 0) {
+                $key = sprintf('%02d-%02d', $month, $day);
+                self::$holidayByMonthDay[$key] = $short;
+            }
+        }
+    }
+
+    /**
+     * Load FPP locale JSON and merge user holidays if present.
+     */
+    private static function loadLocaleJson(): ?array
+    {
+        $localeName = self::readLocaleSetting() ?? 'Global';
+
+        $base = "/opt/fpp/etc/locale/{$localeName}.json";
+        if (!is_file($base)) {
+            $base = "/opt/fpp/etc/locale/Global.json";
+        }
+
+        $json = self::readJsonFile($base);
+        if (!$json) {
+            return null;
+        }
+
+        // Merge user holidays
+        $user = "/home/fpp/media/config/user-holidays.json";
+        if (is_file($user)) {
+            $u = self::readJsonFile($user);
+            if (isset($u) && is_array($u)) {
+                $json['holidays'] ??= [];
+                foreach ($u as $h) {
+                    $json['holidays'][] = $h;
                 }
             }
         }
 
-        self::$locale = $locale;
-        return self::$locale;
+        return $json;
     }
 
-    /**
-     * Return configured FPP locale name.
-     *
-     * For now:
-     * - Use Global if not determinable
-     *
-     * NOTE:
-     * FPP stores this in settings; we intentionally
-     * avoid shelling out or parsing settings files
-     * until absolutely required.
-     */
-    private static function getConfiguredLocaleName(): string
-    {
-        // Safe default; future enhancement may read FPP settings
-        return 'Global';
-    }
-
-    /**
-     * Load and decode a JSON file into an associative array.
-     *
-     * @return array<string,mixed>
-     */
-    private static function loadJsonFile(string $path): array
+    private static function readJsonFile(string $path): ?array
     {
         $raw = @file_get_contents($path);
         if ($raw === false) {
-            return [];
+            return null;
         }
 
-        $decoded = json_decode($raw, true);
-        if (!is_array($decoded)) {
-            return [];
+        $data = json_decode($raw, true);
+        return is_array($data) ? $data : null;
+    }
+
+    /**
+     * Best-effort locale lookup.
+     * Falls back to Global if unavailable.
+     */
+    private static function readLocaleSetting(): ?string
+    {
+        $settings = "/home/fpp/media/settings/settings.json";
+        if (!is_file($settings)) {
+            return null;
         }
 
-        return $decoded;
-    }
-
-    /* -----------------------------------------------------------------
-     * Placeholder APIs (Phase 31.1+)
-     * -----------------------------------------------------------------
-     * These are intentionally NO-OP for now.
-     * They document intent and provide safe extension points.
-     */
-
-        /**
-     * Normalize a raw FPP scheduler entry into a form
-     * suitable for export or planning.
-     *
-     * CURRENT BEHAVIOR:
-     * - Pass-through (no modification)
-     *
-     * FUTURE:
-     * - Resolve holidays
-     * - Normalize sentinel dates
-     * - Resolve Dusk/Dawn
-     * - Expand FPP-specific fields
-     *
-     * @param array<string,mixed> $entry
-     * @return array<string,mixed>
-     */
-    public static function normalizeScheduleEntry(array $entry): array
-    {
-        return $entry;
-    }
-    
-    /**
-     * Resolve an FPP holiday token to a concrete YYYY-MM-DD date.
-     *
-     * @param string $token Holiday shortName (e.g. "Christmas")
-     * @param int    $year  Target year
-     *
-     * @return string|null  YYYY-MM-DD or null if unresolved
-     */
-    public static function resolveHoliday(string $token, int $year): ?string
-    {
-        // Implemented in Phase 31.1
-        return null;
-    }
-
-    /**
-     * Determine whether a value is an FPP sentinel date (0000-*)
-     */
-    public static function isSentinelDate(string $date): bool
-    {
-        return str_starts_with($date, '0000-');
-    }
-
-    /**
-     * Clear cached locale (for testing only)
-     */
-    public static function clearCache(): void
-    {
-        self::$locale = null;
+        $json = self::readJsonFile($settings);
+        return $json['Locale'] ?? null;
     }
 }
