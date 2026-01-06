@@ -3,6 +3,12 @@ declare(strict_types=1);
 
 final class ScheduleEntryExportAdapter
 {
+    /**
+     * Hard clamp for RRULE window (Google import stability).
+     * If an entry spans longer than this, we clamp the UNTIL date.
+     */
+    private const MAX_EXPORT_SPAN_DAYS = 366;
+
     public static function adapt(array $entry, array &$warnings): ?array
     {
         $summary = '';
@@ -17,16 +23,16 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        /* -------------------------------------------------------------
-         * DATE RESOLUTION
-         * ------------------------------------------------------------- */
+        // ---- START / END DATE RESOLUTION ----
 
         $startDate = self::resolveDateForExport(
             (string)($entry['startDate'] ?? ''),
             $warnings,
             'startDate',
-            $entry
+            $entry,
+            null
         );
+
         if ($startDate === null) {
             $warnings[] = "Skipped '{$summary}': unable to resolve start date";
             return null;
@@ -39,28 +45,51 @@ final class ScheduleEntryExportAdapter
             $entry,
             $startDate
         );
+
         if ($endDate === null) {
             $warnings[] = "Skipped '{$summary}': unable to resolve end date";
             return null;
         }
 
-        /* -------------------------------------------------------------
-         * TIME RESOLUTION
-         * ------------------------------------------------------------- */
+        // If we resolved something like Thanksgiving (Nov) to Epiphany (Jan) and got the wrong year,
+        // bump end year forward until end >= start (best-effort).
+        $endDate = self::ensureEndDateNotBeforeStart($startDate, $endDate, $warnings, $summary);
+
+        // ---- TIMES ----
 
         $startTime = (string)($entry['startTime'] ?? '00:00:00');
         $endTime   = (string)($entry['endTime'] ?? '00:00:00');
 
+        // DTSTART
         $dtStart = self::parseDateTime($startDate, $startTime);
+
+        // If time is still symbolic (Dusk/Dawn/SunRise/SunSet), try resolving here as a safety net.
+        if (!$dtStart && self::looksSymbolicTime($startTime)) {
+            $resolved = FppSemantics::resolveSymbolicTime($startDate, $startTime, (int)($entry['startTimeOffset'] ?? 0), $warnings);
+            if (is_array($resolved) && isset($resolved['displayTime'])) {
+                $startTime = (string)$resolved['displayTime'];
+                $dtStart = self::parseDateTime($startDate, $startTime);
+            }
+        }
+
         if (!$dtStart) {
             $warnings[] = "Skipped '{$summary}': invalid DTSTART";
             return null;
         }
 
+        // DTEND
         if ($endTime === '24:00:00') {
             $dtEnd = (clone $dtStart)->modify('+1 day')->setTime(0, 0, 0);
         } else {
             $dtEnd = self::parseDateTime($startDate, $endTime);
+
+            if (!$dtEnd && self::looksSymbolicTime($endTime)) {
+                $resolved = FppSemantics::resolveSymbolicTime($startDate, $endTime, (int)($entry['endTimeOffset'] ?? 0), $warnings);
+                if (is_array($resolved) && isset($resolved['displayTime'])) {
+                    $endTime = (string)$resolved['displayTime'];
+                    $dtEnd = self::parseDateTime($startDate, $endTime);
+                }
+            }
         }
 
         if (!$dtEnd) {
@@ -68,15 +97,26 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
+        // If dtEnd <= dtStart, treat as crossing midnight.
         if ($dtEnd <= $dtStart) {
             $dtEnd = (clone $dtEnd)->modify('+1 day');
         }
 
-        /* -------------------------------------------------------------
-         * RRULE (SAFE)
-         * ------------------------------------------------------------- */
+        // ---- RRULE ----
 
-        $rrule = self::buildSafeRrule($entry, $startDate, $endDate, $dtStart, $warnings);
+        $rrule = self::buildClampedRrule($entry, $startDate, $endDate, $warnings, $summary);
+
+        // ---- YAML ----
+        // Keep existing yaml fields and allow augmentation later
+        $yaml = [
+            'stopType' => self::stopTypeToString((int)($entry['stopType'] ?? 0)),
+            'repeat'   => self::repeatToYaml($entry['repeat'] ?? 0),
+        ];
+
+        // If the entry already carries normalized YAML from FppSemantics, preserve it.
+        if (isset($entry['__gcs_yaml']) && is_array($entry['__gcs_yaml'])) {
+            $yaml = array_merge($yaml, $entry['__gcs_yaml']);
+        }
 
         return [
             'summary' => $summary,
@@ -84,14 +124,11 @@ final class ScheduleEntryExportAdapter
             'dtend'   => $dtEnd,
             'rrule'   => $rrule,
             'exdates' => [],
-            'yaml'    => [
-                'stopType' => self::stopTypeToString((int)($entry['stopType'] ?? 0)),
-                'repeat'   => self::repeatToYaml($entry['repeat'] ?? 0),
-            ],
+            'yaml'    => $yaml,
         ];
     }
 
-    /* ============================================================= */
+    /* ===================================================================== */
 
     private static function resolveDateForExport(
         string $raw,
@@ -100,23 +137,37 @@ final class ScheduleEntryExportAdapter
         array $entry,
         ?string $fallback = null
     ): ?string {
+        $raw = trim($raw);
+
+        // YYYY-MM-DD
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
             if (strpos($raw, '0000-') === 0) {
-                $year = (int)substr($fallback ?? date('Y-m-d'), 0, 4);
+                // For "0000-.." use current year (export display only).
+                $year = (int)date('Y');
                 return sprintf('%04d-%s', $year, substr($raw, 5));
             }
             return $raw;
         }
 
+        // Holiday shortName
         if ($raw !== '' && preg_match('/^[A-Za-z][A-Za-z0-9_]*$/', $raw)) {
-            $year = (int)substr($fallback ?? date('Y-m-d'), 0, 4);
+            // If we already have a resolved startDate, use its year as a hint.
+            $hintYear = null;
+            if ($fallback !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fallback)) {
+                $hintYear = (int)substr($fallback, 0, 4);
+            }
+            $year = $hintYear ?? (int)date('Y');
+
             $d = FppSemantics::dateForHoliday($raw, $year);
             if ($d !== null) {
                 return $d;
             }
+
+            $warnings[] = "Export: {$field} '{$raw}' is not a known holiday in current locale.";
         }
 
-        if ($fallback !== null) {
+        // Fallback to startDate (resolved) if we must
+        if ($fallback !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fallback)) {
             $warnings[] = "Export: {$field} '{$raw}' unresolved; clamped to {$fallback}";
             return $fallback;
         }
@@ -124,44 +175,110 @@ final class ScheduleEntryExportAdapter
         return null;
     }
 
-    private static function buildSafeRrule(
+    private static function ensureEndDateNotBeforeStart(
+        string $startDate,
+        string $endDate,
+        array &$warnings,
+        string $summary
+    ): string {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate)) {
+            return $endDate;
+        }
+
+        // If end < start, bump end year by +1 preserving MM-DD (repeat until not before, max 2 bumps).
+        if ($endDate < $startDate) {
+            $y = (int)substr($endDate, 0, 4);
+            $mmdd = substr($endDate, 5);
+
+            for ($i = 0; $i < 2; $i++) {
+                $y++;
+                $candidate = sprintf('%04d-%s', $y, $mmdd);
+                if ($candidate >= $startDate) {
+                    $warnings[] = "Export: '{$summary}' endDate adjusted across year boundary ({$endDate} → {$candidate}).";
+                    return $candidate;
+                }
+                $endDate = $candidate;
+            }
+        }
+
+        return $endDate;
+    }
+
+    private static function buildClampedRrule(
         array $entry,
         string $startDate,
         string $endDate,
-        DateTime $dtStart,
-        array &$warnings
+        array &$warnings,
+        string $summary
     ): ?string {
+        // If identical raw dates, treat as a single VEVENT (no RRULE).
         if (($entry['startDate'] ?? null) === ($entry['endDate'] ?? null)) {
             return null;
         }
 
-        $until = DateTime::createFromFormat('Y-m-d', $endDate);
-        if (!$until || $until < $dtStart) {
-            $warnings[] = "Export: RRULE UNTIL before DTSTART; emitting single-instance event";
+        // If resolved dates are identical, also no RRULE.
+        if ($startDate === $endDate) {
             return null;
         }
 
-        $untilUtc = $until->format('Ymd') . 'T235959Z';
+        // Clamp export span for Google stability
+        $start = DateTime::createFromFormat('Y-m-d', $startDate);
+        $end   = DateTime::createFromFormat('Y-m-d', $endDate);
+
+        if ($start instanceof DateTime && $end instanceof DateTime) {
+            $maxEnd = (clone $start)->modify('+' . self::MAX_EXPORT_SPAN_DAYS . ' days');
+
+            if ($end > $maxEnd) {
+                $warnings[] =
+                    "Export: '{$summary}' endDate {$endDate} exceeds +" . self::MAX_EXPORT_SPAN_DAYS .
+                    " days; clamped to " . $maxEnd->format('Y-m-d') . " for Google compatibility.";
+                $endDate = $maxEnd->format('Y-m-d');
+            }
+
+            // If after clamp we ended up before start, force to start day
+            if ($endDate < $startDate) {
+                $warnings[] =
+                    "Export: '{$summary}' endDate {$endDate} < startDate {$startDate}; clamped to startDate.";
+                $endDate = $startDate;
+            }
+        }
+
+        // UNTIL: use floating UNTIL to avoid TZID+Z mismatches in some importers.
+        // (DTSTART is TZID local; UNTIL is date-time in the same "local" frame here.)
+        $untilLocal = str_replace('-', '', $endDate) . 'T235959';
 
         $dayEnum = (int)($entry['day'] ?? -1);
+
         if ($dayEnum === 7) {
-            return "FREQ=DAILY;UNTIL={$untilUtc}";
+            return 'FREQ=DAILY;UNTIL=' . $untilLocal;
         }
 
         $byDay = self::fppDayEnumToByDay($dayEnum);
         if ($byDay !== '') {
-            return "FREQ=WEEKLY;BYDAY={$byDay};UNTIL={$untilUtc}";
+            return 'FREQ=WEEKLY;BYDAY=' . $byDay . ';UNTIL=' . $untilLocal;
         }
 
-        return null;
+        // Unknown day enum: fall back to DAILY
+        $warnings[] = "Export: '{$summary}' unknown day enum ({$dayEnum}); using DAILY rule.";
+        return 'FREQ=DAILY;UNTIL=' . $untilLocal;
     }
 
-    /* ============================================================= */
+    /* ===================================================================== */
 
     private static function parseDateTime(string $date, string $time): ?DateTime
     {
-        $dt = DateTime::createFromFormat('Y-m-d H:i:s', "{$date} {$time}");
+        // Expect H:i:s
+        if (!preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
+            return null;
+        }
+
+        $dt = DateTime::createFromFormat('Y-m-d H:i:s', $date . ' ' . $time);
         return ($dt instanceof DateTime) ? $dt : null;
+    }
+
+    private static function looksSymbolicTime(string $v): bool
+    {
+        return in_array($v, ['Dawn', 'Dusk', 'SunRise', 'SunSet'], true);
     }
 
     private static function fppDayEnumToByDay(int $enum): string
