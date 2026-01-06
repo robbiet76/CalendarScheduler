@@ -575,6 +575,20 @@ function runPlanStatus() {
 
 runPlanStatus();
 
+// --------------------------------------------------
+// Refresh status when returning focus to the page
+// --------------------------------------------------
+
+document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) {
+        runPlanStatus();
+    }
+});
+
+window.addEventListener('focus', function () {
+    runPlanStatus();
+});
+
 // ------------------------------------------------------------------
 // Unmanaged scheduler section
 // ------------------------------------------------------------------
