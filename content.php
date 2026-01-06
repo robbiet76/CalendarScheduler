@@ -93,14 +93,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
  *   - exit immediately after handling
  */
 
-if (isset($_GET['endpoint'])) {
+function gcsJsonHeader(): void {
+    gcsJsonHeader();
+    header('Cache-Control: no-store');
+}
+
+// Normalize endpoint (prevents HTML fallthrough + array injection)
+$endpoint = '';
+if (isset($_GET['endpoint']) && is_string($_GET['endpoint'])) {
+    $endpoint = $_GET['endpoint'];
+}
+if ($endpoint !== '') {
     try {
 
         // --------------------------------------------------------------
         // Plan status (plan-only): returns counts
         // --------------------------------------------------------------
-        if ($_GET['endpoint'] === 'plan_status') {
-            header('Content-Type: application/json');
+        if ($endpoint=== 'plan_status') {
+            gcsJsonHeader();
 
             $plan = SchedulerPlanner::plan($cfg);
             $norm = DiffPreviewer::normalizeResultForUi(['diff' => $plan]);
@@ -119,8 +129,8 @@ if (isset($_GET['endpoint'])) {
         // --------------------------------------------------------------
         // Diff (plan-only): returns creates/updates/deletes + snapshots
         // --------------------------------------------------------------
-        if ($_GET['endpoint'] === 'diff') {
-            header('Content-Type: application/json');
+        if ($endpoint=== 'diff') {
+            gcsJsonHeader();
 
             $plan = SchedulerPlanner::plan($cfg);
 
@@ -140,7 +150,7 @@ if (isset($_GET['endpoint'])) {
         // --------------------------------------------------------------
         // Apply (WRITE path): blocked if dry-run is enabled
         // --------------------------------------------------------------
-        if ($_GET['endpoint'] === 'apply') {
+        if ($endpoint=== 'apply') {
 
             // Enforce persisted runtime dry-run
             $runtimeDryRun = !empty($cfg['runtime']['dry_run']);
@@ -153,7 +163,7 @@ if (isset($_GET['endpoint'])) {
 
             if ($isDryRun) {
                 // Exact same behavior as diff (plan-only, NO WRITES)
-                header('Content-Type: application/json');
+                gcsJsonHeader();
 
                 $plan = SchedulerPlanner::plan($cfg);
 
@@ -180,7 +190,7 @@ if (isset($_GET['endpoint'])) {
             $deletes = (isset($plan['deletes']) && is_array($plan['deletes'])) ? count($plan['deletes']) : 0;
 
             if (($creates + $updates + $deletes) === 0) {
-                header('Content-Type: application/json; charset=utf-8');
+                gcsJsonHeader();
                 echo json_encode([
                     'ok'   => true,
                     'noop' => true,
@@ -206,9 +216,33 @@ if (isset($_GET['endpoint'])) {
         }
 
         // --------------------------------------------------------------
+        // Export unmanaged scheduler entries (DEBUG — JSON)
+        // --------------------------------------------------------------
+        if ($endpoint === 'export_unmanaged_debug') {
+            gcsJsonHeader();
+
+            $result = ExportService::exportUnmanaged();
+
+            // Safety: never accidentally emit HTML here
+            if (!is_array($result)) {
+                header('Content-Type: text/plain; charset=utf-8');
+                echo 'Export failed: invalid export result.';
+                exit;
+            }
+
+            // Remove large ICS payload from debug output
+            if (isset($result['ics'])) {
+                $result['ics'] = '(omitted)';
+            }
+
+            echo json_encode($result, JSON_PRETTY_PRINT);
+            exit;
+        }
+
+        // --------------------------------------------------------------
         // Export unmanaged scheduler entries to ICS
         // --------------------------------------------------------------
-        if ($_GET['endpoint'] === 'export_unmanaged_ics') {
+        if ($endpoint=== 'export_unmanaged_ics') {
 
             $result = ExportService::exportUnmanaged();
 
@@ -233,8 +267,8 @@ if (isset($_GET['endpoint'])) {
         // --------------------------------------------------------------
         // Scheduler inventory (read-only counts)
         // --------------------------------------------------------------
-        if ($_GET['endpoint'] === 'scheduler_inventory') {
-            header('Content-Type: application/json');
+        if ($endpoint=== 'scheduler_inventory') {
+            gcsJsonHeader();
 
             try {
                 $inv = InventoryService::getInventory();
@@ -256,8 +290,8 @@ if (isset($_GET['endpoint'])) {
         // --------------------------------------------------------------
         // Cleanup preview (read-only)
         // --------------------------------------------------------------
-        if ($_GET['endpoint'] === 'cleanup_preview') {
-            header('Content-Type: application/json');
+        if ($endpoint=== 'cleanup_preview') {
+            gcsJsonHeader();
 
             $plan = SchedulerCleanupPlanner::plan();
 
@@ -271,8 +305,8 @@ if (isset($_GET['endpoint'])) {
         // --------------------------------------------------------------
         // Cleanup apply (guarded write)
         // --------------------------------------------------------------
-        if ($_GET['endpoint'] === 'cleanup_apply') {
-            header('Content-Type: application/json');
+        if ($endpoint=== 'cleanup_apply') {
+            gcsJsonHeader();
 
             $res = SchedulerCleanupApplier::apply();
 
@@ -281,7 +315,7 @@ if (isset($_GET['endpoint'])) {
         }
 
     } catch (Throwable $e) {
-        header('Content-Type: application/json');
+        gcsJsonHeader();
         echo json_encode([
             'ok'    => false,
             'error' => $e->getMessage(),
