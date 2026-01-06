@@ -94,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
  */
 
 function gcsJsonHeader(): void {
-    gcsJsonHeader();
+    header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
 }
 
