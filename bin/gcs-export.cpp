@@ -17,12 +17,12 @@ int main() {
     root["source"] = "gcs-export";
 
     // ---------------------------------------------------------------------
-    // Load FPP settings (required)
+    // Load FPP settings (REQUIRED)
     // ---------------------------------------------------------------------
     LoadSettings("/home/fpp/media", false);
 
     // ---------------------------------------------------------------------
-    // Latitude / Longitude / Timezone come from SETTINGS
+    // Pull canonical values from FPP settings
     // ---------------------------------------------------------------------
     std::string latStr = getSetting("Latitude");
     std::string lonStr = getSetting("Longitude");
@@ -36,7 +36,7 @@ int main() {
     root["timezone"]  = tz;
 
     // ---------------------------------------------------------------------
-    // Locale (holidays, locale name, etc.)
+    // Locale data (holidays, locale name, etc.)
     // ---------------------------------------------------------------------
     Json::Value locale = LocaleHolder::GetLocale();
     root["rawLocale"] = locale;
@@ -45,13 +45,19 @@ int main() {
     // Validation
     // ---------------------------------------------------------------------
     bool ok = true;
-    std::string error;
 
     if (lat == 0.0 || lon == 0.0) {
         ok = false;
-        error = "Latitude/Longitude not present (or zero) in FPP settings.";
-        root["error"] = error;
-        std::cerr << "WARN: " << error << std::endl;
+        root["error"] =
+            "Latitude/Longitude not present (or zero) in FPP settings.";
+        std::cerr << "WARN: Latitude/Longitude not present (or zero) in FPP settings." << std::endl;
+    }
+
+    if (tz.empty()) {
+        ok = false;
+        root["error"] =
+            "Timezone not present in FPP settings.";
+        std::cerr << "WARN: Timezone not present in FPP settings." << std::endl;
     }
 
     root["ok"] = ok;
