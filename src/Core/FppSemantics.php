@@ -9,19 +9,101 @@ declare(strict_types=1);
  * PURPOSE:
  * - Document and centralize values derived from FPP source / UI behavior
  * - Provide meaning for scheduler enums and sentinel values
+ * - Act as semantic boundary between PHP and FPP concepts
  *
  * NON-GOALS:
- * - No holiday calculations
- * - No sun time math
- * - No calendar logic
- * - No external command execution
+ * - No calendar policy
+ * - No diff logic
+ * - No external I/O
  *
- * This file should be small, stable, and change only when FPP changes.
+ * This file should change only when FPP semantics or runtime contracts change.
  */
 final class FPPSemantics
 {
     /* =====================================================================
-     * Scheduler stop types (derived from FPP)
+     * Runtime environment (exported by FPP)
+     * ===================================================================== */
+
+    /**
+     * Runtime FPP environment (from fpp-env.json).
+     *
+     * @var array<string,mixed>|null
+     */
+    private static ?array $environment = null;
+
+    /**
+     * Inject runtime FPP environment.
+     *
+     * Called once by ExportService.
+     */
+    public static function setEnvironment(array $env): void
+    {
+        self::$environment = $env;
+    }
+
+    public static function hasEnvironment(): bool
+    {
+        return is_array(self::$environment);
+    }
+
+    public static function getLatitude(): ?float
+    {
+        return is_numeric(self::$environment['latitude'] ?? null)
+            ? (float)self::$environment['latitude']
+            : null;
+    }
+
+    public static function getLongitude(): ?float
+    {
+        return is_numeric(self::$environment['longitude'] ?? null)
+            ? (float)self::$environment['longitude']
+            : null;
+    }
+
+    public static function getTimezone(): ?string
+    {
+        return is_string(self::$environment['timezone'] ?? null)
+            ? self::$environment['timezone']
+            : null;
+    }
+
+    /* =====================================================================
+     * Canonical DateTime construction
+     * ===================================================================== */
+
+    /**
+     * Canonical DateTime constructor for FPP-derived values.
+     *
+     * This is the ONLY place DateTime::createFromFormat() should be used
+     * for schedule-related dates.
+     */
+    public static function combineDateTime(
+        string $ymd,
+        string $hms
+    ): ?DateTime {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
+            return null;
+        }
+
+        if (!preg_match('/^\d{2}:\d{2}:\d{2}$/', $hms)) {
+            return null;
+        }
+
+        $tz = self::getTimezone()
+            ? new DateTimeZone(self::getTimezone())
+            : null;
+
+        $dt = DateTime::createFromFormat(
+            'Y-m-d H:i:s',
+            "{$ymd} {$hms}",
+            $tz ?: null
+        );
+
+        return ($dt instanceof DateTime) ? $dt : null;
+    }
+
+    /* =====================================================================
+     * Scheduler stop types
      * ===================================================================== */
 
     public const STOP_TYPE_GRACEFUL       = 0;
@@ -38,16 +120,9 @@ final class FPPSemantics
     }
 
     /* =====================================================================
-     * Repeat semantics (derived from FPP scheduler behavior)
+     * Repeat semantics
      * ===================================================================== */
 
-    /**
-     * Convert FPP repeat integer into a stable semantic value.
-     *
-     * 0      → none
-     * 1      → immediate
-     * 100+   → repeat every N minutes (value / 100)
-     */
     public static function repeatToYaml(int $repeat): string|int
     {
         return match (true) {
@@ -59,12 +134,9 @@ final class FPPSemantics
     }
 
     /* =====================================================================
-     * Day-of-week enum semantics (derived from FPP)
+     * Day-of-week enum semantics
      * ===================================================================== */
 
-    /**
-     * Convert FPP day enum into RFC5545 BYDAY list.
-     */
     public static function dayEnumToByDay(int $enum): string
     {
         return match ($enum) {
@@ -75,7 +147,7 @@ final class FPPSemantics
             4  => 'TH',
             5  => 'FR',
             6  => 'SA',
-            7  => '', // daily
+            7  => '',
             8  => 'MO,TU,WE,TH,FR',
             9  => 'SU,SA',
             10 => 'MO,WE,FR',
@@ -87,12 +159,9 @@ final class FPPSemantics
     }
 
     /* =====================================================================
-     * Sentinel and special values used by FPP
+     * Sentinel values
      * ===================================================================== */
 
-    /**
-     * FPP uses year 0000 as a wildcard / sentinel.
-     */
     public const SENTINEL_YEAR = '0000';
 
     public static function isSentinelDate(string $ymd): bool
@@ -100,16 +169,13 @@ final class FPPSemantics
         return str_starts_with($ymd, self::SENTINEL_YEAR . '-');
     }
 
-    /**
-     * FPP allows 24:00:00 to represent end-of-day.
-     */
     public static function isEndOfDayTime(string $time): bool
     {
         return $time === '24:00:00';
     }
 
     /* =====================================================================
-     * Symbolic time identifiers (names only; no math here)
+     * Symbolic time semantics (delegated math)
      * ===================================================================== */
 
     public const SYMBOLIC_TIMES = [
@@ -122,5 +188,93 @@ final class FPPSemantics
     public static function isSymbolicTime(?string $value): bool
     {
         return is_string($value) && in_array($value, self::SYMBOLIC_TIMES, true);
+    }
+
+    /**
+     * Resolve symbolic time using runtime environment.
+     */
+    public static function resolveSymbolicTime(
+        string $date,
+        string $symbolic,
+        int $offsetMinutes
+    ): ?array {
+        if (!self::isSymbolicTime($symbolic)) {
+            return null;
+        }
+
+        $lat = self::getLatitude();
+        $lon = self::getLongitude();
+
+        if ($lat === null || $lon === null) {
+            return null;
+        }
+
+        $display = SunTimeEstimator::estimate(
+            $date,
+            $symbolic,
+            $lat,
+            $lon,
+            $offsetMinutes,
+            30
+        );
+
+        if (!$display) {
+            return null;
+        }
+
+        $dt = self::combineDateTime($date, $display);
+        if (!$dt) {
+            return null;
+        }
+
+        return [
+            'datetime' => $dt,
+            'yaml' => [
+                'symbolic'       => $symbolic,
+                'offsetMinutes' => $offsetMinutes,
+                'resolvedBy'     => 'FPPSemantics',
+                'displayTime'   => $display,
+            ],
+        ];
+    }
+
+    /* =====================================================================
+     * Date resolution (holidays + sentinel)
+     * ===================================================================== */
+
+    public static function resolveDate(
+        string $raw,
+        ?string $fallbackDate,
+        array &$warnings,
+        string $context
+    ): ?string {
+        $raw = trim($raw);
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
+            if (self::isSentinelDate($raw)) {
+                $year = (int)date('Y');
+                return sprintf('%04d-%s', $year, substr($raw, 5));
+            }
+            return $raw;
+        }
+
+        if ($raw !== '') {
+            $yearHint = $fallbackDate
+                ? (int)substr($fallbackDate, 0, 4)
+                : (int)date('Y');
+
+            $dt = HolidayResolver::dateFromHoliday(
+                $raw,
+                $yearHint,
+                HolidayResolver::LOCALE_USA
+            );
+
+            if ($dt) {
+                return $dt->format('Y-m-d');
+            }
+        }
+
+        $warnings[] = "Export: {$context} '{$raw}' invalid.";
+        return null;
     }
 }

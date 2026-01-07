@@ -223,7 +223,7 @@ if ($endpoint !== '') {
         if ($endpoint === 'export_unmanaged_debug') {
             gcsJsonHeader();
 
-            $result = ExportService::exportUnmanaged();
+            $result = ExportService::export($entries);
 
             // Safety: never accidentally emit HTML here
             if (!is_array($result)) {
@@ -246,7 +246,7 @@ if ($endpoint !== '') {
         // --------------------------------------------------------------
         if ($endpoint=== 'export_unmanaged_ics') {
 
-            $result = ExportService::exportUnmanaged();
+            $result = ExportService::export($entries);
 
             if (empty($result['ics'])) {
                 header('Content-Type: application/json');

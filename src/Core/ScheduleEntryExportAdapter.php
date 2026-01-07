@@ -15,11 +15,11 @@ final class ScheduleEntryExportAdapter
 
         /* ---------------- Date resolution ---------------- */
 
-        $startDate = self::resolveDateForExport(
+        $startDate = FPPSemantics::resolveDate(
             (string)($entry['startDate'] ?? ''),
+            null,
             $warnings,
-            'startDate',
-            null
+            'startDate'
         );
 
         if (!$startDate) {
@@ -27,11 +27,11 @@ final class ScheduleEntryExportAdapter
             return null;
         }
 
-        $endDate = self::resolveDateForExport(
+        $endDate = FPPSemantics::resolveDate(
             (string)($entry['endDate'] ?? ''),
+            $startDate,
             $warnings,
-            'endDate',
-            $startDate
+            'endDate'
         );
 
         if (!$endDate) {
@@ -53,23 +53,12 @@ final class ScheduleEntryExportAdapter
             'repeat'   => FPPSemantics::repeatToYaml((int)($entry['repeat'] ?? 0)),
         ];
 
-        /* ---------------- Location ---------------- */
-
-        $cfg = Config::load();
-        $latRaw = $cfg['location']['latitude'] ?? null;
-        $lonRaw = $cfg['location']['longitude'] ?? null;
-
-        $lat = is_numeric($latRaw) ? (float)$latRaw : null;
-        $lon = is_numeric($lonRaw) ? (float)$lonRaw : null;
-
         /* ---------------- DTSTART ---------------- */
 
         [$dtStart, $startYaml] = self::resolveTime(
             $startDate,
             (string)($entry['startTime'] ?? '00:00:00'),
             (int)($entry['startTimeOffset'] ?? 0),
-            $lat,
-            $lon,
             $warnings,
             "{$summary} startTime"
         );
@@ -92,8 +81,6 @@ final class ScheduleEntryExportAdapter
                 $startDate,
                 (string)($entry['endTime'] ?? '00:00:00'),
                 (int)($entry['endTimeOffset'] ?? 0),
-                $lat,
-                $lon,
                 $warnings,
                 "{$summary} endTime"
             );
@@ -138,89 +125,36 @@ final class ScheduleEntryExportAdapter
         string $date,
         string $time,
         int $offsetMinutes,
-        ?float $lat,
-        ?float $lon,
         array &$warnings,
         string $context
     ): array {
+        // Absolute time
         if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
-            return [self::parseDateTime($date, $time), null];
+            $dt = FPPSemantics::combineDateTime($date, $time);
+            return [$dt, null];
         }
 
+        // Symbolic time
         if (FPPSemantics::isSymbolicTime($time)) {
-            if ($lat === null || $lon === null) {
-                $warnings[] = "Export: {$context} symbolic '{$time}' but latitude/longitude not configured.";
-                return [null, null];
-            }
-
-            $display = SunTimeEstimator::estimate(
+            $resolved = FPPSemantics::resolveSymbolicTime(
                 $date,
                 $time,
-                $lat,
-                $lon,
-                $offsetMinutes,
-                30
+                $offsetMinutes
             );
 
-            if (!$display) {
-                $warnings[] = "Export: {$context} unable to estimate '{$time}'.";
-                return [null, null];
-            }
-
-            $dt = self::parseDateTime($date, $display);
-            if (!$dt) {
+            if (!$resolved) {
+                $warnings[] =
+                    "Export: {$context} unable to resolve symbolic time '{$time}'.";
                 return [null, null];
             }
 
             return [
-                $dt,
-                [
-                    'symbolic'       => $time,
-                    'offsetMinutes' => $offsetMinutes,
-                    'resolvedBy'     => 'SunTimeEstimator',
-                    'displayTime'   => $display,
-                ],
+                $resolved['datetime'],
+                $resolved['yaml'],
             ];
         }
 
         return [null, null];
-    }
-
-    private static function parseDateTime(string $date, string $time): ?DateTime
-    {
-        return DateTime::createFromFormat('Y-m-d H:i:s', "{$date} {$time}") ?: null;
-    }
-
-    private static function resolveDateForExport(
-        string $raw,
-        array &$warnings,
-        string $field,
-        ?string $fallbackDate
-    ): ?string {
-        $raw = trim($raw);
-
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
-            if (FPPSemantics::isSentinelDate($raw)) {
-                $year = (int)date('Y');
-                return sprintf('%04d-%s', $year, substr($raw, 5));
-            }
-            return $raw;
-        }
-
-        if ($raw !== '') {
-            $yearHint = $fallbackDate ? (int)substr($fallbackDate, 0, 4) : (int)date('Y');
-            $dt = HolidayResolver::dateFromHoliday(
-                $raw,
-                $yearHint,
-                HolidayResolver::LOCALE_USA
-            );
-            if ($dt) {
-                return $dt->format('Y-m-d');
-            }
-        }
-
-        $warnings[] = "Export: {$field} '{$raw}' invalid.";
-        return null;
     }
 
     private static function ensureEndDateNotBeforeStart(
@@ -233,10 +167,13 @@ final class ScheduleEntryExportAdapter
             $y = (int)substr($endDate, 0, 4);
             $mmdd = substr($endDate, 5);
             $candidate = sprintf('%04d-%s', $y + 1, $mmdd);
+
             $warnings[] =
                 "Export: '{$summary}' endDate adjusted across year boundary ({$endDate} → {$candidate}).";
+
             return $candidate;
         }
+
         return $endDate;
     }
 
@@ -269,6 +206,7 @@ final class ScheduleEntryExportAdapter
         }
 
         $byDay = FPPSemantics::dayEnumToByDay($dayEnum);
+
         return $byDay !== ''
             ? "FREQ=WEEKLY;BYDAY={$byDay};UNTIL={$until}"
             : "FREQ=DAILY;UNTIL={$until}";
