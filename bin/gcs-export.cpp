@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <cstdlib>
 
 #include <jsoncpp/json/json.h>
 
@@ -16,47 +17,39 @@ int main() {
     root["source"] = "gcs-export";
 
     // ---------------------------------------------------------------------
-    // Load FPP settings
-    // Required for timezone and proper FPP initialization
+    // Load FPP settings (required)
     // ---------------------------------------------------------------------
     LoadSettings("/home/fpp/media", false);
 
     // ---------------------------------------------------------------------
-    // Timezone (from FPP settings)
+    // Latitude / Longitude / Timezone come from SETTINGS
     // ---------------------------------------------------------------------
-    std::string tz = getSetting("timezone");
-    root["timezone"] = tz;
+    std::string latStr = getSetting("Latitude");
+    std::string lonStr = getSetting("Longitude");
+    std::string tz     = getSetting("TimeZone");
 
-    // ---------------------------------------------------------------------
-    // Latitude / Longitude (from FPP locale)
-    // ---------------------------------------------------------------------
-    double lat = 0.0;
-    double lon = 0.0;
-
-    Json::Value locale = LocaleHolder::GetLocale();
-    root["rawLocale"] = locale;
-
-    if (locale.isObject()) {
-        if (locale.isMember("Latitude") && locale["Latitude"].isNumeric()) {
-            lat = locale["Latitude"].asDouble();
-        }
-        if (locale.isMember("Longitude") && locale["Longitude"].isNumeric()) {
-            lon = locale["Longitude"].asDouble();
-        }
-    }
+    double lat = latStr.empty() ? 0.0 : atof(latStr.c_str());
+    double lon = lonStr.empty() ? 0.0 : atof(lonStr.c_str());
 
     root["latitude"]  = lat;
     root["longitude"] = lon;
+    root["timezone"]  = tz;
+
+    // ---------------------------------------------------------------------
+    // Locale (holidays, locale name, etc.)
+    // ---------------------------------------------------------------------
+    Json::Value locale = LocaleHolder::GetLocale();
+    root["rawLocale"] = locale;
 
     // ---------------------------------------------------------------------
     // Validation
     // ---------------------------------------------------------------------
     bool ok = true;
+    std::string error;
 
     if (lat == 0.0 || lon == 0.0) {
         ok = false;
-        std::string error =
-            "Latitude/Longitude not present (or zero) in FPP locale.";
+        error = "Latitude/Longitude not present (or zero) in FPP settings.";
         root["error"] = error;
         std::cerr << "WARN: " << error << std::endl;
     }
@@ -64,7 +57,7 @@ int main() {
     root["ok"] = ok;
 
     // ---------------------------------------------------------------------
-    // Write output JSON
+    // Write output
     // ---------------------------------------------------------------------
     std::ofstream out(OUTPUT_PATH);
     if (!out) {
