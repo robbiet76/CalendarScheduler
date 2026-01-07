@@ -4,120 +4,162 @@ declare(strict_types=1);
 /**
  * FppEnvironment
  *
- * Typed interface to FPP runtime-exported environment data.
- *
- * This class is the ONLY place that reads runtime/fpp-env.json.
+ * Runtime environment exported by FPP (via gcs-export).
  *
  * Responsibilities:
- * - Load and validate schema
- * - Normalize values
- * - Provide safe accessors
+ * - Load runtime/fpp-env.json
+ * - Validate schema and structure
+ * - Provide typed accessors for environment values
  *
- * Non-goals:
- * - No semantic interpretation
- * - No sun / holiday logic
+ * NON-GOALS:
  * - No scheduler logic
+ * - No calendar logic
+ * - No DateTime creation
+ * - No fallback computation
+ *
+ * This class reflects *runtime state*, not policy.
  */
 final class FppEnvironment
 {
-    private const SCHEMA_VERSION = 1;
+    public const SCHEMA_VERSION = 1;
 
     private bool $ok;
     private ?float $latitude;
     private ?float $longitude;
     private ?string $timezone;
     private ?string $error;
+    private array $raw;
 
     private function __construct(
         bool $ok,
         ?float $latitude,
         ?float $longitude,
         ?string $timezone,
-        ?string $error
+        ?string $error,
+        array $raw
     ) {
         $this->ok        = $ok;
         $this->latitude  = $latitude;
         $this->longitude = $longitude;
         $this->timezone  = $timezone;
         $this->error     = $error;
+        $this->raw       = $raw;
     }
 
-    /**
-     * Load FPP environment from runtime JSON.
-     */
-    public static function load(string $path, array &$warnings): self
+    /* =====================================================================
+     * Factory
+     * ===================================================================== */
+
+    public static function loadFromFile(string $path, array &$warnings): self
     {
         if (!is_file($path)) {
-            $warnings[] = 'FPP environment missing (fpp-env.json not found).';
-            return self::invalid('missing environment file');
+            $warnings[] = "FPP environment file not found: {$path}";
+            return self::invalid('Missing fpp-env.json');
         }
 
-        $raw = @file_get_contents($path);
-        if ($raw === false) {
-            $warnings[] = 'Unable to read fpp-env.json.';
-            return self::invalid('unreadable environment file');
+        $rawJson = file_get_contents($path);
+        if ($rawJson === false) {
+            $warnings[] = "Unable to read FPP environment file: {$path}";
+            return self::invalid('Unreadable fpp-env.json');
         }
 
-        $json = json_decode($raw, true);
-        if (!is_array($json)) {
-            $warnings[] = 'Invalid JSON in fpp-env.json.';
-            return self::invalid('invalid JSON');
+        $decoded = json_decode($rawJson, true);
+        if (!is_array($decoded)) {
+            $warnings[] = 'Invalid JSON in FPP environment file.';
+            return self::invalid('Invalid JSON');
         }
 
-        if (($json['schemaVersion'] ?? null) !== self::SCHEMA_VERSION) {
-            $warnings[] = 'Unsupported FPP environment schemaVersion.';
-            return self::invalid('unsupported schema version');
+        if (($decoded['schemaVersion'] ?? null) !== self::SCHEMA_VERSION) {
+            $warnings[] = 'Unsupported FPP environment schema version.';
         }
 
-        $ok = (bool)($json['ok'] ?? false);
+        $ok = (bool)($decoded['ok'] ?? false);
 
-        if (!$ok) {
-            $warnings[] = $json['error'] ?? 'FPP environment reported failure.';
+        $lat = is_numeric($decoded['latitude'] ?? null)
+            ? (float)$decoded['latitude']
+            : null;
+
+        $lon = is_numeric($decoded['longitude'] ?? null)
+            ? (float)$decoded['longitude']
+            : null;
+
+        $tz = is_string($decoded['timezone'] ?? null)
+            ? $decoded['timezone']
+            : null;
+
+        $error = is_string($decoded['error'] ?? null)
+            ? $decoded['error']
+            : null;
+
+        if (!$ok && $error) {
+            $warnings[] = "FPP environment error: {$error}";
         }
 
         return new self(
             $ok,
-            self::parseFloat($json['latitude'] ?? null),
-            self::parseFloat($json['longitude'] ?? null),
-            is_string($json['timezone'] ?? null) ? $json['timezone'] : null,
-            is_string($json['error'] ?? null) ? $json['error'] : null
+            $lat,
+            $lon,
+            $tz,
+            $error,
+            $decoded
         );
     }
 
     private static function invalid(string $error): self
     {
-        return new self(false, null, null, null, $error);
+        return new self(false, null, null, null, $error, []);
     }
 
-    private static function parseFloat($v): ?float
-    {
-        return is_numeric($v) ? (float)$v : null;
-    }
-
-    /* ================= Accessors ================= */
+    /* =====================================================================
+     * Accessors
+     * ===================================================================== */
 
     public function isOk(): bool
     {
         return $this->ok;
     }
 
-    public function latitude(): ?float
+    public function getLatitude(): ?float
     {
         return $this->latitude;
     }
 
-    public function longitude(): ?float
+    public function getLongitude(): ?float
     {
         return $this->longitude;
     }
 
-    public function timezone(): ?string
+    public function getTimezone(): ?string
     {
         return $this->timezone;
     }
 
-    public function error(): ?string
+    public function getError(): ?string
     {
         return $this->error;
+    }
+
+    /**
+     * Raw environment payload (debug / diagnostics only).
+     *
+     * @return array<string,mixed>
+     */
+    public function getRaw(): array
+    {
+        return $this->raw;
+    }
+
+    /**
+     * Export a safe subset for API responses or debugging.
+     */
+    public function toArray(): array
+    {
+        return [
+            'ok'        => $this->ok,
+            'latitude'  => $this->latitude,
+            'longitude' => $this->longitude,
+            'timezone'  => $this->timezone,
+            'error'     => $this->error,
+        ];
     }
 }
