@@ -17,14 +17,6 @@ final class ExportService
         $warnings = [];
 
         // -----------------------------------------------------------------
-        // DEBUG: entry count
-        // -----------------------------------------------------------------
-        error_log(sprintf(
-            '[GCS DEBUG][ExportService] export() called with %d entries',
-            count($entries)
-        ));
-
-        // -----------------------------------------------------------------
         // Load runtime FPP environment
         // -----------------------------------------------------------------
         $env = FppEnvironment::loadFromFile(
@@ -35,57 +27,53 @@ final class ExportService
         // Register environment with FPPSemantics
         FPPSemantics::setEnvironment($env->toArray());
 
-        // Optional: set PHP default timezone for DateTime operations
         if ($env->getTimezone()) {
             date_default_timezone_set($env->getTimezone());
         }
 
         // -----------------------------------------------------------------
-        // Export entries → events
+        // Adapt scheduler entries
         // -----------------------------------------------------------------
         $events = [];
 
-        foreach ($entries as $idx => $entry) {
+        foreach ($entries as $entry) {
             $adapted = ScheduleEntryExportAdapter::adapt($entry, $warnings);
-
             if ($adapted !== null) {
                 $events[] = $adapted;
-            } else {
-                error_log(sprintf(
-                    '[GCS DEBUG][ExportService] entry #%d skipped by adapter',
-                    $idx
-                ));
             }
         }
 
-        error_log(sprintf(
-            '[GCS DEBUG][ExportService] adapter produced %d events',
-            count($events)
-        ));
-
         // -----------------------------------------------------------------
-        // Generate ICS payload
+        // Build ICS payload
         // -----------------------------------------------------------------
         $ics = null;
 
-        try {
-            $ics = IcsWriter::write($events, $warnings);
-        } catch (Throwable $e) {
-            error_log('[GCS DEBUG][ExportService] IcsWriter threw exception: ' . $e->getMessage());
-        }
+        if (!empty($events)) {
+            try {
+                $ics = IcsWriter::build($events);
 
-        if (!is_string($ics) || trim($ics) === '') {
-            error_log('[GCS DEBUG][ExportService] IcsWriter returned EMPTY payload');
+                if (!is_string($ics) || trim($ics) === '') {
+                    error_log(
+                        '[GCS ERROR] IcsWriter returned empty payload'
+                    );
+                    $warnings[] =
+                        'ICS export failed (no ICS payload returned).';
+                    $ics = null;
+                }
+            } catch (Throwable $e) {
+                error_log(
+                    '[GCS ERROR] IcsWriter exception: ' . $e->getMessage()
+                );
+                $warnings[] =
+                    'ICS export failed: ' . $e->getMessage();
+                $ics = null;
+            }
         } else {
-            error_log(sprintf(
-                '[GCS DEBUG][ExportService] IcsWriter payload length = %d bytes',
-                strlen($ics)
-            ));
+            error_log(
+                '[GCS DEBUG] No events passed to IcsWriter'
+            );
         }
 
-        // -----------------------------------------------------------------
-        // Return export bundle
-        // -----------------------------------------------------------------
         return [
             'events'   => $events,
             'ics'      => $ics,
