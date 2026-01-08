@@ -16,16 +16,21 @@ final class ScheduleEntryExportAdapter
     {
         $playlist = is_string($entry['playlist'] ?? null) ? $entry['playlist'] : '';
         $command  = is_string($entry['command'] ?? null) ? $entry['command'] : '';
-        $enabled  = isset($entry['enabled']) ? (string)$entry['enabled'] : '(unset)';
+        $enabled  = array_key_exists('enabled', $entry) ? (string)$entry['enabled'] : '(unset)';
         $args     = $entry['args'] ?? null;
 
         $startDate = is_string($entry['startDate'] ?? null) ? $entry['startDate'] : '';
         $endDate   = is_string($entry['endDate'] ?? null) ? $entry['endDate'] : '';
         $startTime = is_string($entry['startTime'] ?? null) ? $entry['startTime'] : '';
         $endTime   = is_string($entry['endTime'] ?? null) ? $entry['endTime'] : '';
-        $day       = isset($entry['day']) ? (string)$entry['day'] : '(unset)';
-        $repeat    = isset($entry['repeat']) ? (string)$entry['repeat'] : '(unset)';
-        $stopType  = isset($entry['stopType']) ? (string)$entry['stopType'] : '(unset)';
+        $day       = array_key_exists('day', $entry) ? (string)$entry['day'] : '(unset)';
+        $repeat    = array_key_exists('repeat', $entry) ? (string)$entry['repeat'] : '(unset)';
+        $stopType  = array_key_exists('stopType', $entry) ? (string)$entry['stopType'] : '(unset)';
+
+        $argsJson = json_encode($args);
+        if (is_string($argsJson) && strlen($argsJson) > 400) {
+            $argsJson = substr($argsJson, 0, 400) . '…';
+        }
 
         error_log(sprintf(
             '[GCS DEBUG][ExportAdapter] SKIP "%s": %s | playlist=%s command=%s enabled=%s day=%s repeat=%s stopType=%s startDate=%s endDate=%s startTime=%s endTime=%s args=%s',
@@ -41,7 +46,7 @@ final class ScheduleEntryExportAdapter
             ($endDate !== '' ? $endDate : '(empty)'),
             ($startTime !== '' ? $startTime : '(empty)'),
             ($endTime !== '' ? $endTime : '(empty)'),
-            json_encode($args)
+            $argsJson
         ));
     }
 
@@ -188,7 +193,11 @@ final class ScheduleEntryExportAdapter
         if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
             $dt = FPPSemantics::combineDateTime($date, $time);
             if (!$dt) {
-                self::debugSkip($summaryForDebug, "combineDateTime failed for {$context} ({$date} {$time})", $entryForDebug);
+                self::debugSkip(
+                    $summaryForDebug,
+                    "combineDateTime failed for {$context} ({$date} {$time})",
+                    $entryForDebug
+                );
                 $warnings[] = "Export: {$context} unable to combine date/time '{$date} {$time}'.";
                 return [null, null];
             }
@@ -204,9 +213,12 @@ final class ScheduleEntryExportAdapter
             );
 
             if (!$resolved) {
-                self::debugSkip($summaryForDebug, "unable to resolve symbolic time for {$context} ({$time}, offset={$offsetMinutes})", $entryForDebug);
-                $warnings[] =
-                    "Export: {$context} unable to resolve symbolic time '{$time}'.";
+                self::debugSkip(
+                    $summaryForDebug,
+                    "unable to resolve symbolic time for {$context} ({$time}, offset={$offsetMinutes})",
+                    $entryForDebug
+                );
+                $warnings[] = "Export: {$context} unable to resolve symbolic time '{$time}'.";
                 return [null, null];
             }
 
@@ -217,7 +229,11 @@ final class ScheduleEntryExportAdapter
         }
 
         // Unknown / malformed time string
-        self::debugSkip($summaryForDebug, "unrecognized time format for {$context} ('{$time}')", $entryForDebug);
+        self::debugSkip(
+            $summaryForDebug,
+            "unrecognized time format for {$context} ('{$time}')",
+            $entryForDebug
+        );
         $warnings[] = "Export: {$context} unrecognized time format '{$time}'.";
         return [null, null];
     }
