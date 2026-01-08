@@ -94,12 +94,27 @@ final class ScheduleEntryExportAdapter
             $summary
         );
 
-        /* ---------------- YAML base ---------------- */
+        /* ---------------- YAML base (MINIMAL) ---------------- */
 
-        $yaml = [
-            'stopType' => FPPSemantics::stopTypeToString((int)($entry['stopType'] ?? 0)),
-            'repeat'   => FPPSemantics::repeatToYaml((int)($entry['repeat'] ?? 0)),
-        ];
+        $yaml = [];
+
+        // enabled — emit ONLY when false
+        $enabled = FPPSemantics::normalizeEnabled($entry['enabled'] ?? true);
+        if (!FPPSemantics::isDefaultEnabled($enabled)) {
+            $yaml['enabled'] = false;
+        }
+
+        // stopType — emit ONLY if non-default
+        $stopType = FPPSemantics::stopTypeToString((int)($entry['stopType'] ?? 0));
+        if ($stopType !== FPPSemantics::getDefaultStopType()) {
+            $yaml['stopType'] = $stopType;
+        }
+
+        // repeat — emit ONLY if non-default
+        $repeat = FPPSemantics::repeatToYaml((int)($entry['repeat'] ?? 0));
+        if ($repeat !== FPPSemantics::getDefaultRepeat()) {
+            $yaml['repeat'] = $repeat;
+        }
 
         /* ---------------- DTSTART ---------------- */
 
@@ -150,7 +165,6 @@ final class ScheduleEntryExportAdapter
         }
 
         if ($dtEnd <= $dtStart) {
-            // Not a skip, but useful for diagnosing “end before start” patterns
             error_log(sprintf(
                 '[GCS DEBUG][ExportAdapter] ADJUST "%s": DTEND <= DTSTART, rolling end +1 day',
                 $summary
@@ -189,7 +203,6 @@ final class ScheduleEntryExportAdapter
         array $entryForDebug,
         string $summaryForDebug
     ): array {
-        // Absolute time
         if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
             $dt = FPPSemantics::combineDateTime($date, $time);
             if (!$dt) {
@@ -204,7 +217,6 @@ final class ScheduleEntryExportAdapter
             return [$dt, null];
         }
 
-        // Symbolic time
         if (FPPSemantics::isSymbolicTime($time)) {
             $resolved = FPPSemantics::resolveSymbolicTime(
                 $date,
@@ -228,7 +240,6 @@ final class ScheduleEntryExportAdapter
             ];
         }
 
-        // Unknown / malformed time string
         self::debugSkip(
             $summaryForDebug,
             "unrecognized time format for {$context} ('{$time}')",
