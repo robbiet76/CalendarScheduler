@@ -268,28 +268,24 @@ final class FPPSemantics
     ): ?string {
         $raw = trim($raw);
 
-        // Absolute or sentinel date
+        // Absolute date
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
             if (self::isSentinelDate($raw)) {
-                $year = (int) date('Y');
+                $year = (int)date('Y');
                 return sprintf('%04d-%s', $year, substr($raw, 5));
             }
             return $raw;
         }
 
-        // Holiday
+        // Holiday (resolved via FPP locale)
         if ($raw !== '') {
             $yearHint = $fallbackDate
-                ? (int) substr($fallbackDate, 0, 4)
-                : (int) date('Y');
+                ? (int)substr($fallbackDate, 0, 4)
+                : (int)date('Y');
 
-            $dt = HolidayResolver::dateFromHoliday(
-                $raw,
-                $yearHint,
-                HolidayResolver::LOCALE_USA
-            );
+            $dt = HolidayResolver::dateFromHoliday($raw, $yearHint);
 
-            if ($dt) {
+            if ($dt instanceof DateTime) {
                 return $dt->format('Y-m-d');
             }
         }

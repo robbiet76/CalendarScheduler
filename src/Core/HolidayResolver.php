@@ -4,247 +4,171 @@ declare(strict_types=1);
 /**
  * HolidayResolver
  *
- * Pure deterministic holiday date resolver.
+ * Resolves holidays using the FPP runtime locale exported via fpp-env.json.
  *
- * RESPONSIBILITIES:
- * - Convert a holiday name + year into a concrete DateTime
- * - Perform weekday / Easter / offset calculations
+ * Canonical rules:
+ * - shortName is the ONLY canonical identifier
+ * - UI "name" is treated as an alias
+ * - All rules come from FPP (no hard-coded tables)
  *
- * NON-RESPONSIBILITIES:
- * - No validation of whether a holiday "exists"
- * - No locale selection logic
- * - No interaction with FPP or plugin configuration
- *
- * This class is a math engine only.
- * All authority and validation lives in FPPSemantics.
+ * This class is PURE:
+ * - No I/O
+ * - No scheduler logic
+ * - No DateTime side effects
  */
 final class HolidayResolver
 {
-    public const LOCALE_GLOBAL = 'global';
-    public const LOCALE_USA    = 'usa';
-    public const LOCALE_CAN   = 'canada';
-
     /**
-     * Canonical holiday rule table.
+     * Cached holiday definitions indexed by normalized key.
      *
-     * IMPORTANT:
-     * - Names MUST exactly match FPP UI labels
-     * - Rules must be deterministic and reversible
+     * @var array<string,array<string,mixed>>|null
      */
-    private const HOLIDAYS = [
+    private static ?array $holidayIndex = null;
 
-        /* ===============================================================
-         * GLOBAL
-         * ============================================================ */
-
-        self::LOCALE_GLOBAL => [
-            'Christmas Eve'   => ['type' => 'fixed', 'month' => 12, 'day' => 24],
-            'Christmas'       => ['type' => 'fixed', 'month' => 12, 'day' => 25],
-            'New Year\'s Eve' => ['type' => 'fixed', 'month' => 12, 'day' => 31],
-            'New Year\'s Day' => ['type' => 'fixed', 'month' => 1,  'day' => 1],
-        ],
-
-        /* ===============================================================
-         * USA
-         * ============================================================ */
-
-        self::LOCALE_USA => [
-
-            'New Year\'s Day'   => ['type' => 'fixed', 'month' => 1,  'day' => 1],
-            'Epiphany'          => ['type' => 'fixed', 'month' => 1,  'day' => 6],
-            'MLK Day'           => ['type' => 'weekday', 'month' => 1, 'weekday' => 1, 'nth' => 3],
-            'Valentine\'s Day'  => ['type' => 'fixed', 'month' => 2,  'day' => 14],
-            'President\'s Day'  => ['type' => 'weekday', 'month' => 2, 'weekday' => 1, 'nth' => 3],
-            'St. Patrick\'s Day'=> ['type' => 'fixed', 'month' => 3,  'day' => 17],
-
-            'Memorial Day'        => ['type' => 'weekday_last', 'month' => 5, 'weekday' => 1],
-            'Memorial Day Friday'=> ['type' => 'offset', 'base' => 'Memorial Day', 'days' => -3],
-
-            'Independence Day' => ['type' => 'fixed', 'month' => 7, 'day' => 4],
-
-            'Labor Day'        => ['type' => 'weekday', 'month' => 9, 'weekday' => 1, 'nth' => 1],
-            'Labor Day Friday'=> ['type' => 'offset', 'base' => 'Labor Day', 'days' => -3],
-
-            'Halloween'       => ['type' => 'fixed', 'month' => 10, 'day' => 31],
-            'Veteran\'s Day'  => ['type' => 'fixed', 'month' => 11, 'day' => 11],
-
-            'Thanksgiving'    => ['type' => 'weekday', 'month' => 11, 'weekday' => 4, 'nth' => 4],
-            'Black Friday'    => ['type' => 'offset', 'base' => 'Thanksgiving', 'days' => 1],
-
-            'Christmas Eve'   => ['type' => 'fixed', 'month' => 12, 'day' => 24],
-            'Christmas'       => ['type' => 'fixed', 'month' => 12, 'day' => 25],
-            'Boxing Day'      => ['type' => 'fixed', 'month' => 12, 'day' => 26],
-            'New Year\'s Eve' => ['type' => 'fixed', 'month' => 12, 'day' => 31],
-
-            /* Easter-based */
-            'Ash Wednesday'   => ['type' => 'easter_offset', 'days' => -46],
-            'Palm Sunday'     => ['type' => 'easter_offset', 'days' => -7],
-            'Maundy Thursday' => ['type' => 'easter_offset', 'days' => -3],
-            'Good Friday'     => ['type' => 'easter_offset', 'days' => -2],
-            'Easter Saturday' => ['type' => 'easter_offset', 'days' => -1],
-            'Easter'          => ['type' => 'easter_offset', 'days' => 0],
-            'Easter Monday'   => ['type' => 'easter_offset', 'days' => 1],
-            'Ascension Day'   => ['type' => 'easter_offset', 'days' => 39],
-            'Pentecost'       => ['type' => 'easter_offset', 'days' => 49],
-            'Whit Monday'     => ['type' => 'easter_offset', 'days' => 50],
-            'Trinity Sunday'  => ['type' => 'easter_offset', 'days' => 56],
-            'Corpus Chrisi'   => ['type' => 'easter_offset', 'days' => 60],
-        ],
-
-        /* ===============================================================
-         * CANADA
-         * ============================================================ */
-
-        self::LOCALE_CAN => [
-
-            'New Year\'s Day'   => ['type' => 'fixed', 'month' => 1, 'day' => 1],
-            'Epiphany'          => ['type' => 'fixed', 'month' => 1, 'day' => 6],
-            'Valentine\'s Day'  => ['type' => 'fixed', 'month' => 2, 'day' => 14],
-            'President\'s Day'  => ['type' => 'weekday', 'month' => 2, 'weekday' => 1, 'nth' => 3],
-
-            'Canada Day' => ['type' => 'fixed', 'month' => 7, 'day' => 1],
-
-            'Labour Day'        => ['type' => 'weekday', 'month' => 9, 'weekday' => 1, 'nth' => 1],
-            'Labour Day Friday'=> ['type' => 'offset', 'base' => 'Labour Day', 'days' => -3],
-
-            'Thanksgiving'    => ['type' => 'weekday', 'month' => 10, 'weekday' => 1, 'nth' => 2],
-            'Halloween'       => ['type' => 'fixed', 'month' => 10, 'day' => 31],
-            'Remembrance Day' => ['type' => 'fixed', 'month' => 11, 'day' => 11],
-
-            'Christmas Eve'   => ['type' => 'fixed', 'month' => 12, 'day' => 24],
-            'Christmas'       => ['type' => 'fixed', 'month' => 12, 'day' => 25],
-            'Boxing Day'      => ['type' => 'fixed', 'month' => 12, 'day' => 26],
-            'New Year\'s Eve' => ['type' => 'fixed', 'month' => 12, 'day' => 31],
-
-            /* Easter-based */
-            'Ash Wednesday'   => ['type' => 'easter_offset', 'days' => -46],
-            'Palm Sunday'     => ['type' => 'easter_offset', 'days' => -7],
-            'Maundy Thursday' => ['type' => 'easter_offset', 'days' => -3],
-            'Good Friday'     => ['type' => 'easter_offset', 'days' => -2],
-            'Easter Saturday' => ['type' => 'easter_offset', 'days' => -1],
-            'Easter'          => ['type' => 'easter_offset', 'days' => 0],
-            'Easter Monday'   => ['type' => 'easter_offset', 'days' => 1],
-            'Ascension Day'   => ['type' => 'easter_offset', 'days' => 39],
-            'Pentecost'       => ['type' => 'easter_offset', 'days' => 49],
-            'Whit Monday'     => ['type' => 'easter_offset', 'days' => 50],
-            'Trinity Sunday'  => ['type' => 'easter_offset', 'days' => 56],
-            'Corpus Chrisi'   => ['type' => 'easter_offset', 'days' => 60],
-        ],
-    ];
-
-    /* ===============================================================
+    /* ============================================================
      * Public API
      * ============================================================ */
 
-    public static function dateFromHoliday(
-        string $holiday,
-        int $year,
-        string $locale
-    ): ?DateTime {
-        $rule = self::HOLIDAYS[$locale][$holiday] ?? null;
-        if (!$rule) {
+    /**
+     * Resolve a holiday string (UI name or shortName) to a DateTime.
+     *
+     * @param string $input Holiday identifier (UI label OR shortName)
+     * @param int    $year  Target year
+     *
+     * @return DateTime|null
+     */
+    public static function dateFromHoliday(string $input, int $year): ?DateTime
+    {
+        $index = self::getHolidayIndex();
+        if ($index === []) {
             return null;
         }
 
-        return self::resolveRule($rule, $holiday, $year, $locale);
-    }
-
-    public static function holidaysFromDate(
-        DateTime $date,
-        string $locale
-    ): array {
-        $year = (int)$date->format('Y');
-        $out  = [];
-
-        foreach (self::HOLIDAYS[$locale] ?? [] as $name => $_) {
-            $d = self::dateFromHoliday($name, $year, $locale);
-            if ($d && $d->format('Y-m-d') === $date->format('Y-m-d')) {
-                $out[] = $name;
-            }
+        $key = self::normalize($input);
+        if (!isset($index[$key])) {
+            return null;
         }
 
-        return $out;
-    }
+        $def = $index[$key];
 
-    /* ===============================================================
-     * Internal helpers
-     * ============================================================ */
+        // Fixed date
+        if (!empty($def['month']) && !empty($def['day'])) {
+            return new DateTime(sprintf(
+                '%04d-%02d-%02d',
+                $year,
+                (int)$def['month'],
+                (int)$def['day']
+            ));
+        }
 
-    private static function resolveRule(
-        array $rule,
-        string $name,
-        int $year,
-        string $locale
-    ): ?DateTime {
-        switch ($rule['type']) {
-
-            case 'fixed':
-                return new DateTime(sprintf('%04d-%02d-%02d', $year, $rule['month'], $rule['day']));
-
-            case 'weekday':
-                return self::nthWeekdayOfMonth(
-                    $year,
-                    $rule['month'],
-                    $rule['weekday'],
-                    $rule['nth']
-                );
-
-            case 'weekday_last':
-                return self::lastWeekdayOfMonth(
-                    $year,
-                    $rule['month'],
-                    $rule['weekday']
-                );
-
-            case 'offset':
-                $base = self::dateFromHoliday($rule['base'], $year, $locale);
-                return $base
-                    ? (clone $base)->modify(($rule['days'] >= 0 ? '+' : '') . $rule['days'] . ' days')
-                    : null;
-
-            case 'easter_offset':
-                $easter = self::easterSunday($year);
-                return (clone $easter)->modify(($rule['days'] >= 0 ? '+' : '') . $rule['days'] . ' days');
+        // Calculated holiday
+        if (isset($def['calc']) && is_array($def['calc'])) {
+            return self::resolveCalculatedHoliday($def['calc'], $year);
         }
 
         return null;
     }
 
-    private static function easterSunday(int $year): DateTime
+    /* ============================================================
+     * Internal helpers
+     * ============================================================ */
+
+    /**
+     * Build lookup index from FPP locale.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private static function getHolidayIndex(): array
     {
-        return (new DateTime())
-            ->setTimestamp(easter_date($year))
-            ->setTime(0, 0, 0);
-    }
-
-    private static function nthWeekdayOfMonth(
-        int $year,
-        int $month,
-        int $weekday,
-        int $nth
-    ): DateTime {
-        $d = new DateTime(sprintf('%04d-%02d-01', $year, $month));
-
-        while ((int)$d->format('N') !== $weekday) {
-            $d->modify('+1 day');
+        if (self::$holidayIndex !== null) {
+            return self::$holidayIndex;
         }
 
-        $d->modify('+' . (($nth - 1) * 7) . ' days');
+        self::$holidayIndex = [];
+
+        if (!class_exists('FppEnvironment')) {
+            return self::$holidayIndex;
+        }
+
+        $raw = (new ReflectionClass('FppEnvironment'))
+            ->getMethod('getRaw')
+            ->invoke(
+                (new ReflectionClass('FppEnvironment'))
+                    ->newInstanceWithoutConstructor()
+            );
+
+        $holidays = $raw['rawLocale']['holidays'] ?? null;
+        if (!is_array($holidays)) {
+            return self::$holidayIndex;
+        }
+
+        foreach ($holidays as $h) {
+            if (!is_array($h)) {
+                continue;
+            }
+
+            if (empty($h['shortName'])) {
+                continue;
+            }
+
+            $short = self::normalize($h['shortName']);
+            self::$holidayIndex[$short] = $h;
+
+            // UI name alias
+            if (!empty($h['name'])) {
+                self::$holidayIndex[self::normalize($h['name'])] = $h;
+            }
+        }
+
+        return self::$holidayIndex;
+    }
+
+    /**
+     * Resolve calculated (non-fixed) holidays.
+     */
+    private static function resolveCalculatedHoliday(array $calc, int $year): ?DateTime
+    {
+        // Easter-based
+        if (($calc['type'] ?? '') === 'easter') {
+            $base = new DateTime();
+            $base->setTimestamp(easter_date($year));
+            $base->setTime(0, 0, 0);
+
+            $offset = (int)($calc['offset'] ?? 0);
+            return $base->modify(($offset >= 0 ? '+' : '') . $offset . ' days');
+        }
+
+        // Weekday-based (head / tail)
+        if (!isset($calc['month'], $calc['dow'], $calc['week'], $calc['type'])) {
+            return null;
+        }
+
+        $month = (int)$calc['month'];
+        $dow   = (int)$calc['dow'];   // 1 = Monday
+        $week  = (int)$calc['week'];
+
+        $d = new DateTime(sprintf('%04d-%02d-01', $year, $month));
+
+        if ($calc['type'] === 'tail') {
+            $d->modify('last day of this month');
+            while ((int)$d->format('N') !== $dow) {
+                $d->modify('-1 day');
+            }
+        } else {
+            while ((int)$d->format('N') !== $dow) {
+                $d->modify('+1 day');
+            }
+        }
+
+        $d->modify('+' . (($week - 1) * 7) . ' days');
         return $d;
     }
 
-    private static function lastWeekdayOfMonth(
-        int $year,
-        int $month,
-        int $weekday
-    ): DateTime {
-        $d = new DateTime(sprintf('%04d-%02d-01', $year, $month));
-        $d->modify('last day of this month');
-
-        while ((int)$d->format('N') !== $weekday) {
-            $d->modify('-1 day');
-        }
-
-        return $d;
+    /**
+     * Normalize holiday keys for matching.
+     */
+    private static function normalize(string $s): string
+    {
+        return strtolower(preg_replace('/[^a-z0-9]/i', '', $s));
     }
 }
