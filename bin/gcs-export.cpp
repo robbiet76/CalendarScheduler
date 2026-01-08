@@ -17,56 +17,47 @@ int main() {
     root["source"] = "gcs-export";
 
     // ---------------------------------------------------------------------
-    // Load FPP settings (REQUIRED)
+    // Load FPP settings (REQUIRED — writable context)
     // ---------------------------------------------------------------------
-    LoadSettings("/home/fpp/media", false);
+    LoadSettings("/home/fpp/media", true);
 
     // ---------------------------------------------------------------------
-    // Timezone (from settings)
+    // Pull canonical values from FPP settings
     // ---------------------------------------------------------------------
-    std::string timezone = getSetting("TimeZone");
-    root["timezone"] = timezone;
+    std::string latStr = getSetting("Latitude");
+    std::string lonStr = getSetting("Longitude");
+    std::string tz     = getSetting("TimeZone");
+
+    double lat = latStr.empty() ? 0.0 : atof(latStr.c_str());
+    double lon = lonStr.empty() ? 0.0 : atof(lonStr.c_str());
+
+    root["latitude"]  = lat;
+    root["longitude"] = lon;
+    root["timezone"]  = tz;
 
     // ---------------------------------------------------------------------
-    // Locale + geographic context (from LocaleHolder)
+    // Locale data (holidays, locale name, etc.)
     // ---------------------------------------------------------------------
-    double latitude  = LocaleHolder::GetLatitude();
-    double longitude = LocaleHolder::GetLongitude();
-
-    root["latitude"]  = latitude;
-    root["longitude"] = longitude;
-
-    // Locale region selection (Global / USA / Canada)
-    std::string localeRegion = getSetting("Locale");
-    root["locale"]["region"] = localeRegion;
-
-    // Full locale payload (holidays, rules, etc.)
     Json::Value locale = LocaleHolder::GetLocale();
-    root["locale"]["holidays"] = locale["holidays"];
+    root["rawLocale"] = locale;
 
     // ---------------------------------------------------------------------
-    // Validation (ALL required in FPP)
+    // Validation
     // ---------------------------------------------------------------------
     bool ok = true;
 
-    if (timezone.empty()) {
+    if (lat == 0.0 || lon == 0.0) {
         ok = false;
-        root["error"] = "Timezone not present in FPP settings.";
+        root["error"] =
+            "Latitude/Longitude not present (or zero) in FPP settings.";
+        std::cerr << "WARN: Latitude/Longitude not present (or zero) in FPP settings." << std::endl;
+    }
+
+    if (tz.empty()) {
+        ok = false;
+        root["error"] =
+            "Timezone not present in FPP settings.";
         std::cerr << "WARN: Timezone not present in FPP settings." << std::endl;
-    }
-
-    if (latitude == 0.0 || longitude == 0.0) {
-        ok = false;
-        root["error"] =
-            "Latitude/Longitude not present (or zero) in FPP locale.";
-        std::cerr << "WARN: Latitude/Longitude not present (or zero) in FPP locale." << std::endl;
-    }
-
-    if (localeRegion.empty()) {
-        ok = false;
-        root["error"] =
-            "Locale region (Global/USA/Canada) not present in FPP settings.";
-        std::cerr << "WARN: Locale region not present in FPP settings." << std::endl;
     }
 
     root["ok"] = ok;
