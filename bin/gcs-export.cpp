@@ -19,7 +19,7 @@ int main() {
     // ---------------------------------------------------------------------
     // Load FPP settings (REQUIRED)
     // ---------------------------------------------------------------------
-    LoadSettings("/home/fpp/media", false);
+    LoadSettings("/home/fpp/media");
 
     // ---------------------------------------------------------------------
     // Pull canonical values from FPP settings
