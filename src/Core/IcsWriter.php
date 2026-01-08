@@ -8,7 +8,8 @@ declare(strict_types=1);
  *
  * - Uses the FPP system timezone (date_default_timezone_get()) with TZID + VTIMEZONE
  * - DTSTART/DTEND are local wall-clock times
- * - EXDATE is emitted for overridden occurrences
+ * - YAML metadata is embedded as fenced YAML in DESCRIPTION
+ * - Output is deterministic and round-trip safe
  */
 final class IcsWriter
 {
@@ -31,11 +32,14 @@ final class IcsWriter
         $lines = array_merge($lines, self::buildVtimezone($tz));
 
         foreach ($events as $ev) {
-            if (!is_array($ev)) continue;
+            if (!is_array($ev)) {
+                continue;
+            }
             $lines = array_merge($lines, self::buildEventBlock($ev, $tzName));
         }
 
         $lines[] = 'END:VCALENDAR';
+
         return implode("\r\n", $lines) . "\r\n";
     }
 
@@ -52,13 +56,15 @@ final class IcsWriter
 
         $summary = (string)($ev['summary'] ?? '');
         $rrule   = $ev['rrule'] ?? null;
-        $yaml    = (array)($ev['yaml'] ?? []);
+        $yaml    = is_array($ev['yaml'] ?? null) ? $ev['yaml'] : [];
         $uid     = (string)($ev['uid'] ?? '');
 
         $exdates = [];
         if (isset($ev['exdates']) && is_array($ev['exdates'])) {
             foreach ($ev['exdates'] as $d) {
-                if ($d instanceof DateTime) $exdates[] = $d;
+                if ($d instanceof DateTime) {
+                    $exdates[] = $d;
+                }
             }
         }
 
@@ -81,14 +87,79 @@ final class IcsWriter
         }
 
         if (!empty($yaml)) {
-            $lines[] = 'DESCRIPTION:' . self::escapeText(self::yamlToText($yaml));
+            $yamlText = self::emitYamlBlock($yaml);
+            $lines[]  = 'DESCRIPTION:' . self::escapeText($yamlText);
         }
 
         $lines[] = 'DTSTAMP:' . gmdate('Ymd\THis\Z');
         $lines[] = 'UID:' . ($uid !== '' ? $uid : self::generateUid());
 
         $lines[] = 'END:VEVENT';
+
         return $lines;
+    }
+
+    /**
+     * Emit deterministic, fenced YAML for DESCRIPTION.
+     *
+     * @param array<string,mixed> $yaml
+     */
+    private static function emitYamlBlock(array $yaml): string
+    {
+        $lines = [];
+        $lines[] = '```yaml';
+
+        // Stable, human-friendly ordering
+        $preferredOrder = ['stopType', 'repeat', 'start', 'end'];
+        foreach ($preferredOrder as $k) {
+            if (array_key_exists($k, $yaml)) {
+                self::emitYamlValue($lines, $k, $yaml[$k], 0);
+                unset($yaml[$k]);
+            }
+        }
+
+        // Emit any remaining keys
+        foreach ($yaml as $k => $v) {
+            self::emitYamlValue($lines, (string)$k, $v, 0);
+        }
+
+        $lines[] = '```';
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Recursive YAML emitter (maps only, max depth = practical 1–2).
+     *
+     * @param array<int,string> $lines
+     * @param string $key
+     * @param mixed $value
+     * @param int $indent
+     */
+    private static function emitYamlValue(array &$lines, string $key, $value, int $indent): void
+    {
+        $pad = str_repeat('  ', $indent);
+
+        if (is_array($value)) {
+            $lines[] = $pad . $key . ':';
+            foreach ($value as $k => $v) {
+                self::emitYamlValue($lines, (string)$k, $v, $indent + 1);
+            }
+            return;
+        }
+
+        if (is_bool($value)) {
+            $value = $value ? 'true' : 'false';
+        } elseif (is_int($value) || is_float($value)) {
+            $value = (string)$value;
+        } elseif (is_string($value)) {
+            $value = trim($value);
+        } else {
+            // Unsupported types are ignored safely
+            return;
+        }
+
+        $lines[] = $pad . $key . ': ' . $value;
     }
 
     private static function buildVtimezone(DateTimeZone $tz): array
@@ -105,7 +176,6 @@ final class IcsWriter
             return $lines;
         }
 
-        // Bound transitions to keep ICS manageable
         $now = time();
         $minTs = $now - (365 * 24 * 3600);
         $maxTs = $now + (6 * 365 * 24 * 3600);
@@ -113,20 +183,20 @@ final class IcsWriter
         $prevOffset = null;
 
         foreach ($transitions as $t) {
-            if (!isset($t['ts'], $t['offset'], $t['isdst'])) continue;
-
-            $ts = (int)$t['ts'];
-            $currOffset = (int)$t['offset'];
-            $isdst = (bool)$t['isdst'];
-
-            if ($ts < $minTs || $ts > $maxTs) {
-                $prevOffset = $currOffset;
+            if (!isset($t['ts'], $t['offset'], $t['isdst'])) {
                 continue;
             }
 
+            $ts = (int)$t['ts'];
+            if ($ts < $minTs || $ts > $maxTs) {
+                $prevOffset = (int)$t['offset'];
+                continue;
+            }
+
+            $currOffset = (int)$t['offset'];
             $fromOffset = ($prevOffset !== null) ? $prevOffset : $currOffset;
 
-            $type = $isdst ? 'DAYLIGHT' : 'STANDARD';
+            $type = $t['isdst'] ? 'DAYLIGHT' : 'STANDARD';
             $dt = (new DateTime('@' . $ts))->setTimezone($tz);
 
             $lines[] = 'BEGIN:' . $type;
@@ -134,8 +204,8 @@ final class IcsWriter
             $lines[] = 'TZOFFSETFROM:' . self::formatOffset($fromOffset);
             $lines[] = 'TZOFFSETTO:'   . self::formatOffset($currOffset);
 
-            if (isset($t['abbr']) && is_string($t['abbr']) && $t['abbr'] !== '') {
-                $lines[] = 'TZNAME:' . self::escapeText($t['abbr']);
+            if (!empty($t['abbr'])) {
+                $lines[] = 'TZNAME:' . self::escapeText((string)$t['abbr']);
             }
 
             $lines[] = 'END:' . $type;
@@ -154,16 +224,6 @@ final class IcsWriter
         $hours = intdiv($seconds, 3600);
         $minutes = intdiv($seconds % 3600, 60);
         return sprintf('%s%02d%02d', $sign, $hours, $minutes);
-    }
-
-    private static function yamlToText(array $yaml): string
-    {
-        $out = [];
-        foreach ($yaml as $k => $v) {
-            if (is_bool($v)) $v = $v ? 'true' : 'false';
-            $out[] = $k . ': ' . $v;
-        }
-        return implode("\n", $out);
     }
 
     private static function escapeText(string $text): string

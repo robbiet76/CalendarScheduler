@@ -6,18 +6,28 @@ declare(strict_types=1);
  *
  * Lightweight, read-only YAML metadata extractor for calendar events.
  *
- * Responsibilities:
- * - Extract a small YAML block from event description text
- * - Parse flat key/value metadata safely
- * - Normalize scalar values for downstream consumers
+ * RESPONSIBILITIES:
+ * - Extract scheduler metadata embedded in event descriptions
+ * - Parse a deterministic, limited YAML subset safely
+ * - Normalize values for downstream scheduler logic
  *
- * HARD GUARANTEES:
- * - Never throws
- * - Never mutates input
+ * DESIGN GOALS:
+ * - Never throw
+ * - Never mutate input
  * - No scheduler knowledge
- * - No recurrence or intent logic
+ * - No I/O
  *
- * If no valid YAML metadata is present, an empty array is returned.
+ * SUPPORTED YAML (INTENTIONALLY LIMITED):
+ * - Flat key: value pairs
+ * - One-level nested maps using indentation
+ * - Scalar values only (string, int, bool)
+ *
+ * EXPLICITLY NOT SUPPORTED:
+ * - Arrays / lists
+ * - Multiline scalars
+ * - Anchors, tags, or advanced YAML features
+ *
+ * If parsing fails or metadata is invalid, an empty array is returned.
  */
 final class YamlMetadata
 {
@@ -25,8 +35,8 @@ final class YamlMetadata
      * Parse YAML metadata from a calendar event description.
      *
      * @param string|null $description Raw description text from calendar event
-     * @param array<string,mixed> $context Optional context (reserved for logging/debug)
-     * @return array<string,mixed> Normalized YAML metadata or empty array
+     * @param array<string,mixed> $context Optional context (reserved for debug/logging)
+     * @return array<string,mixed> Parsed metadata or empty array
      */
     public static function parse(?string $description, array $context = []): array
     {
@@ -39,52 +49,50 @@ final class YamlMetadata
             return [];
         }
 
-        // Extract candidate YAML text
         $yamlText = self::extractYamlBlock($description);
         if ($yamlText === null) {
             return [];
         }
 
-        // Parse using a safe, minimal parser
         try {
             $parsed = self::parseYamlBlock($yamlText);
-            if (!is_array($parsed) || empty($parsed)) {
+            if (empty($parsed)) {
                 return [];
             }
 
             return self::normalize($parsed);
         } catch (Throwable) {
-            // YAML parsing must never affect scheduler behavior
+            // Parsing metadata must never break scheduler behavior
             return [];
         }
     }
 
     /**
-     * Attempt to extract a YAML block from description text.
+     * Extract a YAML block from description text.
      *
      * Supported formats:
      *
-     * 1) Explicit fenced block:
+     * 1) Fenced block:
      *    ```yaml
-     *    stopType: hard
-     *    repeat: 10
+     *    stopType: graceful
+     *    repeat: immediate
      *    ```
      *
-     * 2) Raw YAML at the start of the description:
-     *    stopType: hard
-     *    repeat: 10
+     * 2) Raw YAML at top of description:
+     *    stopType: graceful
+     *    repeat: immediate
      *
-     * @return string|null Extracted YAML text or null if not found
+     * @return string|null
      */
     private static function extractYamlBlock(string $text): ?string
     {
         // Case 1: fenced ```yaml block
         if (preg_match('/```yaml\s*(.*?)\s*```/is', $text, $m)) {
             $candidate = trim($m[1]);
-            return ($candidate !== '') ? $candidate : null;
+            return $candidate !== '' ? $candidate : null;
         }
 
-        // Case 2: raw YAML-like lines at top of description
+        // Case 2: raw YAML-like lines at top
         $lines = preg_split('/\r?\n/', $text);
         if (!$lines) {
             return null;
@@ -101,7 +109,7 @@ final class YamlMetadata
                 continue;
             }
 
-            if (!preg_match('/^[A-Za-z0-9_]+\s*:/', $line)) {
+            if (!preg_match('/^[A-Za-z0-9_]+\s*:/', ltrim($line))) {
                 break;
             }
 
@@ -112,23 +120,19 @@ final class YamlMetadata
     }
 
     /**
-     * Minimal YAML parser.
+     * Parse a limited YAML block.
      *
-     * Supported:
-     * - Flat key: value pairs
-     * - Scalar values only (int, bool, string)
+     * Supports:
+     * - Flat key/value pairs
+     * - One-level nested maps via indentation
      *
-     * Explicitly NOT supported:
-     * - Nesting
-     * - Arrays
-     * - Multiline blocks
-     * - Anchors, tags, or advanced YAML features
-     *
+     * @param string $raw
      * @return array<string,mixed>
      */
     private static function parseYamlBlock(string $raw): array
     {
         $out = [];
+        $currentParent = null;
 
         $lines = preg_split('/\r?\n/', $raw);
         if (!$lines) {
@@ -136,51 +140,70 @@ final class YamlMetadata
         }
 
         foreach ($lines as $line) {
-            $line = trim($line);
+            $line = rtrim($line);
 
             // Skip blanks and comments
-            if ($line === '' || str_starts_with($line, '#')) {
+            if ($line === '' || str_starts_with(ltrim($line), '#')) {
                 continue;
             }
 
-            if (!str_contains($line, ':')) {
-                continue;
-            }
+            // Count indentation (spaces only)
+            preg_match('/^(\s*)/', $line, $m);
+            $indent = strlen($m[1]);
+            $trimmed = ltrim($line);
 
-            [$key, $value] = explode(':', $line, 2);
+            // Top-level key
+            if ($indent === 0) {
+                $currentParent = null;
 
-            $key = trim($key);
-            $value = trim($value);
-
-            if ($key === '') {
-                continue;
-            }
-
-            // Normalize scalar value
-            if (ctype_digit($value)) {
-                $value = (int)$value;
-            } else {
-                $lv = strtolower($value);
-                if ($lv === 'true') {
-                    $value = true;
-                } elseif ($lv === 'false') {
-                    $value = false;
+                if (!str_contains($trimmed, ':')) {
+                    continue;
                 }
+
+                [$key, $value] = explode(':', $trimmed, 2);
+                $key = trim($key);
+                $value = trim($value);
+
+                if ($key === '') {
+                    continue;
+                }
+
+                // Parent map (e.g. "start:")
+                if ($value === '') {
+                    $out[$key] = [];
+                    $currentParent = $key;
+                    continue;
+                }
+
+                // Scalar value
+                $out[$key] = self::normalizeScalar($value);
+                continue;
             }
 
-            $out[$key] = $value;
+            // Nested key (one level only)
+            if ($indent > 0 && $currentParent !== null) {
+                if (!str_contains($trimmed, ':')) {
+                    continue;
+                }
+
+                [$childKey, $childValue] = explode(':', $trimmed, 2);
+                $childKey = trim($childKey);
+                $childValue = trim($childValue);
+
+                if ($childKey === '') {
+                    continue;
+                }
+
+                $out[$currentParent][$childKey] =
+                    self::normalizeScalar($childValue);
+            }
         }
 
         return $out;
     }
 
     /**
-     * Normalize parsed YAML values.
-     *
-     * Rules:
-     * - Keys preserved verbatim
-     * - Scalars normalized
-     * - Unsupported types ignored
+     * Normalize parsed metadata.
      *
      * @param array<string,mixed> $raw
      * @return array<string,mixed>
@@ -194,6 +217,11 @@ final class YamlMetadata
                 continue;
             }
 
+            if (is_array($value)) {
+                $out[$key] = self::normalize($value);
+                continue;
+            }
+
             $out[$key] = self::normalizeValue($value);
         }
 
@@ -201,7 +229,7 @@ final class YamlMetadata
     }
 
     /**
-     * Normalize a single YAML value.
+     * Normalize a single value.
      */
     private static function normalizeValue($v)
     {
@@ -213,10 +241,30 @@ final class YamlMetadata
             return trim($v);
         }
 
-        if (is_array($v)) {
-            return $v;
+        return null;
+    }
+
+    /**
+     * Normalize a scalar YAML value.
+     */
+    private static function normalizeScalar(string $value)
+    {
+        if ($value === '') {
+            return '';
         }
 
-        return null;
+        if (ctype_digit($value)) {
+            return (int)$value;
+        }
+
+        $lv = strtolower($value);
+        if ($lv === 'true') {
+            return true;
+        }
+        if ($lv === 'false') {
+            return false;
+        }
+
+        return $value;
     }
 }
