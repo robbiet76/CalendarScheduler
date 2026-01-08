@@ -223,7 +223,8 @@ if ($endpoint !== '') {
         if ($endpoint === 'export_unmanaged_debug') {
             gcsJsonHeader();
 
-            $result = ExportService::export($entries);
+            $entries = is_array($entries) ? $entries : [];
+            $result  = ExportService::export($entries);
 
             // Safety: never accidentally emit HTML here
             if (!is_array($result)) {
