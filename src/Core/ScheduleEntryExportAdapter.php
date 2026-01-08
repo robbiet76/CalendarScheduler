@@ -11,17 +11,15 @@ final class ScheduleEntryExportAdapter
 
     private static function debugSkip(string $summary, string $reason, array $entry): void
     {
-        $playlist = is_string($entry['playlist'] ?? null) ? $entry['playlist'] : '';
-        $sequence = is_string($entry['sequence'] ?? null) ? $entry['sequence'] : '';
-        $command  = is_string($entry['command'] ?? null) ? $entry['command'] : '';
+        $playlist = trim((string)($entry['playlist'] ?? ''));
+        $command  = trim((string)($entry['command'] ?? ''));
         $enabled  = array_key_exists('enabled', $entry) ? (string)$entry['enabled'] : '(unset)';
 
         error_log(sprintf(
-            '[GCS DEBUG][ExportAdapter] SKIP "%s": %s | playlist=%s sequence=%s command=%s enabled=%s',
+            '[GCS DEBUG][ExportAdapter] SKIP "%s": %s | playlist=%s command=%s enabled=%s',
             ($summary !== '' ? $summary : '(no summary)'),
             $reason,
             ($playlist !== '' ? $playlist : '(none)'),
-            ($sequence !== '' ? $sequence : '(none)'),
             ($command !== '' ? $command : '(none)'),
             $enabled
         ));
@@ -33,26 +31,23 @@ final class ScheduleEntryExportAdapter
 
     public static function adapt(array $entry, array &$warnings): ?array
     {
-        $summary = trim((string)(
-            $entry['playlist']
-            ?? $entry['sequence']
-            ?? $entry['command']
-            ?? ''
-        ));
-
-        if ($summary === '') {
-            self::debugSkip('', 'missing playlist/sequence/command summary', $entry);
-            $warnings[] = 'Skipped entry with no playlist, sequence, or command name';
-            return null;
-        }
+        $playlist = trim((string)($entry['playlist'] ?? ''));
+        $command  = trim((string)($entry['command'] ?? ''));
 
         /* ---------------- Determine entry type ---------------- */
 
-        $type = 'playlist';
-        if (!empty($entry['command'])) {
+        if ($playlist !== '') {
+            $summary = $playlist;
+            $type = str_ends_with(strtolower($playlist), '.fseq')
+                ? 'sequence'
+                : 'playlist';
+        } elseif ($command !== '') {
+            $summary = $command;
             $type = 'command';
-        } elseif (!empty($entry['sequence'])) {
-            $type = 'sequence';
+        } else {
+            self::debugSkip('', 'missing playlist, sequence, or command name', $entry);
+            $warnings[] = 'Skipped entry with no playlist, sequence, or command name';
+            return null;
         }
 
         /* ---------------- Date resolution ---------------- */
@@ -102,39 +97,39 @@ final class ScheduleEntryExportAdapter
             }
         }
 
-        /* ---------------- YAML (minimal) ---------------- */
+        /* ---------------- YAML (minimal, semantic) ---------------- */
 
         $yaml = [];
 
-        // type — emit only if non-default
+        // type (playlist is default → omitted)
         if ($type !== 'playlist') {
             $yaml['type'] = $type;
         }
 
-        // enabled — emit only if false
+        // enabled (emit ONLY when false)
         $enabled = FPPSemantics::normalizeEnabled($entry['enabled'] ?? true);
         if (!FPPSemantics::isDefaultEnabled($enabled)) {
             $yaml['enabled'] = false;
         }
 
-        // stopType — emit only if non-default
+        // command metadata
+        if ($type === 'command') {
+            $yaml['command'] = [
+                'name' => $command,
+                'args' => array_values($entry['args'] ?? []),
+            ];
+        }
+
+        // stopType
         $stopType = FPPSemantics::stopTypeToString((int)($entry['stopType'] ?? 0));
         if ($stopType !== FPPSemantics::getDefaultStopType()) {
             $yaml['stopType'] = $stopType;
         }
 
-        // repeat — emit only if non-default
+        // repeat
         $repeat = FPPSemantics::repeatToYaml((int)($entry['repeat'] ?? 0));
         if ($repeat !== FPPSemantics::getDefaultRepeat()) {
             $yaml['repeat'] = $repeat;
-        }
-
-        // command payload
-        if ($type === 'command') {
-            $yaml['command'] = [
-                'name' => (string)$entry['command'],
-                'args' => is_array($entry['args'] ?? null) ? $entry['args'] : [],
-            ];
         }
 
         /* ---------------- DTSTART ---------------- */
@@ -164,7 +159,7 @@ final class ScheduleEntryExportAdapter
         if (FPPSemantics::isEndOfDayTime((string)($entry['endTime'] ?? ''))) {
             $dtEnd = (clone $dtStart)->modify('+1 day')->setTime(0, 0, 0);
         } else {
-            [$dtEnd, $endYaml] = self::resolveTime(
+            [$dtEnd] = self::resolveTime(
                 $startDate,
                 (string)($entry['endTime'] ?? '00:00:00'),
                 (int)($entry['endTimeOffset'] ?? 0),
@@ -178,10 +173,6 @@ final class ScheduleEntryExportAdapter
                 self::debugSkip($summary, 'invalid DTEND', $entry);
                 $warnings[] = "Export: '{$summary}' invalid DTEND; entry skipped.";
                 return null;
-            }
-
-            if ($endYaml) {
-                $yaml['end'] = $endYaml;
             }
         }
 
@@ -224,7 +215,7 @@ final class ScheduleEntryExportAdapter
         $dt = new DateTime($ymd);
 
         for ($i = 0; $i < 7; $i++) {
-            $dow = strtoupper(substr($dt->format('D'), 0, 2));
+            $dow = substr(strtoupper($dt->format('D')), 0, 2);
             if (isset($allowed[$dow])) {
                 return $dt->format('Y-m-d');
             }
