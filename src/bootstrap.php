@@ -32,19 +32,19 @@ define('GCS_LOG_PATH', '/home/fpp/media/logs/google-calendar-scheduler.log');
  * ============================================================
  * Core — domain + shared infrastructure (PURE)
  * ============================================================
- * - Configuration
- * - Logging
- * - Identity + comparison
- * - Immutable scheduler state
- * - Parsing, intent modeling, metadata
- * - Shared adapters/utilities
  */
 require_once __DIR__ . '/Core/Config.php';
 require_once __DIR__ . '/Core/GcsLog.php';
 
+/* ---------- Runtime environment + semantics ---------- */
+require_once __DIR__ . '/Core/FppEnvironment.php';
+require_once __DIR__ . '/Core/FppSemantics.php';
+
+/* ---------- Identity / comparison ---------- */
 require_once __DIR__ . '/Core/SchedulerIdentity.php';
 require_once __DIR__ . '/Core/SchedulerComparator.php';
 
+/* ---------- Scheduler state ---------- */
 require_once __DIR__ . '/Core/ExistingScheduleEntry.php';
 require_once __DIR__ . '/Core/ComparableScheduleEntry.php';
 require_once __DIR__ . '/Core/SchedulerState.php';
@@ -52,6 +52,7 @@ require_once __DIR__ . '/Core/SchedulerDiffResult.php';
 
 require_once __DIR__ . '/Core/SchedulerIntent.php';
 
+/* ---------- Parsing / metadata ---------- */
 require_once __DIR__ . '/Core/IcsFetcher.php';
 require_once __DIR__ . '/Core/IcsParser.php';
 require_once __DIR__ . '/Core/YamlMetadata.php';
@@ -63,11 +64,32 @@ require_once __DIR__ . '/Core/ScheduleEntryExportAdapter.php';
 
 /*
  * ============================================================
+ * Initialize FPP runtime environment (SAFE, non-fatal)
+ * ============================================================
+ */
+try {
+    $warnings = [];
+
+    $env = FppEnvironment::loadFromFile(
+        '/home/fpp/media/plugins/GoogleCalendarScheduler/runtime/fpp-env.json',
+        $warnings
+    );
+
+    FPPSemantics::setEnvironment($env->toArray());
+
+    // Optional: log warnings (recommended)
+    foreach ($warnings as $w) {
+        error_log('[GoogleCalendarScheduler] ' . $w);
+    }
+} catch (Throwable $e) {
+    // Never fatal — plugin must still load
+    error_log('[GoogleCalendarScheduler] FPP environment load failed: ' . $e->getMessage());
+}
+
+/*
+ * ============================================================
  * Planner — PURE planning layer (NO WRITES)
  * ============================================================
- * - Calendar ingestion orchestration
- * - Intent → desired scheduler entry mapping
- * - Diff computation (create / update / delete)
  */
 require_once __DIR__ . '/Planner/SchedulerSync.php';
 require_once __DIR__ . '/Planner/SchedulerRunner.php';
@@ -81,9 +103,6 @@ require_once __DIR__ . '/Planner/SchedulerPlanner.php';
  * ============================================================
  * Apply — WRITE BOUNDARY (scheduler mutations ONLY)
  * ============================================================
- * - The ONLY location allowed to modify schedule.json
- * - Dry-run gating enforced here
- * - Post-write verification enforced here
  */
 require_once __DIR__ . '/Apply/SchedulerCleanupPlanner.php';
 require_once __DIR__ . '/Apply/SchedulerCleanupApplier.php';

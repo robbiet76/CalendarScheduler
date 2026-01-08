@@ -3,180 +3,293 @@ declare(strict_types=1);
 
 final class ScheduleEntryExportAdapter
 {
+    private const MAX_EXPORT_SPAN_DAYS = 366;
+
+    /**
+     * TEMP DEBUG helper — remove once export path is validated.
+     *
+     * Logs *why* an entry was skipped + a compact snapshot of key fields.
+     *
+     * @param array<string,mixed> $entry
+     */
+    private static function debugSkip(string $summary, string $reason, array $entry): void
+    {
+        $playlist = is_string($entry['playlist'] ?? null) ? $entry['playlist'] : '';
+        $command  = is_string($entry['command'] ?? null) ? $entry['command'] : '';
+        $enabled  = array_key_exists('enabled', $entry) ? (string)$entry['enabled'] : '(unset)';
+        $args     = $entry['args'] ?? null;
+
+        $startDate = is_string($entry['startDate'] ?? null) ? $entry['startDate'] : '';
+        $endDate   = is_string($entry['endDate'] ?? null) ? $entry['endDate'] : '';
+        $startTime = is_string($entry['startTime'] ?? null) ? $entry['startTime'] : '';
+        $endTime   = is_string($entry['endTime'] ?? null) ? $entry['endTime'] : '';
+        $day       = array_key_exists('day', $entry) ? (string)$entry['day'] : '(unset)';
+        $repeat    = array_key_exists('repeat', $entry) ? (string)$entry['repeat'] : '(unset)';
+        $stopType  = array_key_exists('stopType', $entry) ? (string)$entry['stopType'] : '(unset)';
+
+        $argsJson = json_encode($args);
+        if (is_string($argsJson) && strlen($argsJson) > 400) {
+            $argsJson = substr($argsJson, 0, 400) . '…';
+        }
+
+        error_log(sprintf(
+            '[GCS DEBUG][ExportAdapter] SKIP "%s": %s | playlist=%s command=%s enabled=%s day=%s repeat=%s stopType=%s startDate=%s endDate=%s startTime=%s endTime=%s args=%s',
+            ($summary !== '' ? $summary : '(no summary)'),
+            $reason,
+            ($playlist !== '' ? $playlist : '(none)'),
+            ($command !== '' ? $command : '(none)'),
+            $enabled,
+            $day,
+            $repeat,
+            $stopType,
+            ($startDate !== '' ? $startDate : '(empty)'),
+            ($endDate !== '' ? $endDate : '(empty)'),
+            ($startTime !== '' ? $startTime : '(empty)'),
+            ($endTime !== '' ? $endTime : '(empty)'),
+            $argsJson
+        ));
+    }
+
     public static function adapt(array $entry, array &$warnings): ?array
     {
-        $summary = '';
-        if (!empty($entry['playlist']) && is_string($entry['playlist'])) {
-            $summary = trim($entry['playlist']);
-        } elseif (!empty($entry['command']) && is_string($entry['command'])) {
-            $summary = trim($entry['command']);
-        }
+        $summary = trim((string)($entry['playlist'] ?? $entry['command'] ?? ''));
         if ($summary === '') {
+            self::debugSkip('', 'missing playlist/command summary', $entry);
             $warnings[] = 'Skipped entry with no playlist or command name';
             return null;
         }
 
-        $startDateRaw = (string)($entry['startDate'] ?? '');
-        $endDateRaw   = (string)($entry['endDate'] ?? '');
+        /* ---------------- Date resolution ---------------- */
 
-        if (
-            !self::isValidExportDate($startDateRaw) ||
-            !self::isValidExportDate($endDateRaw)
-        ) {
-            $warnings[] = "Skipped '{$summary}': invalid date (year 0000)";
+        $startDate = FPPSemantics::resolveDate(
+            (string)($entry['startDate'] ?? ''),
+            null,
+            $warnings,
+            'startDate'
+        );
+
+        if (!$startDate) {
+            self::debugSkip($summary, 'unable to resolve startDate', $entry);
+            $warnings[] = "Export: '{$summary}' unable to resolve startDate; entry skipped.";
             return null;
         }
 
-        $startTime = (string)($entry['startTime'] ?? '00:00:00');
-        $endTime   = (string)($entry['endTime'] ?? '00:00:00');
+        $endDate = FPPSemantics::resolveDate(
+            (string)($entry['endDate'] ?? ''),
+            $startDate,
+            $warnings,
+            'endDate'
+        );
 
-        $dtStart = self::parseDateTime($startDateRaw, $startTime);
+        if (!$endDate) {
+            self::debugSkip($summary, 'unable to resolve endDate', $entry);
+            $warnings[] = "Export: '{$summary}' unable to resolve endDate; entry skipped.";
+            return null;
+        }
+
+        $endDate = self::ensureEndDateNotBeforeStart(
+            $startDate,
+            $endDate,
+            $warnings,
+            $summary
+        );
+
+        /* ---------------- YAML base ---------------- */
+
+        $yaml = [
+            'stopType' => FPPSemantics::stopTypeToString((int)($entry['stopType'] ?? 0)),
+            'repeat'   => FPPSemantics::repeatToYaml((int)($entry['repeat'] ?? 0)),
+        ];
+
+        /* ---------------- DTSTART ---------------- */
+
+        [$dtStart, $startYaml] = self::resolveTime(
+            $startDate,
+            (string)($entry['startTime'] ?? '00:00:00'),
+            (int)($entry['startTimeOffset'] ?? 0),
+            $warnings,
+            "{$summary} startTime",
+            $entry,
+            $summary
+        );
+
         if (!$dtStart) {
-            $warnings[] = "Skipped '{$summary}': invalid start datetime";
+            self::debugSkip($summary, 'invalid DTSTART (resolveTime returned null)', $entry);
+            $warnings[] = "Export: '{$summary}' invalid DTSTART; entry skipped.";
             return null;
         }
 
-        $dtEnd = null;
-        if ($endTime === '24:00:00') {
-            $base = self::parseDateTime($startDateRaw, '00:00:00');
-            if ($base instanceof DateTime) {
-                $dtEnd = (clone $base)->modify('+1 day');
-            }
+        if ($startYaml) {
+            $yaml['start'] = $startYaml;
+        }
+
+        /* ---------------- DTEND ---------------- */
+
+        if (FPPSemantics::isEndOfDayTime((string)($entry['endTime'] ?? ''))) {
+            $dtEnd = (clone $dtStart)->modify('+1 day')->setTime(0, 0, 0);
         } else {
-            $dtEnd = self::parseDateTime($startDateRaw, $endTime);
+            [$dtEnd, $endYaml] = self::resolveTime(
+                $startDate,
+                (string)($entry['endTime'] ?? '00:00:00'),
+                (int)($entry['endTimeOffset'] ?? 0),
+                $warnings,
+                "{$summary} endTime",
+                $entry,
+                $summary
+            );
+
+            if (!$dtEnd) {
+                self::debugSkip($summary, 'invalid DTEND (resolveTime returned null)', $entry);
+                $warnings[] = "Export: '{$summary}' invalid DTEND; entry skipped.";
+                return null;
+            }
+
+            if ($endYaml) {
+                $yaml['end'] = $endYaml;
+            }
         }
-        if (!$dtEnd) {
-            $warnings[] = "Skipped '{$summary}': invalid end datetime";
-            return null;
-        }
+
         if ($dtEnd <= $dtStart) {
+            // Not a skip, but useful for diagnosing “end before start” patterns
+            error_log(sprintf(
+                '[GCS DEBUG][ExportAdapter] ADJUST "%s": DTEND <= DTSTART, rolling end +1 day',
+                $summary
+            ));
             $dtEnd = (clone $dtEnd)->modify('+1 day');
         }
 
-        $rrule = self::buildRrule($entry, $endDateRaw);
+        /* ---------------- RRULE ---------------- */
 
-        $yaml = [
-            'stopType' => self::stopTypeToString((int)($entry['stopType'] ?? 0)),
-            'repeat'   => self::repeatToYaml($entry['repeat'] ?? 0),
-        ];
-        if (isset($entry['enabled']) && (int)$entry['enabled'] === 0) {
-            $yaml['enabled'] = false;
-        }
-
-        // Exact DTSTART timestamps for EXDATE
-        $exdates = [];
-        $rawExact = $entry['__gcs_export_exdates_dtstart'] ?? null;
-        if (is_array($rawExact) && !empty($rawExact)) {
-            foreach ($rawExact as $txt) {
-                if (!is_string($txt)) continue;
-                $d = DateTime::createFromFormat('Y-m-d H:i:s', $txt);
-                if ($d instanceof DateTime) {
-                    $exdates[] = $d;
-                }
-            }
-        } else {
-            // Legacy fallback
-            $rawEx = $entry['__gcs_export_exdates'] ?? null;
-            if (is_array($rawEx) && !empty($rawEx)) {
-                foreach ($rawEx as $ymd) {
-                    if (!is_string($ymd) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) continue;
-                    $ex = self::parseDateTime($ymd, $startTime);
-                    if ($ex instanceof DateTime) $exdates[] = $ex;
-                }
-            }
-        }
+        $rrule = self::buildClampedRrule(
+            $entry,
+            $startDate,
+            $endDate,
+            $warnings,
+            $summary
+        );
 
         return [
             'summary' => $summary,
             'dtstart' => $dtStart,
             'dtend'   => $dtEnd,
             'rrule'   => $rrule,
-            'exdates' => $exdates,
+            'exdates' => [],
             'yaml'    => $yaml,
         ];
     }
 
-    private static function isValidExportDate(string $ymd): bool
-    {
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) return false;
-        if (strpos($ymd, '0000-') === 0) return false;
-        $dt = DateTime::createFromFormat('Y-m-d', $ymd);
-        return ($dt instanceof DateTime) && ($dt->format('Y-m-d') === $ymd);
+    /* ===================================================================== */
+
+    private static function resolveTime(
+        string $date,
+        string $time,
+        int $offsetMinutes,
+        array &$warnings,
+        string $context,
+        array $entryForDebug,
+        string $summaryForDebug
+    ): array {
+        // Absolute time
+        if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
+            $dt = FPPSemantics::combineDateTime($date, $time);
+            if (!$dt) {
+                self::debugSkip(
+                    $summaryForDebug,
+                    "combineDateTime failed for {$context} ({$date} {$time})",
+                    $entryForDebug
+                );
+                $warnings[] = "Export: {$context} unable to combine date/time '{$date} {$time}'.";
+                return [null, null];
+            }
+            return [$dt, null];
+        }
+
+        // Symbolic time
+        if (FPPSemantics::isSymbolicTime($time)) {
+            $resolved = FPPSemantics::resolveSymbolicTime(
+                $date,
+                $time,
+                $offsetMinutes
+            );
+
+            if (!$resolved) {
+                self::debugSkip(
+                    $summaryForDebug,
+                    "unable to resolve symbolic time for {$context} ({$time}, offset={$offsetMinutes})",
+                    $entryForDebug
+                );
+                $warnings[] = "Export: {$context} unable to resolve symbolic time '{$time}'.";
+                return [null, null];
+            }
+
+            return [
+                $resolved['datetime'],
+                $resolved['yaml'],
+            ];
+        }
+
+        // Unknown / malformed time string
+        self::debugSkip(
+            $summaryForDebug,
+            "unrecognized time format for {$context} ('{$time}')",
+            $entryForDebug
+        );
+        $warnings[] = "Export: {$context} unrecognized time format '{$time}'.";
+        return [null, null];
     }
 
-    private static function parseDateTime(string $date, string $time): ?DateTime
-    {
-        $dt = DateTime::createFromFormat('Y-m-d H:i:s', $date . ' ' . $time);
-        return ($dt instanceof DateTime) ? $dt : null;
+    private static function ensureEndDateNotBeforeStart(
+        string $startDate,
+        string $endDate,
+        array &$warnings,
+        string $summary
+    ): string {
+        if ($endDate < $startDate) {
+            $y = (int)substr($endDate, 0, 4);
+            $mmdd = substr($endDate, 5);
+            $candidate = sprintf('%04d-%s', $y + 1, $mmdd);
+
+            $warnings[] =
+                "Export: '{$summary}' endDate adjusted across year boundary ({$endDate} → {$candidate}).";
+
+            return $candidate;
+        }
+
+        return $endDate;
     }
 
-    /**
-     * Build RRULE using LOCAL UNTIL (no Z).
-     *
-     * DTSTART / DTEND are emitted as local wall-clock times with TZID.
-     * Emitting UNTIL in UTC would truncate late-night occurrences
-     * (e.g. 23:00 local > 18:59Z in US timezones).
-     */
-    private static function buildRrule(array $entry, string $endDate): ?string
-    {
-        $dayEnum = (int)($entry['day'] ?? -1);
-
-        // Single-day entry → no RRULE
-        if (($entry['startDate'] ?? null) === ($entry['endDate'] ?? null)) {
+    private static function buildClampedRrule(
+        array $entry,
+        string $startDate,
+        string $endDate,
+        array &$warnings,
+        string $summary
+    ): ?string {
+        if ($startDate === $endDate) {
             return null;
         }
 
-        // LOCAL wall-clock UNTIL
-        $untilLocal = str_replace('-', '', $endDate) . 'T235959';
+        $start = new DateTime($startDate);
+        $end   = new DateTime($endDate);
+        $max   = (clone $start)->modify('+' . self::MAX_EXPORT_SPAN_DAYS . ' days');
+
+        if ($end > $max) {
+            $warnings[] =
+                "Export: '{$summary}' endDate {$endDate} clamped for Google compatibility.";
+            $end = $max;
+        }
+
+        $until = $end->format('Ymd') . 'T235959';
+        $dayEnum = (int)($entry['day'] ?? -1);
 
         if ($dayEnum === 7) {
-            return 'FREQ=DAILY;UNTIL=' . $untilLocal;
+            return "FREQ=DAILY;UNTIL={$until}";
         }
 
-        $byDay = self::fppDayEnumToByDay($dayEnum);
-        if ($byDay !== '') {
-            return 'FREQ=WEEKLY;BYDAY=' . $byDay . ';UNTIL=' . $untilLocal;
-        }
+        $byDay = FPPSemantics::dayEnumToByDay($dayEnum);
 
-        return null;
-    }
-
-    private static function fppDayEnumToByDay(int $enum): string
-    {
-        return match ($enum) {
-            0  => 'SU',
-            1  => 'MO',
-            2  => 'TU',
-            3  => 'WE',
-            4  => 'TH',
-            5  => 'FR',
-            6  => 'SA',
-            8  => 'MO,TU,WE,TH,FR',
-            9  => 'SU,SA',
-            10 => 'MO,WE,FR',
-            11 => 'TU,TH',
-            12 => 'SU,MO,TU,WE,TH',
-            13 => 'FR,SA',
-            default => '',
-        };
-    }
-
-    private static function stopTypeToString(int $v): string
-    {
-        return match ($v) {
-            1 => 'hard',
-            2 => 'graceful_loop',
-            default => 'graceful',
-        };
-    }
-
-    private static function repeatToYaml($v)
-    {
-        if (is_int($v)) {
-            if ($v === 0) return 'none';
-            if ($v === 1) return 'immediate';
-            if ($v >= 100) return (int)($v / 100);
-        }
-        return 'none';
+        return $byDay !== ''
+            ? "FREQ=WEEKLY;BYDAY={$byDay};UNTIL={$until}"
+            : "FREQ=DAILY;UNTIL={$until}";
     }
 }

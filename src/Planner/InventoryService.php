@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * 
+ * InventoryService
  *
  * Provides a read-only inventory summary of FPP scheduler entries.
  *
@@ -10,6 +10,7 @@ declare(strict_types=1);
  * - Count total scheduler entries
  * - Distinguish GCS-managed vs unmanaged entries
  * - Track disabled unmanaged entries for visibility
+ * - Provide raw unmanaged entries for export
  *
  * Guarantees:
  * - Never mutates scheduler.json
@@ -35,6 +36,23 @@ final class InventoryService
         $entries = SchedulerSync::readScheduleJsonStatic(
             SchedulerSync::SCHEDULE_JSON_PATH
         );
+
+        // 🔍 TEMP DEBUG — REMOVE AFTER VALIDATION
+        foreach ($entries as $i => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $managed = SchedulerIdentity::isGcsManaged($entry);
+
+            error_log(sprintf(
+                '[GCS DEBUG][Inventory] #%d playlist=%s managed=%s args=%s',
+                $i,
+                $entry['playlist'] ?? '(none)',
+                $managed ? 'YES' : 'NO',
+                json_encode($entry['args'] ?? null)
+            ));
+        }
 
         $total = 0;
         $managed = 0;
@@ -67,5 +85,36 @@ final class InventoryService
             'unmanaged'          => $unmanaged,
             'unmanaged_disabled' => $unmanagedDisabled,
         ];
+    }
+
+    /**
+     * Return raw unmanaged scheduler entries.
+     *
+     * These are entries present in scheduler.json that are NOT
+     * managed by GoogleCalendarScheduler.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function getUnmanagedEntries(): array
+    {
+        $entries = SchedulerSync::readScheduleJsonStatic(
+            SchedulerSync::SCHEDULE_JSON_PATH
+        );
+
+        $unmanaged = [];
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            if (SchedulerIdentity::isGcsManaged($entry)) {
+                continue;
+            }
+
+            $unmanaged[] = $entry;
+        }
+
+        return $unmanaged;
     }
 }

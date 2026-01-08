@@ -7,21 +7,25 @@ declare(strict_types=1);
  * Canonical identity and ownership helper for scheduler entries.
  *
  * Ownership rules (Phase 29+):
- * - A scheduler entry is considered GCS-managed if it contains
- *   a valid GCS v1 tag in args[]
+ * - A scheduler entry is considered GCS-managed if and ONLY if
+ *   args[] contains the internal GCS ownership tag:
+ *
+ *     |GCS:v1|<uid>
+ *
+ * - args[] may contain arbitrary values (command arguments, other plugins)
+ * - meta[] MUST NOT be used for ownership detection
+ * - DISPLAY markers (e.g. |M|) are OPTIONAL and NON-AUTHORITATIVE
  *
  * Identity rules:
  * - Identity is UID ONLY
  * - Planner semantics (ranges, days, ordering) MUST NOT leak
  *   into scheduler identity or apply logic
  *
- * Tag format (two-part, Phase 29+):
- *   |M|GCS:v1|<uid>
+ * Tag format (internal, authoritative):
+ *   |GCS:v1|<uid>
  *
- * Where:
- * - |M|        = human-visible "Managed" marker (future FPP UI use)
- * - |GCS:v1|   = internal ownership + versioning
- * - <uid>      = canonical calendar series UID
+ * Optional display prefix (ignored by logic):
+ *   |M|
  *
  * This class is the single source of truth for:
  * - scheduler ownership
@@ -31,19 +35,14 @@ declare(strict_types=1);
 final class SchedulerIdentity
 {
     /**
-     * Human-visible managed marker
+     * Optional human-visible managed marker (non-authoritative)
      */
     public const DISPLAY_TAG = '|M|';
 
     /**
-     * Internal ownership/version marker
+     * Internal ownership/version marker (AUTHORITATIVE)
      */
     public const INTERNAL_TAG = '|GCS:v1|';
-
-    /**
-     * Full canonical prefix for all managed scheduler entries
-     */
-    public const FULL_PREFIX = self::DISPLAY_TAG . self::INTERNAL_TAG;
 
     /**
      * Extract the canonical GCS identity key (UID) from a scheduler entry.
@@ -62,10 +61,14 @@ final class SchedulerIdentity
                 continue;
             }
 
-            if (str_starts_with($arg, self::FULL_PREFIX)) {
-                $uid = substr($arg, strlen(self::FULL_PREFIX));
-                return $uid !== '' ? $uid : null;
+            // Look for authoritative INTERNAL tag anywhere in the arg
+            $pos = strpos($arg, self::INTERNAL_TAG);
+            if ($pos === false) {
+                continue;
             }
+
+            $uid = substr($arg, $pos + strlen(self::INTERNAL_TAG));
+            return ($uid !== '') ? $uid : null;
         }
 
         return null;
@@ -83,6 +86,10 @@ final class SchedulerIdentity
 
     /**
      * Determine whether a scheduler entry is managed by GCS.
+     *
+     * IMPORTANT:
+     * - Only INTERNAL_TAG is authoritative
+     * - DISPLAY_TAG and meta[] are ignored
      */
     public static function isGcsManaged(array $entry): bool
     {
@@ -92,11 +99,14 @@ final class SchedulerIdentity
     /**
      * Build args[] tag for a managed scheduler entry.
      *
+     * The display marker is included for human visibility but
+     * MUST NOT be relied upon by logic.
+     *
      * @param string $uid Canonical calendar UID
      * @return string Tag suitable for args[]
      */
     public static function buildArgsTag(string $uid): string
     {
-        return self::FULL_PREFIX . $uid;
+        return self::DISPLAY_TAG . self::INTERNAL_TAG . $uid;
     }
 }
