@@ -34,21 +34,24 @@ final class ScheduleEntryExportAdapter
 
         /* ---------------- Determine entry type ---------------- */
 
-        if ($playlist !== '') {
-            $isSequence = str_ends_with(strtolower($playlist), '.fseq');
+        if ($command !== '') {
+            // Commands have no playlist name in FPP schedule entries
+            $summary = $command;
+            $type = FPPSemantics::TYPE_COMMAND;
+
+        } elseif ($playlist !== '') {
+            // Prefer explicit sequence flag from FPP data; do not infer from name/extension
+            $isSequence = (bool)($entry['sequence'] ?? false);
 
             $type = $isSequence
                 ? FPPSemantics::TYPE_SEQUENCE
                 : FPPSemantics::TYPE_PLAYLIST;
 
-            // Strip .fseq from sequence summaries only
-            $summary = $isSequence
-                ? preg_replace('/\.fseq$/i', '', $playlist)
-                : $playlist;
-
-        } elseif ($command !== '') {
-            $summary = $command;
-            $type = FPPSemantics::TYPE_COMMAND;
+            // FPP UI may omit .fseq; normalize summary by stripping it only when present
+            $summary = $playlist;
+            if ($isSequence && str_ends_with(strtolower($summary), '.fseq')) {
+                $summary = preg_replace('/\.fseq$/i', '', $summary);
+            }
 
         } else {
             self::debugSkip('', 'missing playlist, sequence, or command name', $entry);
@@ -128,10 +131,22 @@ final class ScheduleEntryExportAdapter
         }
 
         if ($type === FPPSemantics::TYPE_COMMAND) {
-            $yaml['command'] = [
-                'name' => $command,
-                'args' => array_values($entry['args'] ?? []),
-            ];
+            // Keep YAML minimal and within our supported subset (no nested arrays)
+            $yaml['command'] = $command;
+
+            $args = $entry['args'] ?? [];
+            if (is_array($args) && count($args) > 0) {
+                $yaml['args'] = implode(',', array_map('strval', array_values($args)));
+            }
+
+            // Multisync metadata (for round-trip symmetry)
+            if (!empty($entry['multisyncCommand'])) {
+                $yaml['multisync'] = true;
+                $hosts = trim((string)($entry['multisyncHosts'] ?? ''));
+                if ($hosts !== '') {
+                    $yaml['hosts'] = $hosts;
+                }
+            }
         }
 
         $stopType = FPPSemantics::stopTypeToString((int)($entry['stopType'] ?? 0));
