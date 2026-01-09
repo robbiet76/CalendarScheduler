@@ -153,6 +153,7 @@ final class HolidayResolver
         $month = (int)$calc['month'];
         $fppDow = (int)$calc['dow'];   // FPP: 0=Sunday .. 6=Saturday
         $week  = (int)$calc['week'];
+        $origMonth = $month;
 
         // Convert FPP weekday to PHP ISO-8601 weekday (1=Monday .. 7=Sunday)
         $phpDow = ($fppDow === 0) ? 7 : $fppDow;
@@ -171,6 +172,9 @@ final class HolidayResolver
         }
 
         $d->modify('+' . (($week - 1) * 7) . ' days');
+        if ((int)$d->format('n') !== $origMonth) {
+            $d->modify('-7 days');
+        }
         return $d;
     }
 }
