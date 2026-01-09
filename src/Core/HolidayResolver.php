@@ -178,29 +178,28 @@ final class HolidayResolver
             }
             $d->modify('-' . (($week - 1) * 7) . ' days');
 
-            // Ensure the calculated date is still within the target month.
-            // If not, the holiday definition is invalid for this year.
             if ((int)$d->format('n') !== $origMonth) {
                 return null;
             }
 
             return $d;
-        } else {
+        }
+
+        if ($calc['type'] === 'head') {
             // Canonical Nth-weekday-of-month calculation (FPP-compatible)
             $firstOfMonth = new DateTime(sprintf('%04d-%02d-01', $year, $month));
             $firstDow = (int)$firstOfMonth->format('N');
 
-            // Days to first desired weekday
             $delta = ($isoDow - $firstDow + 7) % 7;
-
             $day = 1 + $delta + (($week - 1) * 7);
 
-            // Validate resulting date is within target month
             if ($day < 1 || $day > (int)$firstOfMonth->format('t')) {
                 return null;
             }
 
             return new DateTime(sprintf('%04d-%02d-%02d', $year, $month, $day));
         }
+
+        return null;
     }
 }
