@@ -172,9 +172,13 @@ final class HolidayResolver
         }
 
         $d->modify('+' . (($week - 1) * 7) . ' days');
+
+        // Ensure the calculated date is still within the target month.
+        // If not, the holiday definition is invalid for this year.
         if ((int)$d->format('n') !== $origMonth) {
-            $d->modify('-7 days');
+            return null;
         }
+
         return $d;
     }
 }
