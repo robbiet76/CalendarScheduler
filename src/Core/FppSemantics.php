@@ -360,6 +360,12 @@ final class FPPSemantics
     ): ?string {
         $raw = trim($raw);
 
+        error_log(
+            '[GCS DEBUG][FPPSemantics::resolveDate] context=' . $context .
+            ' raw=' . ($raw !== '' ? $raw : '(empty)') .
+            ' fallbackDate=' . ($fallbackDate ?? '(null)')
+        );
+
         // Absolute date
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
             if (self::isSentinelDate($raw)) {
@@ -375,13 +381,26 @@ final class FPPSemantics
                 ? (int)substr($fallbackDate, 0, 4)
                 : (int)date('Y');
 
+            error_log(
+                '[GCS DEBUG][FPPSemantics::resolveDate] attempting holiday resolve ' .
+                $raw . ' using yearHint=' . $yearHint
+            );
+
             $dt = HolidayResolver::dateFromHoliday($raw, $yearHint);
 
             if ($dt instanceof DateTime) {
+                error_log(
+                    '[GCS DEBUG][FPPSemantics::resolveDate] holiday ' .
+                    $raw . ' resolved to ' . $dt->format('Y-m-d')
+                );
                 return $dt->format('Y-m-d');
             }
         }
 
+        error_log(
+            '[GCS DEBUG][FPPSemantics::resolveDate] FAILED to resolve ' .
+            $raw . ' in context=' . $context
+        );
         $warnings[] = "Export: {$context} '{$raw}' invalid.";
         return null;
     }
