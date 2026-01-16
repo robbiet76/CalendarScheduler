@@ -161,23 +161,64 @@ Each stage consumes the output of the previous stage and produces a strictly def
 
 ---
 
-## Directory Structure (Conceptual)
+
+## Canonical Component Grouping
+
+The implementation is organized into a small number of **coarse-grained architectural domains**.
+This structure is **normative**, not incidental.
+
+Each directory represents a *responsibility boundary* and enforces allowed dependency directions.
 
 ```
 src/
- ├─ Provider/
- │   └─ Ics/
- ├─ Planner/
- │   ├─ Planner
- │   └─ Bundles
- ├─ Manifest/
- ├─ Diff/
- ├─ Apply/
- ├─ Semantics/
- │   └─ Fpp
- └─ Core/
-     └─ Logging, Utilities
+├── Core/          # Pure, deterministic logic (no I/O, no platform knowledge)
+├── Inbound/       # External systems → Manifest (calendar ingestion)
+├── Manifest/      # Authoritative state, identity, ownership
+├── Planner/       # Intent → ordered desired state
+├── Diff/          # Desired vs existing reconciliation
+├── Outbound/      # Manifest → external systems (write-only)
+├── Platform/      # FPP-specific semantics and schema translation
+├── Bootstrap/     # Runtime config, logging, debug flags
+└── UI/            # Presentation and controllers
 ```
+
+### Dependency Rules
+
+The following dependency rules are mandatory:
+
+- **Core**
+  - Has no dependencies on any other directory
+  - Contains only pure functions and shared domain helpers
+
+- **Inbound**
+  - May depend on Core
+  - Must not depend on Manifest, Planner, Diff, or Platform
+
+- **Manifest**
+  - May depend on Core
+  - Must not depend on Planner, Diff, Outbound, or Platform
+
+- **Planner**
+  - May depend on Core and Manifest
+  - Must not perform I/O or platform-specific logic
+
+- **Diff**
+  - May depend on Manifest
+  - Must not infer intent or modify data
+
+- **Outbound**
+  - May depend on Manifest and Platform
+  - Is strictly write-only with respect to external systems
+
+- **Platform**
+  - Encapsulates all FPP-specific behavior
+  - Must not leak platform concepts into Core, Planner, or Manifest
+
+- **UI**
+  - May call Planner, Diff, and Apply endpoints
+  - Must not implement scheduling logic
+
+Violations of these boundaries are architectural defects.
 
 ---
 

@@ -63,6 +63,26 @@ All sections:
 - Identity decoupled from scheduler settings
 - Calendar provider abstraction formalized
 - Backwards compatibility explicitly excluded
+- All specification documents explicitly marked with **STABLE** headers at top-level
+
+---
+
+## v2.0.1 — 2026-01-15
+**Status:** Editorial Stabilization
+
+### Summary
+Non-behavioral clarification pass to reinforce specification immutability.
+
+### Scope
+- All spec documents
+
+### Changes
+- Added explicit **STABLE** designation to every specification file
+- No behavioral changes introduced
+
+### Notes
+- This version does not change system behavior
+- No migration or implementation impact
 
 ---
 
