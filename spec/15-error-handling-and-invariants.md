@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -15,6 +15,12 @@ This section defines:
 - Explicitly **forbidden behaviors** (silent repair, guessing, mutation during preview, etc.)
 
 > **Policy:** This system is intentionally strict. If upstream data is invalid or internal invariants are violated, we prefer **loud failure** over silent drift.
+
+### Design Philosophy
+
+- Provider-originated data is the primary source of invariant risk.  
+- FPP-originated scheduler data is assumed structurally valid.  
+- The system is not defensive against FPP schema violations.
 
 ---
 
@@ -42,6 +48,9 @@ An error that must stop the pipeline for the current run. The UI must show it an
 
 ### Recoverable Error
 An error that can be continued past **only** where explicitly allowed (see “Soft failures”).
+
+### Intent-Recoverable Error
+An error where user intent is clear enough to normalize safely; allowed only during Preview and must be explicitly logged.
 
 ---
 
@@ -126,6 +135,7 @@ Apply is strict:
 - Any duplicate identities (desired or existing) → **fatal**
 - Any planner invariant violation → **fatal**
 - Any partial apply attempt must be prevented (preflight) or surfaced (transaction failure)
+- Apply performs no secondary validation against FPP scheduler data; it assumes prior correctness.
 
 ---
 
@@ -150,6 +160,8 @@ Apply is strict:
 5. **No silent repair**
    - The system must not “guess” missing fields, infer identity, or auto-correct upstream mistakes.
 
+6. Invariant enforcement is asymmetric: strict on calendar/provider input, trusting on FPP scheduler input.
+
 ---
 
 ## Component Invariants
@@ -162,6 +174,7 @@ Hard invariants:
 - Never mutates intent or identity
 - Never writes to FPP
 - Never writes to manifest store
+- Calendar-originated errors are treated as user errors and must be surfaced clearly.
 
 Soft failures (allowed if explicitly surfaced):
 
@@ -274,6 +287,7 @@ The system MUST NOT:
 - Reorder or delete unmanaged entries
 - Use schedule.json as authoritative input
 - Allow planner output to contain “template defaults” that were never derived from intent
+- Building generalized defensive validation layers for FPP scheduler input.
 
 ---
 

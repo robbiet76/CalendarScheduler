@@ -87,6 +87,35 @@ Non-behavioral clarification pass to reinforce specification immutability.
 ---
 
 
+## v2.2 — 2026-01-16
+**Status:** Behavioral Clarification
+
+### Summary
+Clarified invariant enforcement philosophy and error-handling scope, with emphasis on provider-originated data.
+
+### Scope
+- 03 — Manifest
+- 05 — Calendar I/O
+- 15 — Error Handling & Invariants
+
+### Changes
+- Clarified that invariant enforcement is primarily focused on **calendar provider input**, not FPP scheduler output.
+- Codified a **hard-fail strategy** for invalid or ambiguous provider data:
+  - Fail fast
+  - No silent correction
+  - No speculative healing
+- Explicitly documented that:
+  - FPP-originated scheduler data is assumed structurally valid
+  - Defensive validation of FPP output is intentionally minimal
+- Reinforced the principle that error-handling infrastructure must remain **small, explicit, and intentional**.
+
+### Notes
+- This change constrains implementation strategy but does not introduce new features
+- Emphasizes correctness and clarity over resilience to malformed input
+- Backwards compatibility remains intentionally unsupported
+
+---
+
 ## v2.1 — 2026-01-16
 **Status:** Behavioral Clarification
 

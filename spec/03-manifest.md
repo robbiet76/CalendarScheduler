@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -35,10 +35,11 @@ Backwards compatibility is **explicitly not a goal**. The Manifest is free to ev
 4. **Symbolic preservation**  \
    Symbolic dates and times (Dawn, Dusk, Holidays, DatePatterns) are preserved semantically and resolved only at the FPP interface layer.
 
-6. **Dual date preservation**  \
-   When a concrete (hard) date is provided, it is always preserved. If that date resolves to a known holiday, the symbolic holiday representation is stored in addition. Date semantics are never collapsed or replaced.
+5. **Dual date preservation**  \
+   When a concrete (hard) date is provided, it is always preserved. If that date resolves to a known holiday, the symbolic holiday representation is stored in addition. Date semantics are never collapsed or replaced.  
+   Hard dates and symbolic dates are never inferred from FPP output; preservation occurs only during calendar ingestion.
 
-5. **Atomic execution units**  \
+6. **Atomic execution units**  \
    Execution details are grouped into SubEvents that are always applied and ordered atomically.
 
 ---
@@ -119,6 +120,13 @@ IdentityObject {
 }
 ```
 
+### Identity Invariants
+
+- Identity fields must be fully specified and non-null after ingestion.
+- Identity must not include stopType, repeat, enabled flags, or any execution-only settings.
+- Identity must be invariant across years unless DatePattern explicitly encodes year specificity.
+- Identity must be provider-agnostic.
+
 Rules:
 
 - Identity excludes operational settings (e.g. stopType, repeat)
@@ -161,6 +169,10 @@ A **SubEvent** is an executable component derived from a Manifest Event.
 
 SubEvents exist because not all calendar intent maps cleanly to a single FPP scheduler entry.
 
+SubEvents represent FPP-required execution decomposition but remain part of the Manifest because they are derived intent, not FPP state.
+
+1 SubEvent ≠ 1 IdentityObject; identity exists only at the Manifest Event level.
+
 ```ts
 SubEvent {
   role: "base" | "exception",
@@ -190,6 +202,12 @@ DatePattern {
   symbolic?: string   // Holiday token as defined by FPP (e.g. "Christmas", "Thanksgiving")
 }
 ```
+
+### DatePattern Resolution Rules
+
+- Hard date → holiday resolution occurs only if the hard date exactly matches an FPP-defined holiday.
+- Resolution is performed during ingestion, not during planning or apply.
+- DatePattern supports all FPP `0000-XX-XX` and `YYYY-00-XX` repeating semantics.
 
 Rules:
 
@@ -278,3 +296,10 @@ Rules:
 - SubEvents are atomic
 - Scheduler state is reproducible from the Manifest alone
 - Date semantics (hard and symbolic) are fully preserved and never lossy
+
+---
+
+## Invariant Enforcement
+
+- Manifest invariants are enforced strictly during calendar ingestion.
+- Manifest consumers may assume Manifest correctness and must not re-validate provider-originated invariants.
