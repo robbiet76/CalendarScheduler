@@ -35,6 +35,9 @@ Backwards compatibility is **explicitly not a goal**. The Manifest is free to ev
 4. **Symbolic preservation**  \
    Symbolic dates and times (Dawn, Dusk, Holidays, DatePatterns) are preserved semantically and resolved only at the FPP interface layer.
 
+6. **Dual date preservation**  \
+   When a concrete (hard) date is provided, it is always preserved. If that date resolves to a known holiday, the symbolic holiday representation is stored in addition. Date semantics are never collapsed or replaced.
+
 5. **Atomic execution units**  \
    Execution details are grouped into SubEvents that are always applied and ordered atomically.
 
@@ -111,7 +114,8 @@ IdentityObject {
   days: string,
   start_time: TimeToken,
   end_time: TimeToken,
-  date_pattern: DatePattern
+  start_date: DatePattern,
+  end_date: DatePattern
 }
 ```
 
@@ -176,23 +180,42 @@ Rules:
 
 ## DatePattern (Intent-Level Date Semantics)
 
-The Manifest stores *date intent*, not concrete dates.
+The Manifest preserves both **concrete** and **symbolic** date intent.
+
+DatePattern supports dual representation when applicable.
 
 ```ts
-DatePattern =
-  | { kind: "absolute", year: number, month: number, day: number }
-  | { kind: "annual_range", start_month: number, start_day: number,
-                             end_month: number, end_day: number }
-  | { kind: "annual_day", month: number, day: number }
-  | { kind: "monthly_day", day: number }
-  | { kind: "full_year" }
+DatePattern {
+  hard?: string,      // "YYYY-MM-DD" or pattern forms like "0000-MM-DD", "YYYY-00-DD"
+  symbolic?: string   // Holiday token as defined by FPP (e.g. "Christmas", "Thanksgiving")
+}
 ```
 
 Rules:
 
-- No sentinel dates (e.g. `0000-00-00`) are stored
-- DatePattern is year-invariant
-- Expansion occurs only during Apply
+- A hard date is always preserved if provided by the source
+- When a hard date resolves to a known FPP holiday, the symbolic value is stored in addition
+- If only a symbolic date is provided, only `symbolic` is stored
+- Symbolic dates are never invented if no resolver match exists
+- DatePattern is immutable after ingestion
+- Expansion into executable dates occurs only during Apply
+
+Examples:
+
+Hard date only:
+```json
+{ "hard": "2025-11-22" }
+```
+
+Hard date resolving to holiday:
+```json
+{ "hard": "2025-12-25", "symbolic": "Christmas" }
+```
+
+Symbolic-only:
+```json
+{ "symbolic": "Thanksgiving" }
+```
 
 ---
 
@@ -254,4 +277,4 @@ Rules:
 - Manifest Events are deterministic
 - SubEvents are atomic
 - Scheduler state is reproducible from the Manifest alone
-
+- Date semantics (hard and symbolic) are fully preserved and never lossy

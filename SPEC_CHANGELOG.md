@@ -86,6 +86,34 @@ Non-behavioral clarification pass to reinforce specification immutability.
 
 ---
 
+
+## v2.1 — 2026-01-16
+**Status:** Behavioral Clarification
+
+### Summary
+Formalized dual-date handling and DatePattern semantics within the Manifest.
+
+### Scope
+- 03 — Manifest
+- 04 — Manifest Identity Model (reference alignment)
+
+### Changes
+- Introduced **dual-date representation** in the Manifest:
+  - Hard dates are always preserved when provided
+  - Symbolic dates are additionally stored when a hard date resolves to an FPP-defined holiday
+- Replaced single `date_pattern` usage with explicit:
+  - `start_date: DatePattern`
+  - `end_date: DatePattern`
+- Clarified that:
+  - `DatePattern` and `0000-XX-XX` style FPP patterns are equivalent concepts
+  - No date information is inferred, collapsed, or discarded
+- Codified lossless date preservation as a Manifest invariant
+
+### Notes
+- No behavioral change to Apply or Planner phases yet
+- This change is preparatory and constrains future implementation
+- Backwards compatibility remains intentionally unsupported
+
 ## Future Versions
 
 _Add new entries above this line._

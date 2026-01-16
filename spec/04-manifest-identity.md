@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -66,7 +66,8 @@ IdentityObject {
   days: string,
   start_time: TimeToken,
   end_time: TimeToken,
-  date_pattern: DatePattern
+  start_date: DatePattern,
+  end_date: DatePattern
 }
 ```
 
@@ -84,8 +85,15 @@ IdentityObject {
 - **start_time / end_time**  
   Symbolic or absolute time intent. Never resolved inside identity.
 
-- **date_pattern**  
-  Structured date intent (annual, monthly, full-year, symbolic, etc.).
+- **start_date / end_date**  
+  Structured date intent using DatePattern semantics (including `0000-XX-XX`). Identity is based on the abstract pattern, not resolved calendar dates.
+
+### DatePattern & Identity Semantics
+
+- DatePattern is equivalent to FPP `0000-XX-XX` pattern semantics  
+- Identity uses the abstract pattern only  
+- Resolved dates (even when derived from holidays) must never affect identity  
+- When both symbolic and hard dates exist, identity is derived from the pattern, not the resolved value
 
 ---
 
@@ -141,6 +149,7 @@ Each IdentityObject produces:
 Before hashing:
 - Fields are ordered deterministically
 - Day masks are normalized
+- DatePatterns are serialized structurally (year/month/day wildcards preserved)
 - DatePattern is serialized structurally
 - TimeTokens are serialized symbolically
 
@@ -210,4 +219,3 @@ Only **semantic intent changes** may alter identity.
 ---
 
 **Next Section:** `05 — Calendar Ingestion Layer`
-
