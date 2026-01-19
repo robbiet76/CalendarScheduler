@@ -1,56 +1,64 @@
 <?php
 declare(strict_types=1);
 
-namespace GCS\Core\Exception;
+namespace GCS\Core;
 
 /**
- * Thrown when a Manifest invariant is violated.
+ * ManifestInvariantViolation
  *
- * This indicates a programming or data integrity error.
- * It must never be silently handled.
+ * Hard-failure exception for manifest-level invariants.
+ * Keep this minimal: enough structure to surface a clear error code + context.
  */
-class ManifestInvariantViolation extends \RuntimeException
+final class ManifestInvariantViolation extends \RuntimeException
 {
-    /* -----------------------------------------------------------------
-     * Identity Invariants
-     * ----------------------------------------------------------------- */
-    public const IDENTITY_MISSING      = 'identity_missing';
-    public const IDENTITY_INCOMPLETE   = 'identity_incomplete';
-    public const IDENTITY_DUPLICATE    = 'identity_duplicate';
-    public const IDENTITY_MUTATION     = 'identity_mutation';
-    public const IDENTITY_HASH_INVALID = 'identity_hash_invalid';
+    // Manifest-level codes (keep stable; used for diagnostics and tests)
+    public const MANIFEST_UNREADABLE = 'MANIFEST_UNREADABLE';
+    public const MANIFEST_JSON_INVALID = 'MANIFEST_JSON_INVALID';
+    public const MANIFEST_ROOT_INVALID = 'MANIFEST_ROOT_INVALID';
+    public const EVENT_MISSING_ID = 'EVENT_MISSING_ID';
+    public const EVENT_DUPLICATE_ID = 'EVENT_DUPLICATE_ID';
+    public const EVENT_IDENTITY_MISSING = 'EVENT_IDENTITY_MISSING';
+    public const EVENT_IDENTITY_INVALID = 'EVENT_IDENTITY_INVALID';
+    public const EVENT_IDENTITY_MUTATION = 'EVENT_IDENTITY_MUTATION';
+    public const SUBEVENT_IDENTITY_INVALID = 'SUBEVENT_IDENTITY_INVALID';
 
-    /* -----------------------------------------------------------------
-     * SubEvent Invariants
-     * ----------------------------------------------------------------- */
-    public const SUBEVENT_IDENTITY_ERROR = 'subevent_identity_error';
-
-    /* -----------------------------------------------------------------
-     * Manifest-Level Invariants
-     * ----------------------------------------------------------------- */
-    public const MANIFEST_INVALID    = 'manifest_invalid';
-    public const MANIFEST_NOT_LOADED = 'manifest_not_loaded';
-
-    private string $codeId;
+    /** @var array<string,mixed> */
     private array $context;
 
-    public function __construct(
-        string $codeId,
-        string $message,
-        array $context = []
-    ) {
-        parent::__construct("[{$codeId}] {$message}");
-        $this->codeId = $codeId;
-        $this->context = $context;
-    }
+    private string $invariantCode;
 
-    public function codeId(): string
+    /**
+     * @param array<string,mixed> $context
+     */
+    public function __construct(string $code, string $message, array $context = [], ?\Throwable $previous = null)
     {
-        return $this->codeId;
+        $this->context = $context;
+        parent::__construct($message, 0, $previous);
+        // store code in Exception::getCode() isn't great (expects int), so we expose via getInvariantCode()
+        $this->invariantCode = $code;
     }
 
-    public function context(): array
+    public function getInvariantCode(): string
+    {
+        return $this->invariantCode;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public function getContext(): array
     {
         return $this->context;
     }
+
+    /**
+     * Convenience factory.
+     *
+     * @param array<string,mixed> $context
+     */
+    public static function fail(string $code, string $message, array $context = [], ?\Throwable $previous = null): self
+    {
+        return new self($code, $message, $context, $previous);
+    }
 }
+

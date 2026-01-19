@@ -65,9 +65,7 @@ IdentityObject {
   target: string,
   days: string,
   start_time: TimeToken,
-  end_time: TimeToken,
-  start_date: DatePattern,
-  end_date: DatePattern
+  end_time: TimeToken
 }
 ```
 
@@ -84,16 +82,6 @@ IdentityObject {
 
 - **start_time / end_time**  
   Symbolic or absolute time intent. Never resolved inside identity.
-
-- **start_date / end_date**  
-  Structured date intent using DatePattern semantics (including `0000-XX-XX`). Identity is based on the abstract pattern, not resolved calendar dates.
-
-### DatePattern & Identity Semantics
-
-- DatePattern is equivalent to FPP `0000-XX-XX` pattern semantics  
-- Identity uses the abstract pattern only  
-- Resolved dates (even when derived from holidays) must never affect identity  
-- When both symbolic and hard dates exist, identity is derived from the pattern, not the resolved value
 
 ---
 
@@ -124,6 +112,17 @@ Identity answers *“what is this?”*, not *“how does FPP run it?”*.
 
 ---
 
+### Dates and Identity
+
+> Dates are **never part of identity**.  
+>  
+> Start and end dates (including DatePattern, symbolic dates, resolved dates, and `0000-XX-XX` patterns) describe **when** an intent applies, not **what** the intent is.  
+>  
+> Identity must remain stable across years and calendar realizations.  
+> Therefore, all date semantics belong exclusively to **Intent** and **SubEvent realization**, never to Identity.
+
+---
+
 ## UID vs Identity
 
 | Concept | Purpose |
@@ -135,6 +134,19 @@ Rules:
 - UID is never used for equality
 - UID may change without affecting identity
 - Multiple UIDs may map to one identity
+
+---
+
+### Identity and SubEvents
+
+> A **Manifest Event** defines exactly one Identity.  
+>  
+> All **SubEvents**:  
+> - Inherit the parent Event Identity verbatim  
+> - Never define or mutate identity fields  
+> - Are distinguished only by realization-specific fields (dates, ordering, guards)  
+>  
+> SubEvents may have **distinct hashes**, but they never have distinct identities.
 
 ---
 
@@ -152,6 +164,7 @@ Before hashing:
 - DatePatterns are serialized structurally (year/month/day wildcards preserved)
 - DatePattern is serialized structurally
 - TimeTokens are serialized symbolically
+- Date fields must never be included in identity canonicalization
 
 Two IdentityObjects that are semantically equal **must hash identically**.
 

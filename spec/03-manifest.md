@@ -114,9 +114,7 @@ IdentityObject {
   target: string,
   days: string,
   start_time: TimeToken,
-  end_time: TimeToken,
-  start_date: DatePattern,
-  end_date: DatePattern
+  end_time: TimeToken
 }
 ```
 
@@ -124,7 +122,7 @@ IdentityObject {
 
 - Identity fields must be fully specified and non-null after ingestion.
 - Identity must not include stopType, repeat, enabled flags, or any execution-only settings.
-- Identity must be invariant across years unless DatePattern explicitly encodes year specificity.
+- Identity explicitly excludes all date semantics, including DatePattern, hard dates, symbolic dates, and year-specific constraints.
 - Identity must be provider-agnostic.
 
 Rules:
@@ -187,6 +185,7 @@ Rules:
 - Zero or more SubEvents may have `role: "exception"`
 - SubEvents have **no independent identity**
 - SubEvents are never diffed, ordered, or applied independently
+- All SubEvents inherit the parent Manifest Event Identity verbatim; SubEvents never define or modify identity fields.
 
 ---
 
@@ -217,6 +216,8 @@ Rules:
 - Symbolic dates are never invented if no resolver match exists
 - DatePattern is immutable after ingestion
 - Expansion into executable dates occurs only during Apply
+
+DatePattern applies to SubEvent timing and intent realization, not to Manifest Event identity.
 
 Examples:
 

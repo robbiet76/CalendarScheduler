@@ -87,6 +87,41 @@ Non-behavioral clarification pass to reinforce specification immutability.
 ---
 
 
+## v2.3 — 2026-01-16
+**Status:** Behavioral Clarification
+
+### Summary
+Refined Manifest Identity semantics and hashing rules to ensure long-term stability and correct SubEvent handling.
+
+### Scope
+- 03 — Manifest
+- 04 — Manifest Identity Model
+- 07 — Events & SubEvents
+
+### Changes
+- Explicitly removed **start_date** and **end_date** from Manifest Identity.
+- Formalized that Manifest Identity is derived **only** from:
+  - type
+  - target
+  - days
+  - start_time
+  - end_time
+- Clarified that:
+  - Date information belongs to intent and SubEvent realization, not identity
+  - Identity must remain stable across years and date changes
+- Codified that:
+  - One Calendar Event maps to one Manifest Event and one Identity
+  - All SubEvents inherit the parent Event identity
+  - SubEvents may have **distinct hashes**, but never distinct identities
+- Explicitly prohibited date-derived hashing.
+
+### Notes
+- This change is identity-defining and constrains both Planner and ManifestStore implementations
+- Prevents accidental duplication across seasonal or recurring schedules
+- Backwards compatibility remains intentionally unsupported
+
+---
+
 ## v2.2 — 2026-01-16
 **Status:** Behavioral Clarification
 
