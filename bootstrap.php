@@ -37,13 +37,24 @@ require_once __DIR__ . '/src/Core/ManifestInvariantViolation.php';
 // Planner — desired-state construction (PURE)
 // -----------------------------------------------------------------------------
 
+require_once __DIR__ . '/src/Planner/OrderingKey.php';
 require_once __DIR__ . '/src/Planner/PlannedEntry.php';
 require_once __DIR__ . '/src/Planner/PlannerResult.php';
-
-require_once __DIR__ . '/src/Planner/OrderingRules.php';
-
 require_once __DIR__ . '/src/Planner/Planner.php';
-require_once __DIR__ . '/src/Planner/ManifestPlanner.php';
+
+// -----------------------------------------------------------------------------
+// Diff — desired vs existing reconciliation (PURE)
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Diff/DiffResult.php';
+require_once __DIR__ . '/src/Diff/Diff.php';
+
+// -----------------------------------------------------------------------------
+// Outbound — apply diff to schedule (PURE, Phase 2.4)
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Outbound/ApplyResult.php';
+require_once __DIR__ . '/src/Outbound/ApplyEngine.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete
