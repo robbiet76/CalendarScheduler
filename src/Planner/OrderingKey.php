@@ -1,63 +1,83 @@
 <?php
+
 declare(strict_types=1);
 
-namespace GCS\Planner;
+namespace GoogleCalendarScheduler\Planner;
 
 /**
- * OrderingKey
+ * OrderingKey encodes a *total ordering* for PlannedEntry objects.
  *
- * Deterministic, comparable ordering key derived from a PlannedEntry.
+ * It is immutable and lexicographically comparable via toScalar().
+ *
+ * Ordering model (lexicographic):
+ *  1) managedPriority (lower sorts first; managed before unmanaged)
+ *  2) eventOrder
+ *  3) subEventOrder
+ *  4) startEpochSeconds
+ *  5) stableTieBreaker (string)
  */
 final class OrderingKey
 {
+    private int $managedPriority;
     private int $eventOrder;
     private int $subEventOrder;
-    private int $startTimeSeconds;
-    private string $tieBreaker;
+    private int $startEpochSeconds;
+    private string $stableTieBreaker;
 
-    private function __construct(
+    public function __construct(
+        int $managedPriority,
         int $eventOrder,
         int $subEventOrder,
-        int $startTimeSeconds,
-        string $tieBreaker
+        int $startEpochSeconds,
+        string $stableTieBreaker = ''
     ) {
-        $this->eventOrder        = $eventOrder;
-        $this->subEventOrder     = $subEventOrder;
-        $this->startTimeSeconds  = $startTimeSeconds;
-        $this->tieBreaker        = $tieBreaker;
+        if ($managedPriority < 0 || $managedPriority > 9) {
+            throw new \InvalidArgumentException('managedPriority must be in range 0..9');
+        }
+        if ($eventOrder < -1) {
+            throw new \InvalidArgumentException('eventOrder must be >= -1');
+        }
+        if ($subEventOrder < -1) {
+            throw new \InvalidArgumentException('subEventOrder must be >= -1');
+        }
+        if ($startEpochSeconds < 0) {
+            throw new \InvalidArgumentException('startEpochSeconds must be >= 0');
+        }
+
+        $this->managedPriority = $managedPriority;
+        $this->eventOrder = $eventOrder;
+        $this->subEventOrder = $subEventOrder;
+        $this->startEpochSeconds = $startEpochSeconds;
+        $this->stableTieBreaker = $stableTieBreaker;
     }
 
-    /**
-     * Build an OrderingKey from a PlannedEntry.
-     */
-    public static function fromPlannedEntry(PlannedEntry $entry): self
-    {
-        $timing = $entry->timing();
-        $startTime = $timing['start_time']['value'] ?? '00:00:00';
+    public function managedPriority(): int { return $this->managedPriority; }
+    public function eventOrder(): int { return $this->eventOrder; }
+    public function subEventOrder(): int { return $this->subEventOrder; }
+    public function startEpochSeconds(): int { return $this->startEpochSeconds; }
+    public function stableTieBreaker(): string { return $this->stableTieBreaker; }
 
-        return new self(
-            $entry->eventOrder(),
-            $entry->subEventOrder(),
-            self::timeToSeconds($startTime),
-            $entry->subEventIdentityHash()
+    /**
+     * Lexicographically sortable scalar string (locale/collation safe).
+     */
+    public function toScalar(): string
+    {
+        // eventOrder/subEventOrder may be -1; map to 0 with an offset.
+        $event = $this->eventOrder + 1;
+        $sub = $this->subEventOrder + 1;
+
+        return sprintf(
+            '%01d-%06d-%06d-%010d-%s',
+            $this->managedPriority,
+            $event,
+            $sub,
+            $this->startEpochSeconds,
+            $this->stableTieBreaker
         );
     }
 
-    /**
-     * Compare two OrderingKeys.
-     */
     public static function compare(self $a, self $b): int
     {
-        return
-            $a->eventOrder        <=> $b->eventOrder
-            ?: $a->subEventOrder  <=> $b->subEventOrder
-            ?: $a->startTimeSeconds <=> $b->startTimeSeconds
-            ?: strcmp($a->tieBreaker, $b->tieBreaker);
-    }
-
-    private static function timeToSeconds(string $hhmmss): int
-    {
-        [$h, $m, $s] = array_map('intval', explode(':', $hhmmss));
-        return ($h * 3600) + ($m * 60) + $s;
+        return $a->toScalar() <=> $b->toScalar();
     }
 }

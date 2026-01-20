@@ -1,12 +1,11 @@
 <?php
+
 declare(strict_types=1);
 
-namespace GCS\Planner;
+namespace GoogleCalendarScheduler\Planner;
 
 /**
- * PlannerResult
- *
- * Immutable container for ordered PlannedEntries.
+ * PlannerResult is a simple container for already-sorted PlannedEntry objects.
  */
 final class PlannerResult
 {
@@ -14,36 +13,22 @@ final class PlannerResult
     private array $entries;
 
     /**
-     * @param PlannedEntry[] $entries Ordered planned entries
+     * @param PlannedEntry[] $entries Already sorted.
      */
     public function __construct(array $entries)
     {
-        $this->entries = $entries;
-    }
-
-    /**
-     * @return PlannedEntry[]
-     */
-    public function entries(): array
-    {
-        return $this->entries;
-    }
-
-    /**
-     * Convenience: return entries keyed by sub-event identity hash.
-     *
-     * This is the identity used for diffing and apply.
-     *
-     * @return array<string, PlannedEntry>
-     */
-    public function byIdentity(): array
-    {
-        $map = [];
-
-        foreach ($this->entries as $entry) {
-            $map[$entry->subEventIdentityHash()] = $entry;
+        foreach ($entries as $entry) {
+            if (!$entry instanceof PlannedEntry) {
+                throw new \InvalidArgumentException('PlannerResult entries must be PlannedEntry instances');
+            }
         }
-
-        return $map;
+        $this->entries = array_values($entries);
     }
+
+    /** @return PlannedEntry[] */
+    public function entries(): array { return $this->entries; }
+
+    public function count(): int { return count($this->entries); }
+
+    public function isEmpty(): bool { return $this->count() === 0; }
 }

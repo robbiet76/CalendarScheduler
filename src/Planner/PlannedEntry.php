@@ -1,63 +1,87 @@
 <?php
+
 declare(strict_types=1);
 
-namespace GCS\Planner;
+namespace GoogleCalendarScheduler\Planner;
 
 /**
- * PlannedEntry
+ * PlannedEntry represents one FPP scheduler entry derived from:
+ *  - one Manifest Event
+ *  - one SubEvent
  *
- * Immutable execution unit produced by the Planner.
- * Represents exactly one FPP scheduler entry.
+ * Pure value object: construction + minimal validation only.
  */
 final class PlannedEntry
 {
     private string $eventId;
-    private string $eventIdentityHash;
-    private string $subEventIdentityHash;
+    private string $subEventId;
+    private string $identityHash;
 
-    private string $type;
-    private string $target;
+    /** @var array<string,mixed> */
+    private array $target;
+
+    /** @var array<string,mixed> */
     private array $timing;
-    private bool $enabled;
 
-    private int $eventOrder;
-    private int $subEventOrder;
+    private OrderingKey $orderingKey;
 
+    /**
+     * @param array<string,mixed> $target
+     * @param array<string,mixed> $timing
+     */
     public function __construct(
         string $eventId,
-        string $eventIdentityHash,
-        string $subEventIdentityHash,
-        string $type,
-        string $target,
+        string $subEventId,
+        string $identityHash,
+        array $target,
         array $timing,
-        bool $enabled,
-        int $eventOrder,
-        int $subEventOrder
+        OrderingKey $orderingKey
     ) {
-        $this->eventId               = $eventId;
-        $this->eventIdentityHash     = $eventIdentityHash;
-        $this->subEventIdentityHash  = $subEventIdentityHash;
-        $this->type                  = $type;
-        $this->target                = $target;
-        $this->timing                = $timing;
-        $this->enabled               = $enabled;
-        $this->eventOrder            = $eventOrder;
-        $this->subEventOrder         = $subEventOrder;
+        $eventId = trim($eventId);
+        $subEventId = trim($subEventId);
+        $identityHash = trim($identityHash);
+
+        if ($eventId === '') {
+            throw new \InvalidArgumentException('eventId must be a non-empty string');
+        }
+        if ($subEventId === '') {
+            throw new \InvalidArgumentException('subEventId must be a non-empty string');
+        }
+        if ($identityHash === '') {
+            throw new \InvalidArgumentException('identityHash must be a non-empty string');
+        }
+        if (empty($target)) {
+            throw new \InvalidArgumentException('target must be a non-empty array');
+        }
+        if (empty($timing)) {
+            throw new \InvalidArgumentException('timing must be a non-empty array');
+        }
+
+        $this->eventId = $eventId;
+        $this->subEventId = $subEventId;
+        $this->identityHash = $identityHash;
+        $this->target = $target;
+        $this->timing = $timing;
+        $this->orderingKey = $orderingKey;
     }
 
-    // ----------------------------
-    // Accessors (read-only)
-    // ----------------------------
-
     public function eventId(): string { return $this->eventId; }
-    public function eventIdentityHash(): string { return $this->eventIdentityHash; }
-    public function subEventIdentityHash(): string { return $this->subEventIdentityHash; }
+    public function subEventId(): string { return $this->subEventId; }
+    public function identityHash(): string { return $this->identityHash; }
 
-    public function type(): string { return $this->type; }
-    public function target(): string { return $this->target; }
+    /** @return array<string,mixed> */
+    public function target(): array { return $this->target; }
+
+    /** @return array<string,mixed> */
     public function timing(): array { return $this->timing; }
-    public function enabled(): bool { return $this->enabled; }
 
-    public function eventOrder(): int { return $this->eventOrder; }
-    public function subEventOrder(): int { return $this->subEventOrder; }
+    public function orderingKey(): OrderingKey { return $this->orderingKey; }
+
+    public function stableKey(): string
+    {
+        return $this->orderingKey->toScalar()
+            . '|' . $this->identityHash
+            . '|' . $this->eventId
+            . '|' . $this->subEventId;
+    }
 }
