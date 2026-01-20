@@ -87,6 +87,31 @@ Non-behavioral clarification pass to reinforce specification immutability.
 ---
 
 
+# ## v2.3.1 — 2026-01-16
+# **Status:** Specification Alignment
+#
+# ### Summary
+# Explicitly aligned Planner-related specification sections with Phase 2.2 implementation handoff to eliminate ambiguity and prevent over-validation.
+#
+# ### Scope
+# - 07 — Events & SubEvents
+# - 08 — Scheduler Ordering Model
+# - 09 — Planner Responsibilities
+#
+# ### Changes
+# - Clarified that the Planner:
+#   - Assumes a valid Manifest and does not re-enforce identity or structural invariants
+#   - Operates as a pure, deterministic, non-persistent transformation stage
+# - Explicitly documented that:
+#   - Planner artifacts (`PlannedEntry`, `PlannerResult`, `OrderingKey`) are internal-only and never persisted
+#   - Validation and invariant enforcement are exclusive to ManifestStore and ingestion boundaries
+# - Codified that existing production-ready helper utilities (e.g. holiday resolution, parsing helpers) may be reused by the Planner **only** as pure functions
+#
+# ### Notes
+# - No behavioral change to the Manifest, Diff, or Apply phases
+# - This update is clarifying and constraining, not additive
+# - Backwards compatibility remains intentionally unsupported
+
 ## v2.3 — 2026-01-16
 **Status:** Behavioral Clarification
 

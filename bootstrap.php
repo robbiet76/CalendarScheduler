@@ -34,6 +34,18 @@ require_once __DIR__ . '/src/Core/IdentityInvariantViolation.php';
 require_once __DIR__ . '/src/Core/ManifestInvariantViolation.php';
 
 // -----------------------------------------------------------------------------
+// Planner — desired-state construction (PURE)
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Planner/PlannedEntry.php';
+require_once __DIR__ . '/src/Planner/PlannerResult.php';
+
+require_once __DIR__ . '/src/Planner/OrderingRules.php';
+
+require_once __DIR__ . '/src/Planner/Planner.php';
+require_once __DIR__ . '/src/Planner/ManifestPlanner.php';
+
+// -----------------------------------------------------------------------------
 // Bootstrap complete
 // -----------------------------------------------------------------------------
 

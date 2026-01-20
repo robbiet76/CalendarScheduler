@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -26,6 +26,7 @@ The Planner **MUST**:
 4. Apply the Scheduler Ordering Model
 5. Produce a deterministic desired state
 6. Support preview and apply modes without behavior drift
+7. Reuse existing helper components (e.g. time resolution, holiday resolution, export adapters) as pure functions where applicable
 
 The Planner **MUST NOT**:
 
@@ -34,6 +35,7 @@ The Planner **MUST NOT**:
 - Persist any state
 - Modify Manifest Events or identities
 - Apply compatibility shims for legacy behavior
+- Reimplement or duplicate invariant enforcement already guaranteed by ManifestStore
 
 ---
 
@@ -49,12 +51,18 @@ It must **never**:
 - Read from FPP directly
 - Read calendar data
 - Perform provider-specific logic
+- Re-validate Manifest identity invariants (these are enforced exclusively by ManifestStore)
 
 ---
 
 ## Outputs
 
-The Planner produces a **pure data result**:
+### Planner Output Model (Non-Persistent)
+
+The following structures are **internal Planner artifacts**. They are not persisted and must not be written back to the Manifest:
+- PlannedEntry
+- PlannerResult
+- OrderingKey
 
 ```ts
 PlannerResult {
@@ -128,6 +136,8 @@ The Planner:
 - Builds Manifest identities **once** per Manifest Event
 - Attaches identity metadata to desired entries
 - Treats identity as immutable
+
+Identity validation and invariant enforcement are **out of scope** for the Planner. The Planner assumes that all Manifest identity invariants have already been enforced at the ManifestStore boundary and must not duplicate or re-check them.
 
 The Planner MUST NOT:
 

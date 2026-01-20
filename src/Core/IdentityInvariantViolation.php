@@ -21,6 +21,8 @@ final class IdentityInvariantViolation extends \RuntimeException
     public const IDENTITY_HASH_INVALID = 'IDENTITY_HASH_INVALID';
     public const IDENTITY_DUPLICATE = 'IDENTITY_DUPLICATE';
     public const IDENTITY_MUTATION = 'IDENTITY_MUTATION';
+    public const IDENTITY_INCOMPLETE = 'IDENTITY_INCOMPLETE';
+    public const IDENTITY_INVALID_TYPE = 'IDENTITY_INVALID_TYPE';
 
     /** @var array<string,mixed> */
     private array $context;
@@ -58,4 +60,3 @@ final class IdentityInvariantViolation extends \RuntimeException
         return new self($code, $message, $context, $previous);
     }
 }
-
