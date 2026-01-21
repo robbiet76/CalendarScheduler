@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -91,13 +91,13 @@ Those responsibilities belong elsewhere.
 FppSemanticInput {
   manifest_event_id: string
   sub_event_id: string
-  intent: IntentObject
-  timing: TimingObject
+  sub_event: ManifestSubEvent
 }
 ```
 
 Inputs are assumed to be:
 
+- Derived directly from Manifest SubEvents (no separate intent or timing objects)
 - Fully normalized
 - Fully resolved
 - Valid per Manifest rules
@@ -130,7 +130,7 @@ FppScheduleEntry {
 }
 ```
 
-The output MUST be a **valid FPP scheduler entry**, ready for persistence.
+The output MUST conform to FPP scheduler entry schema and be suitable for persistence, without interpreting or modifying opaque payload semantics.
 
 ---
 
@@ -140,13 +140,13 @@ FPP requires all scheduler entries to have an end date.
 
 ### Rules
 
-- Open-ended intent **does not** mean open-ended FPP entry
+- Open-ended Manifest definition **does not** mean open-ended FPP entry
 - Guard date is applied **only here**
 - Guard date is never stored in the Manifest
 
 ### Behavior
 
-| Manifest Intent | FPP Output |
+| Manifest-defined behavior | FPP Output |
 |-----------------|-----------|
 | Open-ended      | End date = Guard Date |
 | End before guard | Unchanged |
@@ -201,7 +201,7 @@ The semantic layer must preserve this behavior exactly.
 
 ## Enabled / Disabled Behavior
 
-- `enabled` comes from intent
+- `enabled` comes from the Manifest SubEvent
 - No implicit enabling or disabling
 - Disabled entries are still written (FPP-native behavior)
 

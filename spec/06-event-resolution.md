@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -54,15 +54,17 @@ Resolution must not assume:
 
 ## Outputs
 
-Resolution produces **Normalized Event Intents**, which populate:
-- `IntentObject`
-- `TimingObject`
-- Bundle decomposition (base + exceptions)
+Resolution produces **normalized execution semantics**, expressed as provider-agnostic timing and execution records suitable for SubEvent construction.
+
+Resolution output:
+- Preserves symbolic meaning
+- Canonicalizes timing semantics
+- Identifies base semantics and exception semantics
 
 Outputs are:
 - Deterministic
 - Provider-agnostic
-- Safe for Manifest storage
+- Safe for downstream Manifest construction
 
 ---
 
@@ -121,14 +123,13 @@ Unsupported patterns:
 
 ---
 
-### 5. Decompose into Bundles When Required
+### 5. Decompose into Base and Exception Semantics When Required
 
-If a calendar event cannot be expressed as a single scheduler intent, resolution must:
-- Emit a bundle
-- Identify one base intent
-- Generate exception intents
+If a calendar event cannot be expressed as a single execution semantic, resolution must:
+- Identify one base semantic
+- Generate exception semantics
 
-Resolution creates bundles but does not order them.
+Resolution produces base and exception semantics but does not order or schedule them.
 
 ---
 
@@ -141,6 +142,8 @@ Resolution must not:
 - Apply guard dates
 - Resolve symbolic dates
 - Perform diffing or apply actions
+- Construct Manifest Events
+- Construct SubEvents
 
 ---
 
@@ -179,7 +182,7 @@ Silent failure is forbidden.
 
 ## Relationship to Manifest Identity
 
-Resolution produces Intent, not Identity.
+Resolution produces normalized execution semantics, not Identity.
 
 Identity derivation occurs later and must not influence resolution behavior.
 

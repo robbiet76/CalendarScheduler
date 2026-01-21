@@ -1,234 +1,59 @@
-**Status:** STABLE  
-> **Change Policy:** Intentional, versioned revisions only  
-> **Authority:** Behavioral Specification v2
 
-# 04 — Manifest Identity Model
+### Manifest Identity Semantics
 
-## Purpose
+> Manifest Identity defines **which scheduler intent the plugin considers equivalent**, not how the FPP scheduler internally enumerates entries.
 
-The **Manifest Identity Model** defines how semantic equality is determined within the system.
+#### Platform Reality (FPP)
 
-It answers the single most important comparison question:
+In the FPP scheduler, **every scheduler entry is structurally distinct**. Any difference in execution geometry — including type, target, date range, time range, or day mask — produces a separate entry. FPP performs a strict top-down scan of entries to determine what executes next and does not attempt to normalize or minimize entries.
 
-> **“Are these two entries the same scheduler intent?”**
+#### Plugin Responsibility
 
-Identity is the foundation for:
-- Diffing (create / update / delete)
-- De-duplication
-- Multi-event convergence
-- Long-term schedule stability
+The Manifest does **not** mirror raw FPP scheduler fragmentation. Instead, it represents a **normalized scheduler intent** chosen by the plugin to:
+- Minimize the number of scheduler entries created
+- Preserve identical runtime behavior under FPP’s scan model
+- Provide stable identity across imports, edits, and seasonal shifts
 
-If identity is wrong, *everything downstream is wrong*.
+Normalization is an **intentional optimization**, not a platform constraint.
 
----
+#### What Defines Manifest Identity
 
-## Core Principles
+Manifest Identity is derived from the subset of execution geometry that defines a **logical execution slot** as perceived by the user. Identity includes:
 
-1. **Semantic, not operational**  
-   Identity represents *meaning*, not execution details.
+- **Execution type** (playlist, command, sequence)
+- **Execution target** (playlist name, command name, etc.)
+- **Day mask** (days of week applicability)
+- **Time window** (startTime and endTime, including symbolic values)
 
-2. **Provider-agnostic**  
-   Identity must not depend on Google, ICS quirks, or FPP internals.
+These fields determine whether two scheduler entries could ever be eligible at the same moment during a daily FPP scan. If two entries differ in any of these dimensions, they represent distinct scheduler intents and must not share identity.
 
-3. **Stable across time**  
-   Identity must remain stable year-over-year, even when concrete dates change.
+#### What Does *Not* Define Manifest Identity
 
-4. **Derived, never edited**  
-   Identity is derived from intent + semantics. It is never user-authored.
+The following fields affect *when* an entry is active or *how* it executes, but do **not** define logical identity and are therefore excluded from identity hashing:
 
-5. **Deterministic and canonical**  
-   The same inputs must always produce the same identity hash.
+- Date ranges (`startDate`, `endDate`)
+- Enablement state (`enabled`)
+- Playback behavior (`repeat`, `stopType`)
+- Execution payload or command arguments
+- Provider metadata or correlation identifiers
 
----
+These fields may differ while still representing the **same normalized scheduler intent**.
 
-## What Identity Is
+#### Dates and Normalization
 
-Identity is a **canonical semantic signature** of a scheduler entry.
+Dates *can* participate in raw scheduler identity in FPP, but are intentionally **normalized out** of Manifest Identity. The plugin may collapse or expand date ranges as needed, provided that runtime behavior under FPP’s scan model is preserved. This ensures:
 
-It describes:
-- *What* runs
-- *When* it runs (semantically)
-- *On which days*
+- Identity stability across year boundaries
+- Reduced diff noise from seasonal edits
+- Predictable reconciliation behavior
 
-It does **not** describe:
-- How FPP executes it
-- Whether it is enabled today
-- How it is ordered relative to others
+Date semantics are therefore:
+- Preserved in SubEvent timing
+- Subject to plugin-controlled normalization
+- Excluded from Manifest Identity hashing
 
----
+#### Summary Rule
 
-## IdentityObject (Canonical)
+> **Two SubEvents share the same Manifest Identity if and only if they represent the same logical execution slot — meaning they cannot both be eligible at the same moment during an FPP scheduler scan.**
 
-```ts
-IdentityObject {
-  type: "playlist" | "command" | "sequence",
-  target: string,
-  days: string,
-  start_time: TimeToken,
-  end_time: TimeToken
-}
-```
-
-### Field Semantics
-
-- **type**  
-  Scheduler action category. Sequence is a first-class type and must not be folded into playlist.
-
-- **target**  
-  Playlist name, command name, or sequence identifier.
-
-- **days**  
-  Canonical day mask (e.g. `SuMoTuWeThFrSa`). Always normalized.
-
-- **start_time / end_time**  
-  Symbolic or absolute time intent. Never resolved inside identity.
-
----
-
-## Explicitly Excluded from Identity
-
-The following fields **must never** participate in identity:
-
-- `stopType`
-- `repeat`
-- `enabled`
-- `sequence number`
-- guard dates
-- resolved dates
-- provider UID
-- calendar metadata
-- UI state
-- ordering position
-
-### Why?
-
-Including these would:
-- Cause unnecessary churn
-- Break year-over-year stability
-- Tie identity to FPP implementation details
-- Make future refactors impossible
-
-Identity answers *“what is this?”*, not *“how does FPP run it?”*.
-
----
-
-### Dates and Identity
-
-> Dates are **never part of identity**.  
->  
-> Start and end dates (including DatePattern, symbolic dates, resolved dates, and `0000-XX-XX` patterns) describe **when** an intent applies, not **what** the intent is.  
->  
-> Identity must remain stable across years and calendar realizations.  
-> Therefore, all date semantics belong exclusively to **Intent** and **SubEvent realization**, never to Identity.
-
----
-
-## UID vs Identity
-
-| Concept | Purpose |
-|------|--------|
-| **UID** | Provider traceability only |
-| **Identity** | Semantic equality |
-
-Rules:
-- UID is never used for equality
-- UID may change without affecting identity
-- Multiple UIDs may map to one identity
-
----
-
-### Identity and SubEvents
-
-> A **Manifest Event** defines exactly one Identity.  
->  
-> All **SubEvents**:  
-> - Inherit the parent Event Identity verbatim  
-> - Never define or mutate identity fields  
-> - Are distinguished only by realization-specific fields (dates, ordering, guards)  
->  
-> SubEvents may have **distinct hashes**, but they never have distinct identities.
-
----
-
-## Hashing Rules
-
-Each IdentityObject produces:
-- a **canonical string**
-- a **stable hash**
-
-### Canonicalization Requirements
-
-Before hashing:
-- Fields are ordered deterministically
-- Day masks are normalized
-- DatePatterns are serialized structurally (year/month/day wildcards preserved)
-- DatePattern is serialized structurally
-- TimeTokens are serialized symbolically
-- Date fields must never be included in identity canonicalization
-
-Two IdentityObjects that are semantically equal **must hash identically**.
-
----
-
-## Multi-Event → Single Identity
-
-Multiple calendar events may intentionally converge to one identity.
-
-Examples:
-- Multiple holidays mapping to the same seasonal schedule
-- Duplicate provider events
-
-Rules:
-- All such entries share the same identity hash
-- Provenance records multiple sources
-- Deletion requires removal of all contributing intents
-
----
-
-## Identity Stability Guarantees
-
-Identity must remain stable across:
-
-- Year boundaries
-- Calendar provider changes
-- FPP version changes
-- Guard-date shifts
-
-Only **semantic intent changes** may alter identity.
-
----
-
-## Identity vs Intent Boundary
-
-| Aspect | Identity | Intent |
-|------|--------|-------|
-| Editable | ❌ | ✅ |
-| Symbolic | ✅ | ✅ |
-| Provider-aware | ❌ | ✅ |
-| Execution-specific | ❌ | ✅ |
-| Used for diff | ✅ | ❌ |
-
-> Intent expresses desire.  
-> Identity defines sameness.
-
----
-
-## Guarantees
-
-- Identity is deterministic
-- Identity is provider-agnostic
-- Identity is minimal and stable
-- Identity drift is a bug, not a feature
-
----
-
-## Non-Goals
-
-- Backward compatibility
-- Encoding execution defaults
-- Representing UI preferences
-- Supporting undocumented scheduler behavior
-
----
-
-**Next Section:** `05 — Calendar Ingestion Layer`
+This definition is authoritative and governs diffing, reconciliation, and apply behavior throughout the system.

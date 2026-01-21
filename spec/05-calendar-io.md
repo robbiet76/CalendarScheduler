@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -70,7 +70,8 @@ ingestCalendar(source: CalendarSource): CalendarEvent[]
 
 Where:
 
-- `CalendarEvent` is a neutral, lossless representation
+- `CalendarEvent` is a neutral, lossless representation  
+  This representation is intentionally unstructured and does not correspond to Manifest Events or SubEvents.
 - All recurrence, symbols, and exceptions are preserved
 
 ### Inbound Rules
@@ -79,6 +80,9 @@ Where:
 - No identity is computed
 - No intent normalization is performed
 - Provider quirks are isolated here
+- No Manifest Events or SubEvents are created in this layer
+- No identity derivation or normalization is permitted
+- Provider-neutral records must remain structurally ungrouped
 
 ---
 
@@ -94,15 +98,12 @@ It is the inverse operation of inbound ingestion.
 
 ```ts
 exportCalendar(
-  entries: ManifestEntry[],
+  events: ManifestEvent[],
   target: CalendarTarget
 ): CalendarArtifact
 ```
 
-Where:
-
-- Only `ManifestEntry.intent` is consumed
-- The output is provider-specific (e.g. ICS, API payload)
+Where: Export is driven exclusively by Manifest `SubEvent` execution and timing fields; identity and ownership metadata are ignored.
 
 ### Outbound Rules
 
@@ -173,7 +174,7 @@ Failures surface immediately and do not partially apply.
 
 ## Guarantees
 
-- Calendar I/O is reversible where supported
+- Calendar I/O is reversible at the provider-neutral record level where supported
 - Manifest intent is never silently altered
 - Provider-specific behavior is fully isolated
 
@@ -188,4 +189,3 @@ Failures surface immediately and do not partially apply.
 ---
 
 > Calendar I/O is the only layer that knows calendars exist.
-

@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -52,7 +52,6 @@ Manifest Events are the unit of:
 
 A Manifest Event contains:
 - **One IdentityObject** (semantic equality)
-- **One IntentObject** (user desire)
 - **One or more SubEvents** (executable decomposition)
 - Ownership, status, provenance, and revert metadata
 
@@ -69,7 +68,7 @@ SubEvents exist because:
 Rules:
 - SubEvents **always live inside** the Manifest Event
 - SubEvents **do not have independent identity**
-- **All SubEvents inherit the Manifest Event’s IdentityObject**
+- Identity exists at the Manifest Event level and is derived from the base SubEvent; SubEvents do not participate in identity
 - SubEvents are never diffed, ordered, or reverted independently
 - SubEvents are never persisted outside the Manifest
 
@@ -150,7 +149,6 @@ end_date:   DatePattern
 - `YYYY-MM-DD` → absolute date
 - `0000` year → applies every year
 - `00` month → applies every month
-- Any field set to zero is treated as a wildcard by FPP
 
 DatePattern is:
 - Preserved verbatim in the Manifest
@@ -215,4 +213,3 @@ Rules:
 - SubEvents share the Manifest Event’s identity
 - SubEvents are immutable once derived
 - SubEvents never escape the Manifest
-

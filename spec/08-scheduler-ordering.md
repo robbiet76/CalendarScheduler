@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -115,7 +115,7 @@ Managed Manifest Events are first ordered by:
 3. Type (playlist / command / sequence)
 4. Target (lexical)
 
-This establishes a stable and predictable baseline.
+Type and target ordering in this phase serve deterministic tie-breaking only and do not imply semantic priority. All semantic conflict resolution is performed exclusively during dominance resolution.
 
 > This phase does *not* attempt to resolve conflicts.
 
@@ -128,6 +128,8 @@ After baseline ordering, dominance rules are applied iteratively.
 Dominance rules may move a Manifest Event **above** another *only if they overlap*.
 
 ### Overlap Definition
+
+Event timing for overlap and dominance evaluation is derived from the combined effect of all SubEvents (base and exceptions); individual SubEvents are never considered independently.
 
 Two Manifest Events overlap if:
 
@@ -145,7 +147,7 @@ If no overlap exists, **ordering must not change**.
 
 If two overlapping events occur on the same day:
 
-- The event with the **later daily start time** dominates
+- The event with the **later effective daily start time** (considering all SubEvents) dominates
 
 Rationale:
 - Later schedules are intentional overrides
@@ -162,7 +164,7 @@ If two overlapping events have:
 
 Then:
 
-- The event that **starts later in the calendar** dominates
+- The event with the **later effective calendar start date** (after SubEvent normalization) dominates
 
 Rationale:
 - Seasonal overrides must replace earlier seasons

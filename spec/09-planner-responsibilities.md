@@ -101,6 +101,8 @@ Rules:
 
 The Planner is responsible for **all ordering decisions** for managed entries.
 
+Ordering decisions are based on the effective timing of each Manifest Event, derived from the combined effect of all its SubEvents (base and exceptions).
+
 It MUST:
 
 - Apply the Scheduler Ordering Model exactly
@@ -133,7 +135,7 @@ Rules:
 
 The Planner:
 
-- Builds Manifest identities **once** per Manifest Event
+- Consumes Manifest identities **once** per Manifest Event
 - Attaches identity metadata to desired entries
 - Treats identity as immutable
 
@@ -163,7 +165,7 @@ Violations of determinism are considered **critical defects**.
 The Planner MUST fail fast on:
 
 - Invalid Manifest structure
-- Missing required identity fields
+- Missing required identity fields (presence only; identity correctness is enforced by ManifestStore)
 - Violations of atomicity
 
 The Planner MUST surface:

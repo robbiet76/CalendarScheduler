@@ -37,9 +37,9 @@ All reconciliation is performed using **Manifest Identity**.
 
 ### Identity Matching Rules
 
-Two scheduler entries are considered the *same logical entry* if and only if:
+Two scheduler states are considered representations of the *same Manifest Event* if and only if:
 
-- Their Manifest Identity `id` matches exactly
+- Their associated Manifest Identity `id` matches exactly
 
 Explicitly forbidden:
 
@@ -47,6 +47,8 @@ Explicitly forbidden:
 - Matching by target name alone
 - Matching by start time alone
 - Matching by UID alone
+
+Identity matching is performed at the Manifest Event level. Individual scheduler entries produced from SubEvents are never matched independently.
 
 If identity is missing or invalid:
 
@@ -61,9 +63,9 @@ The diff produces exactly three result sets:
 
 ```ts
 DiffResult {
-  creates: FppScheduleEntry[]
-  updates: FppScheduleEntry[]
-  deletes: FppScheduleEntry[]
+  creates: PlannedEvent[]
+  updates: PlannedEvent[]
+  deletes: PlannedEvent[]
 }
 ```
 
@@ -88,6 +90,8 @@ Rules:
 - Identity fields are immutable
 - Ordering differences alone do not trigger updates
 - No partial updates are allowed
+
+Updates are atomic at the Manifest Event level. If any SubEvent realization differs, the entire event is classified as an update; partial SubEvent updates are forbidden.
 
 ---
 
@@ -114,7 +118,7 @@ Rules:
 
 - Unmanaged entries are never deleted
 - Unmanaged entries are never reordered
-- Unmanaged entries are ignored unless explicitly referenced
+- Unmanaged entries are ignored unless explicitly referenced by user action or external tooling outside the diff process
 
 ---
 

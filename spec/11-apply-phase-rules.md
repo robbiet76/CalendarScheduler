@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -33,6 +33,7 @@ The Apply phase does **not** decide *what* should change — only *how* to apply
 The Apply phase accepts:
 
 - `DiffResult` (creates / updates / deletes)
+- Diff operations are event-atomic units (e.g., `PlannedEvent`), each of which may expand to multiple scheduler entries via SubEvents
 - Runtime flags:
   - `dry_run`
   - `debug`
@@ -66,6 +67,9 @@ Apply MUST process operations in the following strict order:
 
 1. **Deletes**
 2. **Updates**
+
+Updates are applied atomically at the event level: if any SubEvent-derived scheduler entry changes, all entries for that event must be rewritten together; partial SubEvent updates are forbidden.
+
 3. **Creates**
 4. **Final ordering enforcement**
 
@@ -104,6 +108,7 @@ Ordering enforcement is the **final step** of Apply.
 Rules:
 
 - Managed entries are written in Planner-defined order
+- Entries derived from a single Manifest Event (base + exception SubEvents) must remain grouped and must never interleave with entries from another event
 - Unmanaged entries remain grouped at the top
 - Relative unmanaged order is preserved
 - No ordering heuristics are permitted

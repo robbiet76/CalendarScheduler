@@ -27,7 +27,7 @@ Backwards compatibility is **explicitly not a goal**. The Manifest is free to ev
    The Manifest is the single source of truth. Scheduler entries and calendar events are projections.
 
 2. **Event-centric model**  \
-   Every calendar event produces exactly one Manifest Event. All execution details are derived from it.
+   Every calendar event produces exactly one Manifest Event. Execution details are represented exclusively by SubEvents derived from it.
 
 3. **No persistence in FPP**  \
    The Manifest is *not* stored in `schedule.json`. FPP stores only executable scheduler entries.
@@ -60,12 +60,17 @@ Manifest Events are the unit of:
 
 ```ts
 ManifestEvent {
-  uid: UID,
   id: string,
-  hash: string,
+  summary: string,
+
+  correlation: {
+    source?: string,      // e.g. "google", "ics", "manual"
+    externalId?: string   // provider UID or equivalent (trace only)
+  },
+
   identity: IdentityObject,
-  intent: IntentObject,
   subEvents: SubEvent[],
+
   ownership: OwnershipObject,
   status: StatusObject,
   provenance: ProvenanceObject,
@@ -78,18 +83,18 @@ ManifestEvent {
 ## UID (Provider Trace Identifier)
 
 ```ts
-UID {
-  provider: string, // e.g. "google", "ics", "manual"
-  value: string
+CorrelationObject {
+  source?: string,      // e.g. "google", "ics", "manual"
+  externalId?: string   // provider UID or equivalent (trace only)
 }
 ```
 
 Rules:
 
-- UID exists for **traceability only**
-- UID is never used for equality or diffing
-- UID may collide across providers
-- UID may be absent for manually created Manifest Events
+- Correlation exists for **traceability only**
+- Correlation is never used for equality or diffing
+- Correlation may collide across providers
+- Correlation may be absent for manually created Manifest Events
 
 ---
 
@@ -122,8 +127,8 @@ IdentityObject {
 
 - Identity fields must be fully specified and non-null after ingestion.
 - Identity must not include stopType, repeat, enabled flags, or any execution-only settings.
-- Identity explicitly excludes all date semantics, including DatePattern, hard dates, symbolic dates, and year-specific constraints.
-- Identity must be provider-agnostic.
+- Identity explicitly excludes all date semantics, including DatePattern, hard dates, symbolic dates, and year-specific constraints (dates may be normalized/expanded without changing identity).
+- Identity fields are derived from the base SubEvent execution geometry (type/target/days/start_time/end_time) and must match it exactly.
 
 Rules:
 
@@ -134,30 +139,9 @@ Rules:
 
 ---
 
-## IntentObject (User Desire)
+## Intent (User Desire)
 
-The **IntentObject** captures what the user expressed.
-
-It answers:
-
-> **“What behavior did the user intend?”**
-
-```ts
-IntentObject {
-  type: "playlist" | "command" | "sequence",
-  target: string,
-  args?: string[],
-  sequence?: number,
-  enabled: boolean,
-  timing: TimingObject
-}
-```
-
-Rules:
-
-- Intent may be symbolic or open-ended
-- Intent may differ from Identity during preview or revert
-- Intent is preserved for UI and calendar round-tripping
+The Manifest preserves user intent through SubEvent execution + timing fields and the original provider payloads. Intent is a conceptual term used in UI and adapter discussions; it is not a separately persisted object in the Manifest.
 
 ---
 
@@ -174,7 +158,26 @@ SubEvents represent FPP-required execution decomposition but remain part of the 
 ```ts
 SubEvent {
   role: "base" | "exception",
-  entry: FppScheduleEntry
+
+  execution: {
+    type: "playlist" | "command" | "sequence",
+    target: string,
+    payload: object
+  },
+
+  timing: {
+    startDate: DatePattern | null,
+    endDate: DatePattern | null,
+    startTime: TimeToken,
+    endTime: TimeToken,
+    days: number | null
+  },
+
+  behavior: {
+    enabled: boolean,
+    stopType: scalar,
+    repeat: scalar
+  }
 }
 ```
 
@@ -185,7 +188,7 @@ Rules:
 - Zero or more SubEvents may have `role: "exception"`
 - SubEvents have **no independent identity**
 - SubEvents are never diffed, ordered, or applied independently
-- All SubEvents inherit the parent Manifest Event Identity verbatim; SubEvents never define or modify identity fields.
+- Identity is defined at the Manifest Event level and is derived from the base SubEvent; exception SubEvents must not alter identity.
 
 ---
 
@@ -278,7 +281,7 @@ ProvenanceObject {
 ```ts
 RevertObject {
   previous_identity: IdentityObject,
-  previous_intent: IntentObject,
+  previous_subEvents: SubEvent[],
   reverted_at: string // ISO-8601
 }
 ```
@@ -304,3 +307,97 @@ Rules:
 
 - Manifest invariants are enforced strictly during calendar ingestion.
 - Manifest consumers may assume Manifest correctness and must not re-validate provider-originated invariants.
+
+---
+
+## Manifest Event Container
+
+{
+  "manifest": {
+    "events": {
+      "<eventId>": {
+        "summary": "string",
+
+        "correlation": {
+          "source": "google | ics | manual | null",
+          "externalId": "string | null"
+        },
+
+        "identity": {
+          "type": "playlist | command | sequence",
+          "target": "string",
+          "days": "string",
+          "start_time": "TimeToken",
+          "end_time": "TimeToken"
+        },
+
+        "ownership": {
+          "managed": true,
+          "controller": "calendar | manual | unknown",
+          "locked": false
+        },
+
+        "status": {
+          "enabled": true,
+          "deleted": false
+        },
+
+        "provenance": {
+          "source": "ics",
+          "provider": "string",
+          "imported_at": "ISO-8601"
+        },
+
+        "subEvents": [
+          /* FPP scheduler entries live here */
+        ]
+      }
+    }
+  }
+}
+
+---
+
+## Manifest SubEvent Container
+
+{
+  "role": "base | exception",
+
+  "execution": {
+    "type": "playlist | command | sequence",
+    "target": "string",
+    "payload": {
+      "<string>": "<scalar | object>"
+    }
+  },
+
+  "timing": {
+    "startDate": {
+      "hard": "YYYY-MM-DD | null",
+      "symbolic": "string | null"
+    },
+    "endDate": {
+      "hard": "YYYY-MM-DD | null",
+      "symbolic": "string | null"
+    },
+
+    "startTime": {
+      "value": "HH:MM:SS | null",
+      "symbolic": "string | null",
+      "offsetMinutes": 0
+    },
+    "endTime": {
+      "value": "HH:MM:SS | null",
+      "symbolic": "string | null",
+      "offsetMinutes": 0
+    },
+
+    "days": "number | null"
+  },
+
+  "behavior": {
+    "enabled": true,
+    "stopType": "scalar",
+    "repeat": "scalar"
+  }
+}
