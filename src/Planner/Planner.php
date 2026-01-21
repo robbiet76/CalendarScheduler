@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Planner;
 
+use GoogleCalendarScheduler\Core\ManifestStore;
+
 /**
  * Planner Core (Phase 2.2)
  *
@@ -13,8 +15,17 @@ namespace GoogleCalendarScheduler\Planner;
  */
 final class Planner
 {
-    public function plan(mixed $manifest): PlannerResult
+    private ManifestStore $manifestStore;
+
+    public function __construct(ManifestStore $manifestStore)
     {
+        $this->manifestStore = $manifestStore;
+    }
+
+    public function plan(): PlannerResult
+    {
+        $manifest = $this->manifestStore->load();
+
         $events = $this->extractEvents($manifest);
 
         $entries = [];

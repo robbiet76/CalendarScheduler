@@ -72,7 +72,7 @@ try {
     $planner = new Planner($manifestStore);
 
     // PlannerResult provider (keeps Runner ignorant of inputs)
-    $plannerResultProvider = fn () => $planner->plan($manifestStore);
+    $plannerResultProvider = fn () => $planner->plan();
 
     // Existing schedule loader
     $existingScheduleLoader = function () use ($schedulePath): array {
