@@ -1,7 +1,13 @@
 <?php
 declare(strict_types=1);
 
-namespace GCS\Core;
+namespace GoogleCalendarScheduler\Core;
+
+use GoogleCalendarScheduler\Core\ManifestStore;
+use GoogleCalendarScheduler\Core\ManifestInvariantViolation;
+use GoogleCalendarScheduler\Core\IdentityInvariantViolation;
+use GoogleCalendarScheduler\Core\IdentityCanonicalizer;
+use GoogleCalendarScheduler\Core\IdentityHasher;
 
 /**
  * FileManifestStore

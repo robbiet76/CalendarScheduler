@@ -5,25 +5,24 @@ declare(strict_types=1);
 namespace GoogleCalendarScheduler\Outbound;
 
 use GoogleCalendarScheduler\Diff\DiffResult;
+use GoogleCalendarScheduler\Platform\FppScheduleEntryAdapter;
+use GoogleCalendarScheduler\Planner\PlannedEntry;
 
 /**
- * Phase 2.4 — ApplyEngine (PURE, Outbound)
+ * Phase 2.4 — ApplyEngine (Outbound)
  *
- * Applies DiffResult (creates/updates/deletes) to an existing schedule array.
+ * Applies DiffResult to an existing schedule array.
  *
- * Invariants:
- * - Unmanaged entries are NEVER deleted, updated, or reordered.
- * - Managed entries:
- *   - deleted if in DiffResult.deletes
- *   - updated in place if in DiffResult.updates
- *   - created entries are appended (after existing schedule)
+ * Responsibilities:
+ * - Decide which entries are created, updated, or deleted
+ * - Preserve unmanaged entries exactly
+ * - Preserve relative order of existing entries
+ * - Delegate platform-specific shaping to Platform adapters
  *
- * Determinism:
- * - Existing entries keep relative order.
- * - Updates replace in place.
- * - Creates are appended in a deterministic order.
- *
- * Zero Platform dependencies. No I/O.
+ * NON-GOALS:
+ * - No FPP schema knowledge
+ * - No date/time logic
+ * - No I/O
  */
 final class ApplyEngine
 {
@@ -74,14 +73,15 @@ final class ApplyEngine
 
                 // Update?
                 if (isset($updatesById[$id])) {
-                    $updated = $updatesById[$id];
-                    $updated['managed'] = true; // canonicalize
-                    $out[] = $updated;
+                    /** @var PlannedEntry $planned */
+                    $planned = $updatesById[$id];
+
+                    $out[] = FppScheduleEntryAdapter::adapt($planned);
                     unset($updatesById[$id]);
                     continue;
                 }
 
-                // Unchanged managed
+                // Unchanged managed entry
                 $entry['managed'] = true; // canonicalize
                 $out[] = $entry;
                 continue;
@@ -91,26 +91,24 @@ final class ApplyEngine
             $out[] = $entry;
         }
 
-        // Any remaining updates reference missing managed entries → invariant violation
+        // Remaining updates reference missing managed entries → invariant violation
         if (!empty($updatesById)) {
             $ids = implode(', ', array_keys($updatesById));
             throw new \RuntimeException("Updates reference missing managed entries: {$ids}");
         }
 
-        // Append creates deterministically (do not disturb existing order)
+        // Append creates deterministically
         $creates = array_values($createsById);
-        usort($creates, static function (array $a, array $b): int {
-            // Prefer ordering_key if present; fall back to identity_hash
-            $ak = (string)($a['ordering_key'] ?? '');
-            $bk = (string)($b['ordering_key'] ?? '');
+        usort($creates, static function (PlannedEntry $a, PlannedEntry $b): int {
+            $ak = (string)$a->orderingKey()->toScalar();
+            $bk = (string)$b->orderingKey()->toScalar();
             $c = $ak <=> $bk;
             if ($c !== 0) return $c;
-            return (string)$a['identity_hash'] <=> (string)$b['identity_hash'];
+            return $a->identityHash() <=> $b->identityHash();
         });
 
-        foreach ($creates as $c) {
-            $c['managed'] = true;
-            $out[] = $c;
+        foreach ($creates as $planned) {
+            $out[] = FppScheduleEntryAdapter::adapt($planned);
         }
 
         return new ApplyResult(
@@ -122,20 +120,17 @@ final class ApplyEngine
     }
 
     /**
-     * @param array<int,array<string,mixed>> $entries
+     * @param array<int,PlannedEntry> $entries
      * @return array<string,bool>
      */
     private function indexIdentitySet(array $entries, string $label): array
     {
         $set = [];
         foreach ($entries as $i => $e) {
-            if (!is_array($e)) {
-                throw new \RuntimeException("DiffResult {$label}[{$i}] must be an array");
+            if (!$e instanceof PlannedEntry) {
+                throw new \RuntimeException("DiffResult {$label}[{$i}] must be PlannedEntry");
             }
-            $id = $this->readIdentityHash($e);
-            if ($id === '') {
-                throw new \RuntimeException("DiffResult {$label}[{$i}] missing identity_hash");
-            }
+            $id = $e->identityHash();
             if (isset($set[$id])) {
                 throw new \RuntimeException("Duplicate identity_hash in DiffResult {$label}: {$id}");
             }
@@ -145,20 +140,17 @@ final class ApplyEngine
     }
 
     /**
-     * @param array<int,array<string,mixed>> $entries
-     * @return array<string,array<string,mixed>>
+     * @param array<int,PlannedEntry> $entries
+     * @return array<string,PlannedEntry>
      */
     private function indexByIdentity(array $entries, string $label): array
     {
         $map = [];
         foreach ($entries as $i => $e) {
-            if (!is_array($e)) {
-                throw new \RuntimeException("DiffResult {$label}[{$i}] must be an array");
+            if (!$e instanceof PlannedEntry) {
+                throw new \RuntimeException("DiffResult {$label}[{$i}] must be PlannedEntry");
             }
-            $id = $this->readIdentityHash($e);
-            if ($id === '') {
-                throw new \RuntimeException("DiffResult {$label}[{$i}] missing identity_hash");
-            }
+            $id = $e->identityHash();
             if (isset($map[$id])) {
                 throw new \RuntimeException("Duplicate identity_hash in DiffResult {$label}: {$id}");
             }

@@ -1,7 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace GCS\Core;
+namespace GoogleCalendarScheduler\Core;
+
+use GoogleCalendarScheduler\Core\IdentityHasher;
+use GoogleCalendarScheduler\Core\IdentityInvariantViolation;
 
 /**
  * Sha256IdentityHasher

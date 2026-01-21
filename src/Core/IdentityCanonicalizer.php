@@ -1,7 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace GCS\Core;
+namespace GoogleCalendarScheduler\Core;
+
+use GoogleCalendarScheduler\Core\IdentityInvariantViolation;
 
 /**
  * IdentityCanonicalizer (Authoritative)

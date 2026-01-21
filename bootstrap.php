@@ -22,16 +22,18 @@ declare(strict_types=1);
 define('GCS_VERSION', '2.0-dev');
 
 // -----------------------------------------------------------------------------
-// Core — domain + invariants (PURE)
+// Core — identity, manifest, invariants
 // -----------------------------------------------------------------------------
-
-require_once __DIR__ . '/src/Core/ManifestStore.php';
-require_once __DIR__ . '/src/Core/FileManifestStore.php';
-
-require_once __DIR__ . '/src/Core/IdentityHasher.php';
 
 require_once __DIR__ . '/src/Core/IdentityInvariantViolation.php';
 require_once __DIR__ . '/src/Core/ManifestInvariantViolation.php';
+
+require_once __DIR__ . '/src/Core/IdentityCanonicalizer.php';
+require_once __DIR__ . '/src/Core/IdentityHasher.php';
+require_once __DIR__ . '/src/Core/Sha256IdentityHasher.php';
+
+require_once __DIR__ . '/src/Core/ManifestStore.php';
+require_once __DIR__ . '/src/Core/FileManifestStore.php';
 
 // -----------------------------------------------------------------------------
 // Planner — desired-state construction (PURE)
@@ -50,11 +52,21 @@ require_once __DIR__ . '/src/Diff/DiffResult.php';
 require_once __DIR__ . '/src/Diff/Diff.php';
 
 // -----------------------------------------------------------------------------
-// Outbound — apply diff to schedule (PURE, Phase 2.4)
+// Platform — FPP-specific representation (Phase 2.5)
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Outbound/ApplyResult.php';
+require_once __DIR__ . '/src/Platform/FppScheduleEntryAdapter.php';
+require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
+
+// -----------------------------------------------------------------------------
+// Outbound — scheduler execution
+// -----------------------------------------------------------------------------
+
 require_once __DIR__ . '/src/Outbound/ApplyEngine.php';
+require_once __DIR__ . '/src/Outbound/ApplyResult.php';
+require_once __DIR__ . '/src/Outbound/SchedulerRunOptions.php';
+require_once __DIR__ . '/src/Outbound/SchedulerRunResult.php';
+require_once __DIR__ . '/src/Outbound/SchedulerRunner.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete
