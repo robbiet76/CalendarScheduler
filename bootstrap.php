@@ -55,7 +55,8 @@ require_once __DIR__ . '/src/Diff/Diff.php';
 // Platform — FPP-specific representation (Phase 2.5)
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Platform/FppScheduleEntryAdapter.php';
+require_once __DIR__ . '/src/Platform/FppSemantics.php';
+require_once __DIR__ . '/src/Platform/FppScheduleTranslator.php';
 require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
 
 // -----------------------------------------------------------------------------
@@ -67,6 +68,7 @@ require_once __DIR__ . '/src/Outbound/ApplyResult.php';
 require_once __DIR__ . '/src/Outbound/SchedulerRunOptions.php';
 require_once __DIR__ . '/src/Outbound/SchedulerRunResult.php';
 require_once __DIR__ . '/src/Outbound/SchedulerRunner.php';
+require_once __DIR__ . '/src/Outbound/FppAdoption.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete
