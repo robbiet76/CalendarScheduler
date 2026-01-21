@@ -110,9 +110,7 @@ final class FppAdoption
 
             // Exactly one base SubEvent
             'subEvents' => [
-                $record['subEvent'] + [
-                    'role' => 'base',
-                ],
+                $record['subEvent'],
             ],
         ];
     }
