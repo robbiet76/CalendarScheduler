@@ -13,9 +13,9 @@ It establishes the atomic execution model used throughout the system and replace
 The canonical relationship is:
 
 ```
-1 Calendar Event
+Calendar Event
         ↓
-1 Manifest Event
+Manifest Event
         ↓
 { SubEvents }
         ↓
@@ -41,7 +41,12 @@ Rules:
 
 A **Manifest Event** is the authoritative semantic representation of exactly one calendar event.
 
-> **Invariant:** `1 Calendar Event → 1 Manifest Event`
+> **Invariant (Post‑Import):** `1 Calendar Event → 1 Manifest Event`
+
+During initial adoption and export from FPP, Manifest Events may be  
+created without an originating Calendar Event. In this mode, each  
+FPP scheduler entry is represented as a standalone Manifest Event  
+containing exactly one base SubEvent.
 
 Manifest Events are the unit of:
 - Identity
@@ -60,6 +65,11 @@ A Manifest Event contains:
 ### SubEvents
 
 A **SubEvent** is a deterministic, executable component derived from a Manifest Event.
+
+SubEvents are introduced only after calendar import and resolution.  
+During FPP adoption and calendar export, no SubEvent decomposition  
+occurs beyond the single base SubEvent derived directly from a  
+scheduler entry.
 
 SubEvents exist because:
 - Not all scheduling intent can be expressed as a single FPP scheduler entry

@@ -122,6 +122,40 @@ Outbound Calendar I/O **must not**:
 
 ---
 
+### Export Granularity and Adoption Semantics
+
+During **initial adoption and export**, the system operates in a strictly
+**one-to-one mode**:
+
+- Each FPP scheduler entry produces **exactly one calendar event**
+- No grouping, consolidation, or inference is performed
+- No Manifest SubEvent expansion occurs at export time
+
+In this phase, the calendar is treated as a **mirror of scheduler entries**,
+not as a source of higher-level intent.
+
+### SubEvent Emergence
+
+The concept of **SubEvents does not exist during adoption or export**.
+
+SubEvents are introduced **only after calendar import**, during resolution of:
+
+- Recurrence rules
+- Overrides and exceptions
+- Provider-specific timing constraints
+
+Only once calendar data is imported back into the system can a single
+calendar event expand into multiple Manifest SubEvents.
+
+This asymmetry is intentional:
+
+- Scheduler → Calendar is execution-preserving
+- Calendar → Manifest is intent-reconstructing
+
+Calendar I/O must never attempt to infer or synthesize SubEvents during export.
+
+---
+
 ## Symbolic Preservation
 
 - Symbolic times (e.g. Dawn, Dusk) must remain symbolic if supported
