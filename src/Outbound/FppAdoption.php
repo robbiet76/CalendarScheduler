@@ -50,7 +50,7 @@ final class FppAdoption
     {
         $subEventRecords = $this->translator->scheduleToSubEvents($schedulePath);
 
-        $manifest = $this->manifestStore->load();
+        $manifest = $this->manifestStore->loadDraft();
 
         foreach ($subEventRecords as $record) {
             $event = $this->wrapSubEventAsEvent($record);
