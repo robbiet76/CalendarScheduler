@@ -63,6 +63,36 @@ final class FileManifestStore implements ManifestStore
         return $decoded;
     }
 
+    public function loadDraft(): array
+    {
+        if (!file_exists($this->path)) {
+            // Treat missing as empty manifest for now (still a valid state)
+            return ['events' => []];
+        }
+
+        $raw = @file_get_contents($this->path);
+        if ($raw === false) {
+            throw ManifestInvariantViolation::fail(
+                ManifestInvariantViolation::MANIFEST_UNREADABLE,
+                'Manifest file could not be read',
+                ['path' => $this->path]
+            );
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            throw ManifestInvariantViolation::fail(
+                ManifestInvariantViolation::MANIFEST_JSON_INVALID,
+                'Manifest JSON is invalid or not an object',
+                ['path' => $this->path]
+            );
+        }
+
+        $this->assertManifestRoot($decoded);
+
+        return $decoded;
+    }
+
     public function save(array $manifest): void
     {
         $this->assertManifestRoot($manifest);

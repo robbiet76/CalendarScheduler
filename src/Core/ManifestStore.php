@@ -27,6 +27,14 @@ interface ManifestStore
     public function load(): array;
 
     /**
+     * Load a manifest that may not yet be identity-complete.
+     *
+     * Used only during adoption/bootstrap.
+     * Must NOT enforce identity invariants.
+     */
+    public function loadDraft(): array;
+
+    /**
      * Persist the in-memory manifest back to storage.
      *
      * Hard-fail if invariants do not hold.
