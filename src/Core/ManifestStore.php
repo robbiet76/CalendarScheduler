@@ -48,5 +48,15 @@ interface ManifestStore
      * @return array Updated manifest (store may also update derived fields like identity hash/id).
      */
     public function upsertEvent(array $manifest, array $event): array;
+
+    /**
+     * Append a new Manifest Event without identity (adoption-only).
+     *
+     * This is used during initial FPP adoption, before identity is established.
+     * The event MUST NOT contain an `id` field.
+     *
+     * @return array Updated manifest
+     */
+    public function appendEvent(array $manifest, array $event): array;
 }
 

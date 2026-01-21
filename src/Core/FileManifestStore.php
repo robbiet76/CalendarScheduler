@@ -181,6 +181,27 @@ final class FileManifestStore implements ManifestStore
         return $manifest;
     }
 
+    public function appendEvent(array $manifest, array $event): array
+    {
+        $this->assertManifestRoot($manifest);
+
+        if (!isset($manifest['events']) || !is_array($manifest['events'])) {
+            $manifest['events'] = [];
+        }
+
+        if (isset($event['id']) && $event['id'] !== null) {
+            throw ManifestInvariantViolation::fail(
+                ManifestInvariantViolation::EVENT_IDENTITY_MUTATION,
+                'appendEvent must not be used with identified events',
+                ['eventId' => $event['id']]
+            );
+        }
+
+        $manifest['events'][] = $event;
+
+        return $manifest;
+    }
+
     // ---------------------------------------------------------------------
     // Invariant enforcement (minimal, hard-fail)
     // ---------------------------------------------------------------------

@@ -54,7 +54,7 @@ final class FppAdoption
 
         foreach ($subEventRecords as $record) {
             $event = $this->wrapSubEventAsEvent($record);
-            $manifest = $this->manifestStore->upsertEvent($manifest, $event);
+            $manifest = $this->manifestStore->appendEvent($manifest, $event);
         }
 
         $this->manifestStore->save($manifest);
