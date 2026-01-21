@@ -34,6 +34,14 @@ interface ManifestStore
     public function save(array $manifest): void;
 
     /**
+     * Persist a draft manifest that is not yet identity-complete.
+     *
+     * Used only during adoption/bootstrap before identity assignment.
+     * Must NOT enforce identity invariants.
+     */
+    public function saveDraft(array $manifest): void;
+
+    /**
      * Upsert a Manifest Event (calendar event -> manifest event).
      *
      * Expected shape (high-level, spec-driven):

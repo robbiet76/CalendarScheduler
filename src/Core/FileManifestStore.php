@@ -92,6 +92,34 @@ final class FileManifestStore implements ManifestStore
         }
     }
 
+    public function saveDraft(array $manifest): void
+    {
+        $this->assertManifestRoot($manifest);
+
+        $json = json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            throw ManifestInvariantViolation::fail(
+                ManifestInvariantViolation::MANIFEST_JSON_INVALID,
+                'Failed to encode manifest to JSON',
+                ['path' => $this->path]
+            );
+        }
+
+        $dir = dirname($this->path);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
+        $ok = @file_put_contents($this->path, $json . PHP_EOL);
+        if ($ok === false) {
+            throw ManifestInvariantViolation::fail(
+                ManifestInvariantViolation::MANIFEST_UNREADABLE,
+                'Failed to write manifest file',
+                ['path' => $this->path]
+            );
+        }
+    }
+
     public function upsertEvent(array $manifest, array $event): array
     {
         $this->assertManifestRoot($manifest);

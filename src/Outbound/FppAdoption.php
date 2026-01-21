@@ -57,7 +57,7 @@ final class FppAdoption
             $manifest = $this->manifestStore->appendEvent($manifest, $event);
         }
 
-        $this->manifestStore->save($manifest);
+        $this->manifestStore->saveDraft($manifest);
     }
 
     /**
