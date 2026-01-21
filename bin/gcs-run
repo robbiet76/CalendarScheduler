@@ -1,0 +1,170 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// -----------------------------------------------------------------------------
+// CLI entrypoint for GoogleCalendarScheduler (V2)
+// -----------------------------------------------------------------------------
+
+use GoogleCalendarScheduler\Core\FileManifestStore;
+use GoogleCalendarScheduler\Core\Sha256IdentityHasher;
+use GoogleCalendarScheduler\Planner\Planner;
+use GoogleCalendarScheduler\Diff\Diff;
+use GoogleCalendarScheduler\Outbound\ApplyEngine;
+use GoogleCalendarScheduler\Outbound\SchedulerRunner;
+use GoogleCalendarScheduler\Outbound\SchedulerRunOptions;
+use GoogleCalendarScheduler\Platform\FppScheduleWriter;
+
+// -----------------------------------------------------------------------------
+// Bootstrap
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/../bootstrap.php';
+
+// -----------------------------------------------------------------------------
+// Defaults
+// -----------------------------------------------------------------------------
+
+$DEFAULT_SCHEDULE_PATH =
+    '/home/fpp/media/config/schedule.json';
+
+$DEFAULT_MANIFEST_PATH =
+    '/home/fpp/media/config/plugin.googleCalendarScheduler.json';
+
+// -----------------------------------------------------------------------------
+// Argument parsing
+// -----------------------------------------------------------------------------
+
+$opts = getopt('', [
+    'dry-run',
+    'schedule:',
+    'manifest:',
+    'format:',
+    'quiet',
+]);
+
+$dryRun = array_key_exists('dry-run', $opts);
+$quiet  = array_key_exists('quiet', $opts);
+
+$schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
+$manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
+$format       = $opts['format']   ?? 'text';
+
+if (!in_array($format, ['text', 'json'], true)) {
+    fwrite(STDERR, "ERROR: --format must be 'text' or 'json'\n");
+    exit(64);
+}
+
+// -----------------------------------------------------------------------------
+// Dependency construction
+// -----------------------------------------------------------------------------
+
+try {
+    // Manifest store (Core)
+    $hasher = new Sha256IdentityHasher();
+    $manifestStore = new FileManifestStore(
+        $manifestPath,
+        $hasher
+    );
+
+    // Planner (already configured via constructor / store)
+    $planner = new Planner($manifestStore);
+
+    // PlannerResult provider (keeps Runner ignorant of inputs)
+    $plannerResultProvider = fn () => $planner->plan($manifestStore);
+
+    // Existing schedule loader
+    $existingScheduleLoader = function () use ($schedulePath): array {
+        if (!file_exists($schedulePath)) {
+            return [];
+        }
+
+        $json = file_get_contents($schedulePath);
+        if ($json === false) {
+            throw new RuntimeException(
+                "Unable to read schedule file: {$schedulePath}"
+            );
+        }
+
+        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($data)) {
+            throw new RuntimeException(
+                "Schedule file did not decode to array"
+            );
+        }
+
+        return $data;
+    };
+
+    // Writer (Platform)
+    $writer = new FppScheduleWriter($schedulePath);
+
+    // Runner (Outbound)
+    $runner = new SchedulerRunner(
+        $plannerResultProvider,
+        new Diff(),
+        new ApplyEngine(),
+        $writer,
+        $existingScheduleLoader
+    );
+
+    // -------------------------------------------------------------------------
+    // Execute
+    // -------------------------------------------------------------------------
+
+    $options = new SchedulerRunOptions($dryRun);
+    $result  = $runner->run($options);
+
+} catch (\GoogleCalendarScheduler\Core\IdentityInvariantViolation |
+         \GoogleCalendarScheduler\Core\ManifestInvariantViolation $e) {
+
+    fwrite(STDERR, "ERROR: {$e->getInvariantCode()}\n");
+    fwrite(STDERR, $e->getMessage() . "\n");
+    exit(1);
+
+} catch (Throwable $e) {
+
+    fwrite(STDERR, "ERROR: {$e->getMessage()}\n");
+    exit(2);
+}
+
+// -----------------------------------------------------------------------------
+// Output
+// -----------------------------------------------------------------------------
+
+if ($format === 'json') {
+    echo json_encode([
+        'noop'    => $result->isNoop(),
+        'created' => $result->createCount(),
+        'updated' => $result->updateCount(),
+        'deleted' => $result->deleteCount(),
+        'dry_run' => $dryRun,
+    ], JSON_PRETTY_PRINT) . "\n";
+    exit(0);
+}
+
+// text output
+if ($quiet) {
+    exit(0);
+}
+
+if ($result->isNoop()) {
+    echo "Scheduler run complete.\n";
+    echo "No changes required.\n";
+    exit(0);
+}
+
+if ($dryRun) {
+    echo "Dry run complete.\n";
+    echo "Would create: {$result->createCount()}\n";
+    echo "Would update: {$result->updateCount()}\n";
+    echo "Would delete: {$result->deleteCount()}\n";
+    exit(0);
+}
+
+echo "Scheduler run complete.\n";
+echo "Created: {$result->createCount()}\n";
+echo "Updated: {$result->updateCount()}\n";
+echo "Deleted: {$result->deleteCount()}\n";
+exit(0);
