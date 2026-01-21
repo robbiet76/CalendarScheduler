@@ -7,6 +7,51 @@ Any modification MUST be logged here.
 
 ---
 
+## v2.4 — 2026-01-21
+**Status:** Behavioral Alignment & Hardening
+
+### Summary
+Final alignment and hardening pass across core behavioral specifications to fully lock event atomicity, identity boundaries, and platform semantics prior to implementation.
+
+### Scope
+- 03 — Manifest
+- 04 — Manifest Identity Model
+- 05 — Calendar I/O
+- 06 — Event Resolution & Normalization
+- 07 — Events & SubEvents
+- 08 — Scheduler Ordering Model
+- 09 — Planner Responsibilities
+- 10 — Diff & Reconciliation Model
+- 11 — Apply Phase Rules
+- 12 — FPP Semantic Layer
+
+### Changes
+- Removed all remaining references to deprecated **IntentObject** and **TimingObject**
+- Locked **event-atomic behavior** across Planner, Diff, and Apply phases
+- Clarified that:
+  - A Manifest Event’s effective timing is derived from the combined effect of all SubEvents (base + exceptions)
+  - Identity matching and reconciliation operate strictly at the Manifest Event level
+- Formalized that:
+  - Planner consumes identity but never derives or validates it
+  - Diff outputs event-level operations, not platform entries
+  - Apply enforces atomic writes and preserves event grouping
+- Tightened FPP semantic boundaries to ensure opaque payload pass-through and zero identity influence
+- Eliminated platform-specific leakage from semantic layers
+
+### Notes
+- No new features introduced
+- No backwards compatibility guarantees
+- This version represents the final behavioral contract prior to ingestion and execution implementation
+
+---
+
+## Versioning Rules
+
+- The specification is considered **STABLE** by default.  
+Any modification MUST be logged here.
+
+---
+
 ## Versioning Rules
 
 - The specification does **not** follow semantic versioning.
