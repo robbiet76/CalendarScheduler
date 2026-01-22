@@ -52,6 +52,18 @@ final class FppAdoption
 
         $manifest = $this->manifestStore->loadDraft();
 
+        // Remove all previously adopted FPP events (replacement-style adoption)
+        if (isset($manifest['events']) && is_array($manifest['events'])) {
+            foreach ($manifest['events'] as $eventId => $event) {
+                if (
+                    isset($event['provenance']['source']) &&
+                    $event['provenance']['source'] === 'fpp'
+                ) {
+                    unset($manifest['events'][$eventId]);
+                }
+            }
+        }
+
         foreach ($subEventRecords as $record) {
             $event = $this->wrapSubEventAsEvent($record);
             $manifest = $this->manifestStore->appendEvent($manifest, $event);
