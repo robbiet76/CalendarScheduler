@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace GoogleCalendarScheduler\Inbound;
 
 use GoogleCalendarScheduler\Platform\FppScheduleTranslator;
-use GoogleCalendarScheduler\Core\ManifestStore;
+use GoogleCalendarScheduler\Core\FileManifestStore;
 use GoogleCalendarScheduler\Core\IdentityBuilder;
 use RuntimeException;
 
@@ -32,13 +32,13 @@ use RuntimeException;
  */
 final class FppAdoption
 {
+    private FileManifestStore $manifestStore;
     private FppScheduleTranslator $translator;
-    private ManifestStore $manifestStore;
     private IdentityBuilder $identityBuilder;
 
     public function __construct(
         FppScheduleTranslator $translator,
-        ManifestStore $manifestStore,
+        FileManifestStore $manifestStore,
         IdentityBuilder $identityBuilder
     ) {
         $this->translator    = $translator;
@@ -104,7 +104,7 @@ final class FppAdoption
                 ],
             ];
 
-            $manifest = $this->manifestStore->appendEvent($manifest, $event);
+            $manifest = $this->manifestStore->upsertEvent($manifest, $event);
         }
 
         $this->manifestStore->saveDraft($manifest);
