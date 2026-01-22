@@ -118,7 +118,6 @@ final class FppScheduleTranslator
     private function buildBaseSubEvent(string $type, array $e): array
     {
         $subEvent = [
-            'kind' => 'base',
 
             'timing' => [
                 'start_date' => [
