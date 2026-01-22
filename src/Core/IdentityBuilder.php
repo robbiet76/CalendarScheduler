@@ -36,4 +36,29 @@ final class IdentityBuilder
         $canonical = $this->canonicalizer->canonicalize($identity);
         return $this->hasher->hash($canonical);
     }
+
+    /**
+     * Build and return the canonical (unhashed) identity array.
+     *
+     * This is used by identity-keyed manifest storage.
+     *
+     * @param 'playlist'|'sequence'|'command' $type
+     * @param string $target
+     * @param array<string,mixed> $timing
+     * @return array<string,mixed>
+     */
+    public function buildCanonical(string $type, string $target, array $timing): array
+    {
+        if (!is_array($timing)) {
+            throw new \RuntimeException('IdentityBuilder::buildCanonical() requires timing array');
+        }
+
+        $identity = [
+            'type' => $type,
+            'target' => $target,
+            'timing' => $timing,
+        ];
+
+        return $this->canonicalizer->canonicalize($identity);
+    }
 }
