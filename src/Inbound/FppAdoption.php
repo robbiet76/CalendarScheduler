@@ -82,6 +82,7 @@ final class FppAdoption
             $identity = $this->identityBuilder->buildCanonical($type, $target, $timing);
 
             $event = [
+                'id' => $identity['hash'],
                 'identity' => $identity,
                 'type' => $type,
                 'target' => $target,
