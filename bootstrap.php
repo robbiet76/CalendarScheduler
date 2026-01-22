@@ -68,7 +68,12 @@ require_once __DIR__ . '/src/Outbound/ApplyResult.php';
 require_once __DIR__ . '/src/Outbound/SchedulerRunOptions.php';
 require_once __DIR__ . '/src/Outbound/SchedulerRunResult.php';
 require_once __DIR__ . '/src/Outbound/SchedulerRunner.php';
-require_once __DIR__ . '/src/Outbound/FppAdoption.php';
+
+// -----------------------------------------------------------------------------
+// Inbound
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Inbound/FppAdoption.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete

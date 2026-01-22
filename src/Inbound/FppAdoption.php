@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Outbound;
+namespace GoogleCalendarScheduler\Inbound;
 
 use GoogleCalendarScheduler\Platform\FppScheduleTranslator;
 use GoogleCalendarScheduler\Core\ManifestStore;
