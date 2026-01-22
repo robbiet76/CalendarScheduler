@@ -65,7 +65,7 @@ if (!in_array($format, ['text', 'json'], true)) {
 try {
     // Manifest store (Core)
     $hasher = new Sha256IdentityHasher();
-    $canonicalizer   = new IdentityCanonicalizer();
+    $canonicalizer   = new IdentityCanonicalizer($hasher);
     $identityBuilder = new IdentityBuilder($canonicalizer, $hasher);
     $manifestStore = new FileManifestStore(
         $manifestPath,
