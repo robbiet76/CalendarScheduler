@@ -25,12 +25,12 @@ namespace GoogleCalendarScheduler\Platform;
 final class FppScheduleTranslator
 {
     /**
-     * Translate schedule.json into a list of Manifest SubEvents.
+     * Translate schedule.json into a list of Manifest Events.
      *
      * @param string $schedulePath Absolute path to schedule.json
-     * @return array<int,array<string,mixed>> List of SubEvent records
+     * @return array<int,array<string,mixed>> List of Manifest Events
      */
-    public function scheduleToSubEvents(string $schedulePath): array
+    public function scheduleToEvents(string $schedulePath): array
     {
         if (!is_file($schedulePath)) {
             throw new \RuntimeException("schedule.json not found: {$schedulePath}");
@@ -46,17 +46,29 @@ final class FppScheduleTranslator
             throw new \RuntimeException("Invalid JSON in schedule.json");
         }
 
-        $subEvents = [];
+        $events = [];
 
         foreach ($entries as $entry) {
             if (!is_array($entry)) {
                 continue;
             }
 
-            $subEvents[] = $this->buildSubEventRecord($entry);
+            $type = $this->detectType($entry);
+            $target = $this->extractTarget($type, $entry);
+            $subEvent = $this->buildBaseSubEvent($type, $entry);
+
+            $key = $type . '|' . $target;
+            if (!isset($events[$key])) {
+                $events[$key] = [
+                    'type' => $type,
+                    'target' => $target,
+                    'subEvents' => [],
+                ];
+            }
+            $events[$key]['subEvents'][] = $subEvent;
         }
 
-        return $subEvents;
+        return array_values($events);
     }
 
     /**

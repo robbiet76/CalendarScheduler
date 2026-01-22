@@ -52,7 +52,7 @@ final class FppAdoption
      */
     public function adopt(string $schedulePath): void
     {
-        $subEventRecords = $this->translator->scheduleToSubEvents($schedulePath);
+        $events = $this->translator->scheduleToEvents($schedulePath);
 
         $manifest = $this->manifestStore->loadDraft();
 
@@ -68,71 +68,11 @@ final class FppAdoption
             }
         }
 
-        foreach ($subEventRecords as $subEvent) {
-            $event = $this->wrapSubEventAsEvent($subEvent);
-
-            $event['id'] = $this->identityBuilder->build(
-                $subEvent,
-                [
-                    'type'   => $event['type'],
-                    'target' => $event['target'],
-                ]
-            );
-
+        foreach ($events as $event) {
+            $event['id'] = $this->identityBuilder->build($event, []);
             $manifest = $this->manifestStore->upsertEvent($manifest, $event);
         }
 
         $this->manifestStore->saveDraft($manifest);
-    }
-
-    /**
-     * Wrap a single SubEvent into a standalone Manifest Event.
-     *
-     * This is the ONLY place where the "1 SubEvent = 1 Event" rule applies.
-     *
-     * @param array<string,mixed> $subEvent
-     * @return array<string,mixed>
-     */
-    private function wrapSubEventAsEvent(array $subEvent): array
-    {
-        if (!isset($subEvent['timing']) || !isset($subEvent['behavior'])) {
-            throw new RuntimeException(
-                'Invalid SubEvent produced by FppScheduleTranslator'
-            );
-        }
-
-        return [
-            // Identity intentionally absent; assigned later
-            'id' => null,
-
-            // Event-level execution target
-            'type'   => $subEvent['type'],
-            'target' => $subEvent['target'],
-
-            // Adoption-mode ownership
-            'ownership' => [
-                'managed'    => false,
-                'controller' => 'manual',
-                'locked'     => false,
-            ],
-
-            // No calendar correlation during adoption
-            'correlation' => [
-                'source'     => null,
-                'externalId' => null,
-            ],
-
-            // Explicit provenance for auditability
-            'provenance' => [
-                'source'      => 'fpp',
-                'provider'    => null,
-                'imported_at' => date('c'),
-            ],
-
-            // Exactly one base SubEvent
-            'subEvents' => [
-                $subEvent,
-            ],
-        ];
     }
 }
