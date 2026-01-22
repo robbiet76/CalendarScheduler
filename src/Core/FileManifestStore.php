@@ -209,9 +209,8 @@ final class FileManifestStore implements ManifestStore
         }
 
         // Detect identity mutation if event exists.
-        $existingIndex = $this->findEventIndexById($manifest['events'], $eventId);
-        if ($existingIndex !== null) {
-            $existing = $manifest['events'][$existingIndex];
+        if (isset($manifest['events'][$eventId])) {
+            $existing = $manifest['events'][$eventId];
             $existingHash = $existing['identity_hash'] ?? null;
             if (is_string($existingHash) && $existingHash !== $eventIdentityHash) {
                 throw ManifestInvariantViolation::fail(
@@ -220,17 +219,9 @@ final class FileManifestStore implements ManifestStore
                     ['eventId' => $eventId, 'from' => $existingHash, 'to' => $eventIdentityHash]
                 );
             }
-            $manifest['events'][$existingIndex] = $event;
+            $manifest['events'][$eventId] = $event;
         } else {
-            // Ensure no duplicate IDs.
-            if ($this->findEventIndexById($manifest['events'], $eventId) !== null) {
-                throw ManifestInvariantViolation::fail(
-                    ManifestInvariantViolation::EVENT_DUPLICATE_ID,
-                    'Duplicate event.id detected',
-                    ['eventId' => $eventId]
-                );
-            }
-            $manifest['events'][] = $event;
+            $manifest['events'][$eventId] = $event;
         }
 
         // Enforce global identity rules after mutation.
@@ -241,23 +232,10 @@ final class FileManifestStore implements ManifestStore
 
     public function appendEvent(array $manifest, array $event): array
     {
-        $this->assertManifestRoot($manifest);
-
-        if (!isset($manifest['events']) || !is_array($manifest['events'])) {
-            $manifest['events'] = [];
-        }
-
-        if (isset($event['id']) && $event['id'] !== null) {
-            throw ManifestInvariantViolation::fail(
-                ManifestInvariantViolation::EVENT_IDENTITY_MUTATION,
-                'appendEvent must not be used with identified events',
-                ['eventId' => $event['id']]
-            );
-        }
-
-        $manifest['events'][] = $event;
-
-        return $manifest;
+        throw ManifestInvariantViolation::fail(
+            ManifestInvariantViolation::EVENT_IDENTITY_MUTATION,
+            'appendEvent is no longer supported in identity-keyed storage'
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -285,41 +263,33 @@ final class FileManifestStore implements ManifestStore
             );
         }
 
-        // Event id uniqueness.
-        $seenEventIds = [];
+        // Event id uniqueness enforced by keys, so no separate tracking needed.
         $seenEventIdentityHashes = [];
-        foreach ($events as $i => $event) {
+        foreach ($events as $eventId => $event) {
             if (!is_array($event)) {
                 throw ManifestInvariantViolation::fail(
                     ManifestInvariantViolation::MANIFEST_ROOT_INVALID,
                     'Manifest.events must contain objects/arrays',
-                    ['index' => $i]
-                );
-            }
-
-            $eventId = $event['id'] ?? null;
-            if (!is_string($eventId) || $eventId === '') {
-                throw ManifestInvariantViolation::fail(
-                    ManifestInvariantViolation::EVENT_MISSING_ID,
-                    'Manifest event missing id',
-                    ['index' => $i]
-                );
-            }
-            if (isset($seenEventIds[$eventId])) {
-                throw ManifestInvariantViolation::fail(
-                    ManifestInvariantViolation::EVENT_DUPLICATE_ID,
-                    'Duplicate manifest event id',
                     ['eventId' => $eventId]
                 );
             }
-            $seenEventIds[$eventId] = true;
+
+            if (!isset($event['id']) || $event['id'] !== $eventId) {
+                throw ManifestInvariantViolation::fail(
+                    ManifestInvariantViolation::EVENT_MISSING_ID,
+                    'Manifest event id key does not match event.id',
+                    ['eventIdKey' => $eventId, 'eventIdValue' => $event['id'] ?? null]
+                );
+            }
+
+            $eventIdValue = $event['id'];
 
             // Identity validation.
             if (!isset($event['identity']) || !is_array($event['identity'])) {
                 throw ManifestInvariantViolation::fail(
                     ManifestInvariantViolation::EVENT_IDENTITY_MISSING,
                     'Manifest event missing identity',
-                    ['eventId' => $eventId]
+                    ['eventId' => $eventIdValue]
                 );
             }
 
@@ -331,7 +301,7 @@ final class FileManifestStore implements ManifestStore
                 throw IdentityInvariantViolation::fail(
                     IdentityInvariantViolation::IDENTITY_HASH_INVALID,
                     'Stored event identity_hash does not match computed hash',
-                    ['eventId' => $eventId, 'stored' => $event['identity_hash'], 'computed' => $computed]
+                    ['eventId' => $eventIdValue, 'stored' => $event['identity_hash'], 'computed' => $computed]
                 );
             }
 
@@ -340,7 +310,7 @@ final class FileManifestStore implements ManifestStore
                 throw IdentityInvariantViolation::fail(
                     IdentityInvariantViolation::IDENTITY_DUPLICATE,
                     'Duplicate event identity detected (hash collision or duplicate identity)',
-                    ['eventId' => $eventId, 'identity_hash' => $computed]
+                    ['eventId' => $eventIdValue, 'identity_hash' => $computed]
                 );
             }
             $seenEventIdentityHashes[$computed] = true;
@@ -351,7 +321,7 @@ final class FileManifestStore implements ManifestStore
                 throw ManifestInvariantViolation::fail(
                     ManifestInvariantViolation::SUBEVENT_IDENTITY_INVALID,
                     'Event.subEvents must be an array',
-                    ['eventId' => $eventId]
+                    ['eventId' => $eventIdValue]
                 );
             }
 
@@ -360,7 +330,7 @@ final class FileManifestStore implements ManifestStore
                     throw ManifestInvariantViolation::fail(
                         ManifestInvariantViolation::SUBEVENT_IDENTITY_INVALID,
                         'SubEvent missing identity',
-                        ['eventId' => $eventId, 'subIndex' => $j]
+                        ['eventId' => $eventIdValue, 'subIndex' => $j]
                     );
                 }
                 $subCanonical = IdentityCanonicalizer::canonicalize($sub['identity']);
@@ -369,24 +339,10 @@ final class FileManifestStore implements ManifestStore
                     throw IdentityInvariantViolation::fail(
                         IdentityInvariantViolation::IDENTITY_HASH_INVALID,
                         'Stored subEvent identity_hash does not match computed hash',
-                        ['eventId' => $eventId, 'subIndex' => $j, 'stored' => $sub['identity_hash'], 'computed' => $subHash]
+                        ['eventId' => $eventIdValue, 'subIndex' => $j, 'stored' => $sub['identity_hash'], 'computed' => $subHash]
                     );
                 }
             }
         }
     }
-
-    /**
-     * @param array<int,array> $events
-     */
-    private function findEventIndexById(array $events, string $eventId): ?int
-    {
-        foreach ($events as $i => $event) {
-            if (is_array($event) && isset($event['id']) && $event['id'] === $eventId) {
-                return (int)$i;
-            }
-        }
-        return null;
-    }
 }
-

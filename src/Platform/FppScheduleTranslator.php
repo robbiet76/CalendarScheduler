@@ -67,15 +67,7 @@ final class FppScheduleTranslator
      */
     private function buildSubEventRecord(array $e): array
     {
-        $type   = $this->detectType($e);
-        $target = $this->extractTarget($type, $e);
-        $subEvent = $this->buildBaseSubEvent($type, $e);
-
-        return [
-            'type' => $type,
-            'target' => $target,
-            'subEvent' => $subEvent,
-        ];
+        return $this->buildBaseSubEvent($this->detectType($e), $e);
     }
 
     /**

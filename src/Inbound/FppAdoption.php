@@ -5,6 +5,7 @@ namespace GoogleCalendarScheduler\Inbound;
 
 use GoogleCalendarScheduler\Platform\FppScheduleTranslator;
 use GoogleCalendarScheduler\Core\ManifestStore;
+use GoogleCalendarScheduler\Core\IdentityBuilder;
 use RuntimeException;
 
 /**
@@ -32,13 +33,16 @@ final class FppAdoption
 {
     private FppScheduleTranslator $translator;
     private ManifestStore $manifestStore;
+    private IdentityBuilder $identityBuilder;
 
     public function __construct(
         FppScheduleTranslator $translator,
-        ManifestStore $manifestStore
+        ManifestStore $manifestStore,
+        IdentityBuilder $identityBuilder
     ) {
         $this->translator    = $translator;
         $this->manifestStore = $manifestStore;
+        $this->identityBuilder = $identityBuilder;
     }
 
     /**
@@ -64,9 +68,18 @@ final class FppAdoption
             }
         }
 
-        foreach ($subEventRecords as $record) {
-            $event = $this->wrapSubEventAsEvent($record);
-            $manifest = $this->manifestStore->appendEvent($manifest, $event);
+        foreach ($subEventRecords as $subEvent) {
+            $event = $this->wrapSubEventAsEvent($subEvent);
+
+            $event['id'] = $this->identityBuilder->build(
+                $subEvent,
+                [
+                    'type'   => $event['type'],
+                    'target' => $event['target'],
+                ]
+            );
+
+            $manifest = $this->manifestStore->upsertEvent($manifest, $event);
         }
 
         $this->manifestStore->saveDraft($manifest);
@@ -77,18 +90,14 @@ final class FppAdoption
      *
      * This is the ONLY place where the "1 SubEvent = 1 Event" rule applies.
      *
-     * @param array<string,mixed> $record
+     * @param array<string,mixed> $subEvent
      * @return array<string,mixed>
      */
-    private function wrapSubEventAsEvent(array $record): array
+    private function wrapSubEventAsEvent(array $subEvent): array
     {
-        if (
-            !isset($record['type']) ||
-            !isset($record['target']) ||
-            !isset($record['subEvent'])
-        ) {
+        if (!isset($subEvent['timing']) || !isset($subEvent['behavior'])) {
             throw new RuntimeException(
-                'Invalid SubEvent record produced by FppScheduleTranslator'
+                'Invalid SubEvent produced by FppScheduleTranslator'
             );
         }
 
@@ -97,8 +106,8 @@ final class FppAdoption
             'id' => null,
 
             // Event-level execution target
-            'type'   => $record['type'],
-            'target' => $record['target'],
+            'type'   => $subEvent['type'],
+            'target' => $subEvent['target'],
 
             // Adoption-mode ownership
             'ownership' => [
@@ -122,7 +131,7 @@ final class FppAdoption
 
             // Exactly one base SubEvent
             'subEvents' => [
-                $record['subEvent'],
+                $subEvent,
             ],
         ];
     }
