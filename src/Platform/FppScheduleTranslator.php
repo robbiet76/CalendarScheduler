@@ -57,6 +57,15 @@ final class FppScheduleTranslator
             $target = $this->extractTarget($type, $entry);
             $subEvent = $this->buildBaseSubEvent($type, $entry);
 
+            if (
+                !isset($subEvent['timing']) ||
+                !is_array($subEvent['timing'])
+            ) {
+                throw new \RuntimeException(
+                    'FPP schedule entry could not be translated to a valid timing object'
+                );
+            }
+
             $key = $type . '|' . $target;
             if (!isset($events[$key])) {
                 $events[$key] = [
