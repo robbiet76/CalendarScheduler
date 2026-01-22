@@ -20,8 +20,9 @@ use RuntimeException;
  * - Persist Events into the ManifestStore
  *
  * ADOPTION RULES:
- * - 1 FPP scheduler entry = 1 Manifest Event
- * - Exactly one base SubEvent per Event
+ * - Each FPP scheduler entry is translated into one or more SubEvents
+ * - Each SubEvent becomes its own Manifest Event
+ * - Exactly one SubEvent per adopted Manifest Event
  * - No grouping, inference, or consolidation
  * - No calendar correlation
  * - No planner, diff, or apply logic
@@ -92,7 +93,10 @@ final class FppAdoption
                 'type'     => $identityInput['type'],
                 'target'   => $identityInput['target'],
                 'subEvents' => [$subEvent],
-                'provenance' => ['source' => 'fpp'],
+                'provenance' => [
+                    'source' => 'fpp',
+                    'mode'   => 'adopted',
+                ],
             ];
 
             $event['id'] = $this->identityBuilder->build($identityInput, []);
