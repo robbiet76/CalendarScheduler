@@ -79,7 +79,7 @@ final class FppAdoption
                 throw new RuntimeException('Adoption subEvent missing timing array');
             }
 
-            $identity = $this->identityBuilder->buildCanonical($type, $target, $timing);
+            $identity = $this->identityBuilder->build($type, $target, $timing);
 
             if (!isset($identity['id']) || !is_string($identity['id'])) {
                 throw new RuntimeException('IdentityBuilder did not produce identity.id');
@@ -109,7 +109,7 @@ final class FppAdoption
                 ],
             ];
 
-            $manifest = $this->manifestStore->upsertEvent($manifest, $identity, $event);
+            $manifest['events'][$identity['id']] = $event;
         }
 
         $this->manifestStore->saveDraft($manifest);
