@@ -59,6 +59,22 @@ final class CalendarTranslator
             $events[] = [
                 'type'   => 'playlist',
                 'target' => $rec['summary'] ?? '',
+                'timing' => [
+                    'start_date' => $this->resolveCalendarDate(substr($rec['start'], 0, 10)),
+                    'end_date'   => $this->resolveCalendarDate(substr($rec['end'],   0, 10)),
+                    'start_time' => [
+                        'hard'     => substr($rec['start'], 11, 8),
+                        'symbolic' => null,
+                        'offset'   => 0,
+                    ],
+                    'end_time' => [
+                        'hard'     => substr($rec['end'], 11, 8),
+                        'symbolic' => null,
+                        'offset'   => 0,
+                    ],
+                    'days' => null,
+                ],
+                'behavior' => FppSemantics::defaultBehavior('playlist'),
                 'correlation' => [
                     'source'     => 'calendar',
                     'externalId' => $rec['uid'] ?? null,
@@ -72,18 +88,6 @@ final class CalendarTranslator
                     'source'      => 'calendar',
                     'provider'    => null,
                     'imported_at' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
-                ],
-                'subEvents' => [
-                    [
-                        'timing' => [
-                            'start_date' => $this->resolveCalendarDate(substr($rec['start'], 0, 10)),
-                            'end_date'   => $this->resolveCalendarDate(substr($rec['end'],   0, 10)),
-                            'start_time' => ['hard' => substr($rec['start'], 11, 8), 'symbolic' => null, 'offset' => 0],
-                            'end_time'   => ['hard' => substr($rec['end'],   11, 8), 'symbolic' => null, 'offset' => 0],
-                            'days'       => null,
-                        ],
-                        'behavior' => FppSemantics::defaultBehavior('playlist'),
-                    ],
                 ],
             ];
         }
