@@ -31,6 +31,7 @@ require_once __DIR__ . '/src/Core/ManifestInvariantViolation.php';
 require_once __DIR__ . '/src/Core/IdentityCanonicalizer.php';
 require_once __DIR__ . '/src/Core/IdentityHasher.php';
 require_once __DIR__ . '/src/Core/Sha256IdentityHasher.php';
+require_once __DIR__ . '/src/Core/IdentityBuilder.php';
 
 require_once __DIR__ . '/src/Core/ManifestStore.php';
 require_once __DIR__ . '/src/Core/FileManifestStore.php';
