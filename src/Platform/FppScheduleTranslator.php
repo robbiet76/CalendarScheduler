@@ -185,29 +185,7 @@ final class FppScheduleTranslator
     private function buildBaseSubEvent(string $type, array $e): array
     {
         $subEvent = [
-
-            'timing' => [
-                'start_date' => [
-                    'symbolic' => $e['startDate'] ?? null,
-                    'hard'     => null,
-                ],
-                'end_date' => [
-                    'symbolic' => $e['endDate'] ?? null,
-                    'hard'     => null,
-                ],
-                'start_time' => [
-                    'symbolic' => null,
-                    'hard'     => $e['startTime'] ?? null,
-                    'offset'   => (int)($e['startTimeOffset'] ?? 0),
-                ],
-                'end_time' => [
-                    'symbolic' => null,
-                    'hard'     => $e['endTime'] ?? null,
-                    'offset'   => (int)($e['endTimeOffset'] ?? 0),
-                ],
-                'days' => (int)($e['day'] ?? 0),
-            ],
-
+            'timing' => $this->buildCanonicalTiming($e),
             'behavior' => [
                 'enabled'  => (int)($e['enabled'] ?? 0),
                 'repeat'   => (int)($e['repeat'] ?? 0),
@@ -245,5 +223,35 @@ final class FppScheduleTranslator
         }
 
         return $payload;
+    }
+    /**
+     * Build canonical timing object for identity and manifest use.
+     *
+     * @param array<string,mixed> $e
+     * @return array<string,mixed>
+     */
+    private function buildCanonicalTiming(array $e): array
+    {
+        return [
+            'start_date' => [
+                'symbolic' => $e['startDate'] ?? null,
+                'hard'     => null,
+            ],
+            'end_date' => [
+                'symbolic' => $e['endDate'] ?? null,
+                'hard'     => null,
+            ],
+            'start_time' => [
+                'symbolic' => null,
+                'hard'     => $e['startTime'] ?? null,
+                'offset'   => (int)($e['startTimeOffset'] ?? 0),
+            ],
+            'end_time' => [
+                'symbolic' => null,
+                'hard'     => $e['endTime'] ?? null,
+                'offset'   => (int)($e['endTimeOffset'] ?? 0),
+            ],
+            'days' => (int)($e['day'] ?? 0),
+        ];
     }
 }
