@@ -52,8 +52,8 @@ final class FppAdoption
      */
     public function adopt(string $schedulePath): void
     {
-        $events = $this->translator->scheduleToEvents($schedulePath);
-        /** @var array<int,array<string,mixed>> $events */
+        $subEvents = $this->translator->scheduleToSubEvents($schedulePath);
+        /** @var array<int,array<string,mixed>> $subEvents */
 
         $manifest = $this->manifestStore->loadDraft();
 
@@ -69,60 +69,37 @@ final class FppAdoption
             }
         }
 
-        /** @var array<string,mixed> $event */
-        foreach ($events as $event) {
+        /** @var array<string,mixed> $subEvent */
+        foreach ($subEvents as $subEvent) {
             if (
-                !isset($event['subEvents'][0]['timing']) ||
-                !is_array($event['subEvents'][0]['timing'])
+                !isset($subEvent['type']) ||
+                !isset($subEvent['target']) ||
+                !isset($subEvent['timing']) ||
+                !is_array($subEvent['timing'])
             ) {
                 throw new RuntimeException(
-                    'FPP adoption requires exactly one subEvent with timing'
+                    'FPP adoption requires each subEvent to have type, target, and timing array'
                 );
             }
 
-            foreach ($event['subEvents'] as $subEvent) {
-                /** @var array<string,mixed> $subEvent */
-                if (
-                    !isset($subEvent['timing']) ||
-                    !is_array($subEvent['timing'])
-                ) {
-                    throw new RuntimeException(
-                        'FPP adoption requires each subEvent to have timing'
-                    );
-                }
+            $identityInput = [
+                'type'   => (string) $subEvent['type'],
+                'target' => (string) $subEvent['target'],
+                'timing' => $subEvent['timing'],
+            ];
 
-                /** @var array{type:string,target:string,subEvents:array<int,array<string,mixed>>} $event */
-                $type   = (string) $event['type'];
-                $target = (string) $event['target'];
+            $event = [
+                'type'     => $identityInput['type'],
+                'target'   => $identityInput['target'],
+                'subEvents' => [$subEvent],
+                'provenance' => ['source' => 'fpp'],
+            ];
 
-                $timing = $subEvent['timing'] ?? null;
-
-                // Some translators may emit timing as a JSON string; normalize here.
-                if (is_string($timing)) {
-                    $decoded = json_decode($timing, true);
-                    if (is_array($decoded)) {
-                        $timing = $decoded;
-                    }
-                }
-
-                if (!is_array($timing)) {
-                    throw new RuntimeException(
-                        'FPP adoption identity requires timing to be an array; got ' . gettype($timing)
-                    );
-                }
-
-                $identityInput = [
-                    'type'   => $type,
-                    'target' => $target,
-                    'timing' => $timing,
-                ];
-
-                $event['id'] = $this->identityBuilder->build($identityInput, []);
-                $manifest = $this->manifestStore->upsertEvent(
-                    $manifest,
-                    $event
-                );
-            }
+            $event['id'] = $this->identityBuilder->build($identityInput, []);
+            $manifest = $this->manifestStore->upsertEvent(
+                $manifest,
+                $event
+            );
         }
 
         $this->manifestStore->saveDraft($manifest);

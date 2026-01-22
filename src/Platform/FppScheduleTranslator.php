@@ -81,6 +81,58 @@ final class FppScheduleTranslator
     }
 
     /**
+     * Translate schedule.json into a flat list of Manifest SubEvents.
+     *
+     * This is used by adoption and identity building, where grouping
+     * into Events happens elsewhere.
+     *
+     * @param string $schedulePath
+     * @return array<int,array<string,mixed>>
+     */
+    public function scheduleToSubEvents(string $schedulePath): array
+    {
+        if (!is_file($schedulePath)) {
+            throw new \RuntimeException("schedule.json not found: {$schedulePath}");
+        }
+
+        $raw = file_get_contents($schedulePath);
+        if ($raw === false) {
+            throw new \RuntimeException("Failed to read schedule.json");
+        }
+
+        $entries = json_decode($raw, true);
+        if (!is_array($entries)) {
+            throw new \RuntimeException("Invalid JSON in schedule.json");
+        }
+
+        $out = [];
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $subEvent = $this->buildBaseSubEvent(
+                $this->detectType($entry),
+                $entry
+            );
+
+            if (
+                !isset($subEvent['timing']) ||
+                !is_array($subEvent['timing'])
+            ) {
+                throw new \RuntimeException(
+                    'FPP schedule entry could not be translated to a valid timing object'
+                );
+            }
+
+            $out[] = $subEvent;
+        }
+
+        return $out;
+    }
+
+    /**
      * Build a Manifest SubEvent record from one FPP scheduler entry.
      *
      * @param array<string,mixed> $e
