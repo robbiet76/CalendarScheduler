@@ -7,6 +7,7 @@ use GoogleCalendarScheduler\Platform\IcsFetcher;
 use GoogleCalendarScheduler\Platform\IcsParser;
 use GoogleCalendarScheduler\Platform\SunTimeDisplayEstimator;
 use GoogleCalendarScheduler\Platform\HolidayResolver;
+use GoogleCalendarScheduler\Platform\FppSemantics;
 use DateTimeImmutable;
 
 /**
@@ -56,7 +57,7 @@ final class CalendarTranslator
 
         foreach ($records as $rec) {
             $events[] = [
-                'type'   => 'calendar',
+                'type'   => 'playlist',
                 'target' => $rec['summary'] ?? '',
                 'correlation' => [
                     'source'     => 'calendar',
@@ -81,11 +82,7 @@ final class CalendarTranslator
                             'end_time'   => ['hard' => substr($rec['end'],   11, 8), 'symbolic' => null, 'offset' => 0],
                             'days'       => null,
                         ],
-                        'behavior' => [
-                            'enabled'  => true,
-                            'repeat'   => 0,
-                            'stopType' => 0,
-                        ],
+                        'behavior' => FppSemantics::defaultBehavior('playlist'),
                     ],
                 ],
             ];
