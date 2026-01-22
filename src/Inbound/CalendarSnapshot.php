@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace GoogleCalendarScheduler\Inbound;
 
 use GoogleCalendarScheduler\Core\ManifestStore;
+use GoogleCalendarScheduler\Core\IdentityBuilder;
 use GoogleCalendarScheduler\Platform\CalendarTranslator;
 
 /**
@@ -20,11 +21,16 @@ final class CalendarSnapshot
 {
     private CalendarTranslator $translator;
     private ManifestStore $manifestStore;
+    private IdentityBuilder $identityBuilder;
 
-    public function __construct(CalendarTranslator $translator, ManifestStore $manifestStore)
-    {
-        $this->translator    = $translator;
-        $this->manifestStore = $manifestStore;
+    public function __construct(
+        CalendarTranslator $translator,
+        ManifestStore $manifestStore,
+        IdentityBuilder $identityBuilder
+    ) {
+        $this->translator      = $translator;
+        $this->manifestStore   = $manifestStore;
+        $this->identityBuilder = $identityBuilder;
     }
 
     /**
@@ -48,7 +54,31 @@ final class CalendarSnapshot
         $events = $this->translator->translateIcsSourceToManifestEvents($icsSource);
 
         foreach ($events as $event) {
-            $manifest = $this->manifestStore->appendEvent($manifest, $event);
+            if (
+                !isset($event['type']) ||
+                !isset($event['target']) ||
+                !isset($event['timing']) ||
+                !is_array($event['timing'])
+            ) {
+                throw new \RuntimeException(
+                    'CalendarSnapshot requires each event to have type, target, and timing array'
+                );
+            }
+
+            $identity = $this->identityBuilder->buildCanonical(
+                $event['type'],
+                $event['target'],
+                $event['timing']
+            );
+
+            if (!isset($identity['id'])) {
+                throw new \RuntimeException('IdentityBuilder did not produce identity.id');
+            }
+
+            $event['identity'] = $identity;
+            $event['id']       = $identity['id'];
+
+            $manifest = $this->manifestStore->upsertEvent($manifest, $event);
         }
 
         $this->manifestStore->saveDraft($manifest);
