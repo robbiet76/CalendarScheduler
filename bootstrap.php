@@ -58,6 +58,9 @@ require_once __DIR__ . '/src/Diff/Diff.php';
 require_once __DIR__ . '/src/Platform/FppSemantics.php';
 require_once __DIR__ . '/src/Platform/FppScheduleTranslator.php';
 require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
+require_once __DIR__ . '/src/Platform/IcsFetcher.php';
+require_once __DIR__ . '/src/Platform/IcsParser.php';
+require_once __DIR__ . '/src/Platform/CalendarTranslator.php';
 
 // -----------------------------------------------------------------------------
 // Outbound — scheduler execution
@@ -70,10 +73,11 @@ require_once __DIR__ . '/src/Outbound/SchedulerRunResult.php';
 require_once __DIR__ . '/src/Outbound/SchedulerRunner.php';
 
 // -----------------------------------------------------------------------------
-// Inbound
+// Inbound — external systems -> manifest (draft snapshot)
 // -----------------------------------------------------------------------------
 
 require_once __DIR__ . '/src/Inbound/FppAdoption.php';
+require_once __DIR__ . '/src/Inbound/CalendarSnapshot.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete
