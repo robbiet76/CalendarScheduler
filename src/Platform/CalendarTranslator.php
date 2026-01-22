@@ -1,309 +1,272 @@
+use GoogleCalendarScheduler\Platform\IcsFetcher;
+use GoogleCalendarScheduler\Platform\IcsParser;
 <?php
 declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Platform;
 
-use DateTime;
-use Throwable;
+use DateTimeImmutable;
+use GoogleCalendarScheduler\Platform\SunTimeDisplayEstimator;
+use GoogleCalendarScheduler\Platform\HolidayResolver;
 
 /**
  * CalendarTranslator
  *
- * Translates an ICS snapshot into canonical Manifest event objects.
+ * Translates manifest events into calendar export intents.
  *
- * HARD RULES:
- * - Snapshot only (no identity assignment)
- * - 1 VEVENT -> 1 Manifest Event (mirrors FPP adoption semantics)
- * - Calendar SUMMARY -> manifest target
- * - Command options/args are opaque and preserved when present in YAML metadata
- *
- * NOTE:
- * This is intentionally minimal. Full recurrence grouping into subEvents can come later.
+ * This class is calendar-provider agnostic. It does NOT:
+ * - assume Google Calendar
+ * - write ICS directly
+ * - mutate the manifest
  */
 final class CalendarTranslator
 {
-    private IcsFetcher $fetcher;
-    private IcsParser $parser;
+    private HolidayResolver $holidayResolver;
 
-    public function __construct(?IcsFetcher $fetcher = null, ?IcsParser $parser = null)
+    /**
+     * @param HolidayResolver|null $holidayResolver
+     */
+    public function __construct(?HolidayResolver $holidayResolver = null)
     {
-        $this->fetcher = $fetcher ?? new IcsFetcher();
-        $this->parser  = $parser  ?? new IcsParser();
+        $this->holidayResolver = $holidayResolver ?? new HolidayResolver([]);
     }
 
     /**
-     * @return array<int,array<string,mixed>> Manifest event objects
+     * Translate an ICS source (file path or URL) into manifest event structures.
+     *
+     * @param string $icsSource Path or URL to ICS
+     * @return array<int,array<string,mixed>> Manifest-shaped events
      */
     public function translateIcsSourceToManifestEvents(string $icsSource): array
     {
-        $ics = $this->loadIcs($icsSource);
-        if ($ics === '') {
+        $fetcher = new IcsFetcher();
+        $parser  = new IcsParser();
+
+        $raw = $fetcher->fetch($icsSource);
+        if ($raw === '') {
             return [];
         }
 
-        $records = $this->parser->parse($ics);
-        $out     = [];
+        $now        = new \DateTimeImmutable('now');
+        $horizonEnd = $now->modify('+2 years');
 
-        $nowIso = (new DateTime('now'))->format(DATE_ATOM);
+        $records = $parser->parse($raw, $now, $horizonEnd);
 
-        foreach ($records as $r) {
-            $uid         = (string)($r['uid'] ?? '');
-            $target      = (string)($r['summary'] ?? '');
-            $description = $r['description'] ?? null;
+        $events = [];
 
-            $yaml = $this->extractYamlMetadata(is_string($description) ? $description : '');
-
-            // Determine type + behavior/payload from YAML when present.
-            [$type, $behavior, $payload] = $this->deriveTypeBehaviorPayload($yaml);
-
-            // Timing: map DTSTART/DTEND to hard date/time fields (no symbolic)
-            $start = (string)($r['start'] ?? '');
-            $end   = (string)($r['end'] ?? '');
-            $timing = $this->buildTimingFromDateTimes($start, $end);
-
-            $event = [
-                'id'   => null,
-                'type' => $type,
-                'target' => $target,
-
+        foreach ($records as $rec) {
+            $events[] = [
+                'type'   => 'calendar',
+                'target' => $rec['summary'] ?? '',
+                'correlation' => [
+                    'source'     => 'calendar',
+                    'externalId' => $rec['uid'] ?? null,
+                ],
                 'ownership' => [
                     'managed'    => true,
                     'controller' => 'calendar',
                     'locked'     => false,
                 ],
-
-                'correlation' => [
-                    'source'     => 'ics',
-                    'externalId' => ($uid !== '' ? $uid : null),
-                ],
-
                 'provenance' => [
                     'source'      => 'calendar',
-                    'provider'    => 'ics',
-                    'imported_at' => $nowIso,
+                    'provider'    => null,
+                    'imported_at' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
                 ],
-
                 'subEvents' => [
-                    array_filter([
-                        'timing'   => $timing,
-                        'behavior' => $behavior,
-                        // payload should be absent unless type=command (per your rule)
-                        'payload'  => ($type === 'command') ? $payload : null,
-                    ], static fn($v) => $v !== null),
+                    [
+                        'timing' => [
+                            'start_date' => ['hard' => substr($rec['start'], 0, 10), 'symbolic' => null],
+                            'end_date'   => ['hard' => substr($rec['end'],   0, 10), 'symbolic' => null],
+                            'start_time' => ['hard' => substr($rec['start'], 11, 8), 'symbolic' => null, 'offset' => 0],
+                            'end_time'   => ['hard' => substr($rec['end'],   11, 8), 'symbolic' => null, 'offset' => 0],
+                            'days'       => null,
+                        ],
+                        'behavior' => [],
+                    ],
                 ],
             ];
+        }
 
-            $out[] = $event;
+        return $events;
+    }
+
+    /**
+     * Translate manifest into calendar export events.
+     *
+     * @param array<string,mixed> $manifest
+     * @param float $latitude   (for display-only sun time estimation)
+     * @param float $longitude
+     *
+     * @return array<int,array<string,mixed>> Calendar export intents
+     */
+    public function export(
+        array $manifest,
+        float $latitude,
+        float $longitude
+    ): array {
+        $out = [];
+
+        foreach ($manifest['events'] ?? [] as $event) {
+            $eventType   = $event['type'] ?? null;
+            $eventTarget = $event['target'] ?? '';
+
+            foreach ($event['subEvents'] ?? [] as $subEvent) {
+                $intent = $this->buildCalendarIntent(
+                    $eventType,
+                    $eventTarget,
+                    $subEvent,
+                    $latitude,
+                    $longitude
+                );
+
+                if ($intent !== null) {
+                    $out[] = $intent;
+                }
+            }
         }
 
         return $out;
     }
 
-    private function loadIcs(string $source): string
-    {
-        $source = trim($source);
-        if ($source === '') {
-            return '';
+    /* ============================================================
+     * Core translation
+     * ============================================================ */
+
+    private function buildCalendarIntent(
+        ?string $eventType,
+        string $target,
+        array $subEvent,
+        float $lat,
+        float $lon
+    ): ?array {
+        $timing   = $subEvent['timing']   ?? null;
+        $behavior = $subEvent['behavior'] ?? [];
+        $payload  = $subEvent['payload']  ?? null;
+
+        if (!is_array($timing)) {
+            return null;
         }
 
-        if (preg_match('#^https?://#i', $source)) {
-            return $this->fetcher->fetch($source);
+        // --------------------------------------------------------
+        // Resolve dates (HARD ONLY for calendar)
+        // --------------------------------------------------------
+        $startDate = $this->resolveHardDate($timing['start_date'] ?? null);
+        $endDate   = $this->resolveHardDate($timing['end_date']   ?? null);
+
+        if (!$startDate || !$endDate) {
+            return null;
         }
 
-        // Local file path
-        $data = @file_get_contents($source);
-        if ($data === false) {
-            return '';
+        // --------------------------------------------------------
+        // Resolve times (display-only for sun-based)
+        // --------------------------------------------------------
+        $startTime = $this->resolveDisplayTime(
+            $timing['start_time'] ?? null,
+            $startDate,
+            $lat,
+            $lon
+        );
+
+        $endTime = $this->resolveDisplayTime(
+            $timing['end_time'] ?? null,
+            $endDate,
+            $lat,
+            $lon
+        );
+
+        if (!$startTime || !$endTime) {
+            return null;
         }
 
-        return (string)$data;
-    }
+        $dtStart = new DateTimeImmutable("$startDate $startTime");
+        $dtEnd   = new DateTimeImmutable("$endDate $endTime");
 
-    /**
-     * Extract fenced YAML from DESCRIPTION:
-     * ```yaml
-     * key: value
-     * nested:
-     *   k: v
-     * ```
-     *
-     * @return array<string,mixed>
-     */
-    private function extractYamlMetadata(string $description): array
-    {
-        if ($description === '') {
-            return [];
-        }
-
-        if (!preg_match('/```yaml\s*(.*?)\s*```/s', $description, $m)) {
-            return [];
-        }
-
-        $yamlText = trim($m[1]);
-        if ($yamlText === '') {
-            return [];
-        }
-
-        return $this->parseMinimalYaml($yamlText);
-    }
-
-    /**
-     * Minimal YAML subset parser (maps only, 2-space indents).
-     * This is intentionally conservative to avoid bringing in dependencies.
-     *
-     * @return array<string,mixed>
-     */
-    private function parseMinimalYaml(string $yaml): array
-    {
-        $lines = preg_split('/\r?\n/', $yaml) ?: [];
-        $root  = [];
-        $stack = [ [&$root, -1] ]; // [ref, indent]
-
-        foreach ($lines as $line) {
-            $line = rtrim($line);
-            if ($line === '' || str_starts_with(ltrim($line), '#')) {
-                continue;
-            }
-
-            $indent = strlen($line) - strlen(ltrim($line, ' '));
-            $trim   = ltrim($line, ' ');
-
-            if (!str_contains($trim, ':')) {
-                continue;
-            }
-
-            [$k, $v] = explode(':', $trim, 2);
-            $key = trim($k);
-            $val = trim($v);
-
-            while (!empty($stack) && $indent <= $stack[count($stack) - 1][1]) {
-                array_pop($stack);
-            }
-
-            $parentRef = &$stack[count($stack) - 1][0];
-
-            if ($val === '') {
-                // start nested map
-                $parentRef[$key] = [];
-                $ref = &$parentRef[$key];
-                $stack[] = [&$ref, $indent];
-                continue;
-            }
-
-            $parentRef[$key] = $this->coerceYamlScalar($val);
-        }
-
-        return $root;
-    }
-
-    private function coerceYamlScalar(string $v)
-    {
-        $v = trim($v);
-
-        if ($v === 'true')  return true;
-        if ($v === 'false') return false;
-
-        if (preg_match('/^-?\d+$/', $v)) {
-            return (int)$v;
-        }
-
-        if (preg_match('/^-?\d+\.\d+$/', $v)) {
-            return (float)$v;
-        }
-
-        return $v;
-    }
-
-    /**
-     * @return array{0:string,1:array<string,int>,2:array<string,mixed>}
-     */
-    private function deriveTypeBehaviorPayload(array $yaml): array
-    {
-        // Defaults
-        $type = 'playlist';
-
-        // Behavior
-        $behavior = [
-            'enabled'  => 1,
-            'repeat'   => 0,
-            'stopType' => 0,
+        // --------------------------------------------------------
+        // Build YAML metadata (symbolic TIME only)
+        // --------------------------------------------------------
+        $yaml = [
+            'behavior' => $behavior,
         ];
 
-        // Extract known behavior keys if present
-        if (isset($yaml['enabled']))  { $behavior['enabled']  = (int)$yaml['enabled']; }
-        if (isset($yaml['repeat']))   { $behavior['repeat']   = (int)$yaml['repeat']; }
-        if (isset($yaml['stopType'])) { $behavior['stopType'] = (int)$yaml['stopType']; }
-
-        // Determine type
-        if (isset($yaml['type']) && is_string($yaml['type'])) {
-            $t = strtolower(trim($yaml['type']));
-            if (in_array($t, ['playlist', 'sequence', 'command'], true)) {
-                $type = $t;
-            }
-        } elseif (isset($yaml['command'])) {
-            $type = 'command';
+        if ($eventType === 'command' && is_array($payload)) {
+            $yaml['payload'] = $payload;
         }
 
-        // Payload is opaque, but ONLY if type=command.
-        $payload = [];
-        if ($type === 'command') {
-            foreach ($yaml as $k => $v) {
-                // Keep command/options/args opaque
-                $payload[(string)$k] = $v;
-            }
-        }
-
-        return [$type, $behavior, $payload];
-    }
-
-    /**
-     * Build manifest timing from normalized "Y-m-d H:i:s" strings.
-     *
-     * Calendar snapshot is hard-only and uses no symbolic date/time.
-     *
-     * @return array<string,mixed>
-     */
-    private function buildTimingFromDateTimes(string $start, string $end): array
-    {
-        $sDate = null; $sTime = null;
-        $eDate = null; $eTime = null;
-
-        try {
-            if ($start !== '') {
-                $dt = new DateTime($start);
-                $sDate = $dt->format('Y-m-d');
-                $sTime = $dt->format('H:i:s');
-            }
-            if ($end !== '') {
-                $dt = new DateTime($end);
-                $eDate = $dt->format('Y-m-d');
-                $eTime = $dt->format('H:i:s');
-            }
-        } catch (Throwable) {
-            // leave nulls
-        }
+        $this->appendSymbolicTimeYaml($yaml, 'start_time', $timing['start_time'] ?? null);
+        $this->appendSymbolicTimeYaml($yaml, 'end_time',   $timing['end_time']   ?? null);
 
         return [
-            'start_date' => [
-                'symbolic' => null,
-                'hard'     => $sDate,
-            ],
-            'end_date' => [
-                'symbolic' => null,
-                'hard'     => $eDate,
-            ],
-            'start_time' => [
-                'symbolic' => null,
-                'hard'     => $sTime,
-                'offset'   => 0,
-            ],
-            'end_time' => [
-                'symbolic' => null,
-                'hard'     => $eTime,
-                'offset'   => 0,
-            ],
-            // For snapshot (no recurrence expansion), default to "all days" mask used in your examples.
-            'days' => 7,
+            'summary' => $target,
+            'dtstart' => $dtStart,
+            'dtend'   => $dtEnd,
+            'yaml'    => $yaml,
         ];
+    }
+
+    /* ============================================================
+     * Date + Time helpers
+     * ============================================================ */
+
+    private function resolveHardDate(?array $date): ?string
+    {
+        if (!is_array($date)) {
+            return null;
+        }
+
+        if (!empty($date['hard'])) {
+            return $date['hard'];
+        }
+
+        if (!empty($date['symbolic'])) {
+            $year = (int)date('Y');
+            $resolved = $this->holidayResolver->resolveSymbolic(
+                $date['symbolic'],
+                $year
+            );
+
+            return $resolved?->format('Y-m-d');
+        }
+
+        return null;
+    }
+
+    private function resolveDisplayTime(
+        ?array $time,
+        string $ymd,
+        float $lat,
+        float $lon
+    ): ?string {
+        if (!is_array($time)) {
+            return null;
+        }
+
+        if (!empty($time['symbolic'])) {
+            return SunTimeDisplayEstimator::estimate(
+                $ymd,
+                $time['symbolic'],
+                $lat,
+                $lon,
+                (int)($time['offset'] ?? 0)
+            );
+        }
+
+        return $time['hard'] ?? null;
+    }
+
+    private function appendSymbolicTimeYaml(
+        array &$yaml,
+        string $key,
+        ?array $time
+    ): void {
+        if (!is_array($time)) {
+            return;
+        }
+
+        if (!empty($time['symbolic'])) {
+            $yaml[$key] = [
+                'symbolic' => $time['symbolic'],
+                'offset'   => (int)($time['offset'] ?? 0),
+            ];
+        }
     }
 }
