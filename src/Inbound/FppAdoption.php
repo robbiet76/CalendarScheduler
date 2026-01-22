@@ -94,7 +94,22 @@ final class FppAdoption
                 /** @var array{type:string,target:string,subEvents:array<int,array<string,mixed>>} $event */
                 $type   = (string) $event['type'];
                 $target = (string) $event['target'];
-                $timing = $subEvent['timing'];
+
+                $timing = $subEvent['timing'] ?? null;
+
+                // Some translators may emit timing as a JSON string; normalize here.
+                if (is_string($timing)) {
+                    $decoded = json_decode($timing, true);
+                    if (is_array($decoded)) {
+                        $timing = $decoded;
+                    }
+                }
+
+                if (!is_array($timing)) {
+                    throw new RuntimeException(
+                        'FPP adoption identity requires timing to be an array; got ' . gettype($timing)
+                    );
+                }
 
                 $identityInput = [
                     'type'   => $type,
