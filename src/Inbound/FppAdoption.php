@@ -70,13 +70,23 @@ final class FppAdoption
 
         foreach ($events as $event) {
             if (
-                !isset($event['timing']) &&
-                isset($event['subEvents'][0]['timing'])
+                !isset($event['subEvents'][0]['timing']) ||
+                !is_array($event['subEvents'][0]['timing'])
             ) {
-                $event['timing'] = $event['subEvents'][0]['timing'];
+                throw new RuntimeException(
+                    'FPP adoption requires exactly one subEvent with timing'
+                );
             }
 
-            $event['id'] = $this->identityBuilder->build($event, []);
+            // Identity is computed from an event-level projection
+            // Timing is sourced from the single base subEvent
+            $identityInput = [
+                'type'   => $event['type'],
+                'target' => $event['target'],
+                'timing' => $event['subEvents'][0]['timing'],
+            ];
+
+            $event['id'] = $this->identityBuilder->build($identityInput, []);
             $manifest = $this->manifestStore->upsertEvent($manifest, $event);
         }
 
