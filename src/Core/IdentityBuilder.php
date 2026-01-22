@@ -9,9 +9,22 @@ final class IdentityBuilder
     private IdentityHasher $hasher;
 
     public function __construct(
-        ?IdentityCanonicalizer $canonicalizer = null,
+        $canonicalizerOrHasher = null,
         ?IdentityHasher $hasher = null
     ) {
+        $canonicalizer = null;
+
+        // Back-compat convenience: allow passing hasher as the first argument.
+        if ($canonicalizerOrHasher instanceof IdentityHasher) {
+            $hasher = $canonicalizerOrHasher;
+        } elseif ($canonicalizerOrHasher instanceof IdentityCanonicalizer) {
+            $canonicalizer = $canonicalizerOrHasher;
+        } elseif ($canonicalizerOrHasher !== null) {
+            throw new \InvalidArgumentException(
+                'IdentityBuilder::__construct expects IdentityCanonicalizer or IdentityHasher as the first argument'
+            );
+        }
+
         $this->canonicalizer = $canonicalizer ?? new IdentityCanonicalizer();
         $this->hasher        = $hasher ?? new Sha256IdentityHasher();
     }

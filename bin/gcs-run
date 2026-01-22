@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 use GoogleCalendarScheduler\Core\FileManifestStore;
 use GoogleCalendarScheduler\Core\Sha256IdentityHasher;
+use GoogleCalendarScheduler\Core\IdentityCanonicalizer;
+use GoogleCalendarScheduler\Core\IdentityBuilder;
 use GoogleCalendarScheduler\Planner\Planner;
 use GoogleCalendarScheduler\Diff\Diff;
 use GoogleCalendarScheduler\Outbound\ApplyEngine;
@@ -63,6 +65,8 @@ if (!in_array($format, ['text', 'json'], true)) {
 try {
     // Manifest store (Core)
     $hasher = new Sha256IdentityHasher();
+    $canonicalizer   = new IdentityCanonicalizer();
+    $identityBuilder = new IdentityBuilder($canonicalizer, $hasher);
     $manifestStore = new FileManifestStore(
         $manifestPath,
         $hasher
