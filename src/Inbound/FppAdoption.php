@@ -69,6 +69,13 @@ final class FppAdoption
         }
 
         foreach ($events as $event) {
+            if (
+                !isset($event['timing']) &&
+                isset($event['subEvents'][0]['timing'])
+            ) {
+                $event['timing'] = $event['subEvents'][0]['timing'];
+            }
+
             $event['id'] = $this->identityBuilder->build($event, []);
             $manifest = $this->manifestStore->upsertEvent($manifest, $event);
         }
