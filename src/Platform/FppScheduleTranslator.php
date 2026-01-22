@@ -112,10 +112,12 @@ final class FppScheduleTranslator
                 continue;
             }
 
-            $subEvent = $this->buildBaseSubEvent(
-                $this->detectType($entry),
-                $entry
-            );
+            $type = $this->detectType($entry);
+            $target = $this->extractTarget($type, $entry);
+
+            $subEvent = $this->buildBaseSubEvent($type, $entry);
+            $subEvent['type'] = $type;
+            $subEvent['target'] = $target;
 
             if (
                 !isset($subEvent['timing']) ||
