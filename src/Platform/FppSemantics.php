@@ -110,6 +110,23 @@ final class FPPSemantics
     }
 
     /* =====================================================================
+     * Default behavior values (FPP scheduler defaults)
+     * ===================================================================== */
+
+    /**
+     * Return canonical default behavior values used by FPP
+     * when no explicit behavior is provided.
+     */
+    public static function defaultBehavior(): array
+    {
+        return [
+            'enabled'  => true,
+            'repeat'   => 0,
+            'stopType' => self::STOP_TYPE_GRACEFUL,
+        ];
+    }
+
+    /* =====================================================================
      * Day-of-week enum semantics (FPP bitmask)
      * ===================================================================== */
 
@@ -163,5 +180,20 @@ final class FPPSemantics
     {
         return is_string($value)
             && in_array($value, self::SYMBOLIC_TIMES, true);
+    }
+
+    /* =====================================================================
+     * Symbolic time offset handling
+     * ===================================================================== */
+
+    /**
+     * Normalize symbolic time offset to integer.
+     *
+     * Offset semantics are opaque to Platform; values are preserved
+     * and interpreted later by FPP.
+     */
+    public static function normalizeTimeOffset(mixed $value): int
+    {
+        return is_numeric($value) ? (int)$value : 0;
     }
 }

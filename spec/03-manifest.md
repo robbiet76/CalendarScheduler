@@ -61,6 +61,7 @@ Manifest Events are the unit of:
 ```ts
 ManifestEvent {
   id: string,
+  type: "playlist" | "command" | "sequence",
   target: string,
 
   correlation: {
@@ -324,6 +325,7 @@ Rules:
 {
   "events": {
     "<eventId>": {
+      "type": "playlist | command | sequence",
       "target": "string",
 
       "correlation": {

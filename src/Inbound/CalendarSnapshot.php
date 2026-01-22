@@ -57,18 +57,18 @@ final class CalendarSnapshot
             if (
                 !isset($event['type']) ||
                 !isset($event['target']) ||
-                !isset($event['timing']) ||
-                !is_array($event['timing'])
+                !isset($event['subEvents'][0]['timing']) ||
+                !is_array($event['subEvents'][0]['timing'])
             ) {
                 throw new \RuntimeException(
-                    'CalendarSnapshot requires each event to have type, target, and timing array'
+                    'CalendarSnapshot requires each event to have type, target, and base subEvent timing array'
                 );
             }
 
             $identity = $this->identityBuilder->buildCanonical(
                 $event['type'],
                 $event['target'],
-                $event['timing']
+                $event['subEvents'][0]['timing']
             );
 
             if (!isset($identity['id'])) {

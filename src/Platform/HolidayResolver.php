@@ -97,10 +97,38 @@ final class HolidayResolver
      * ============================================================ */
 
     /**
-     * Attempt to infer a symbolic holiday from a concrete date.
+     * Resolve a concrete date to a symbolic holiday name using exact match only.
+     *
+     * This is a strict reverse lookup:
+     * - Exact Y-m-d match only
+     * - No heuristics or proximity logic
      *
      * @param DateTimeImmutable $date
+     * @return string|null Holiday shortName if exactly matched
+     */
+    public function reverseResolveExact(DateTimeImmutable $date): ?string
+    {
+        $year = (int)$date->format('Y');
+        $ymd  = $date->format('Y-m-d');
+
+        foreach ($this->holidayIndex as $shortName => $_def) {
+            $resolved = $this->resolveSymbolic($shortName, $year);
+            if ($resolved && $resolved->format('Y-m-d') === $ymd) {
+                return $shortName;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Attempt to infer a symbolic holiday from a concrete date.
      *
+     * NOTE:
+     * This method exists for backward compatibility.
+     * New code should prefer reverseResolveExact().
+     *
+     * @param DateTimeImmutable $date
      * @return string|null Holiday shortName if matched
      */
     public function inferSymbolic(DateTimeImmutable $date): ?string

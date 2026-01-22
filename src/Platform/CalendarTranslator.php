@@ -75,13 +75,17 @@ final class CalendarTranslator
                 'subEvents' => [
                     [
                         'timing' => [
-                            'start_date' => ['hard' => substr($rec['start'], 0, 10), 'symbolic' => null],
-                            'end_date'   => ['hard' => substr($rec['end'],   0, 10), 'symbolic' => null],
+                            'start_date' => $this->resolveCalendarDate(substr($rec['start'], 0, 10)),
+                            'end_date'   => $this->resolveCalendarDate(substr($rec['end'],   0, 10)),
                             'start_time' => ['hard' => substr($rec['start'], 11, 8), 'symbolic' => null, 'offset' => 0],
                             'end_time'   => ['hard' => substr($rec['end'],   11, 8), 'symbolic' => null, 'offset' => 0],
                             'days'       => null,
                         ],
-                        'behavior' => [],
+                        'behavior' => [
+                            'enabled'  => true,
+                            'repeat'   => 0,
+                            'stopType' => 0,
+                        ],
                     ],
                 ],
             ];
@@ -268,5 +272,22 @@ final class CalendarTranslator
                 'offset'   => (int)($time['offset'] ?? 0),
             ];
         }
+    }
+    /**
+     * Returns both hard and symbolic (holiday) representation for a calendar date.
+     */
+    private function resolveCalendarDate(string $ymd): array
+    {
+        $year = (int)substr($ymd, 0, 4);
+
+        $symbolic = $this->holidayResolver->reverseResolveExact(
+            new DateTimeImmutable($ymd),
+            $year
+        );
+
+        return [
+            'hard'     => $ymd,
+            'symbolic' => $symbolic,
+        ];
     }
 }
