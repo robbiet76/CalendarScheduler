@@ -95,8 +95,31 @@ final class IdentityCanonicalizer
             }
         }
 
+        // start_time / end_time must have either hard or symbolic value
+        foreach (['start_time', 'end_time'] as $k) {
+            $t = $identity['timing'][$k];
+            if (!is_array($t)) {
+                throw IdentityInvariantViolation::fail(
+                    IdentityInvariantViolation::IDENTITY_TIMING_INVALID,
+                    "Identity.timing.{$k} must be an object/array",
+                    ['field' => "timing.{$k}"]
+                );
+            }
+
+            $hasHard     = array_key_exists('hard', $t) && $t['hard'] !== null;
+            $hasSymbolic = array_key_exists('symbolic', $t) && $t['symbolic'] !== null;
+
+            if (!$hasHard && !$hasSymbolic) {
+                throw IdentityInvariantViolation::fail(
+                    IdentityInvariantViolation::IDENTITY_TIMING_INVALID,
+                    "Identity.timing.{$k} must have either 'hard' or 'symbolic' value",
+                    ['field' => "timing.{$k}"]
+                );
+            }
+        }
+
         // Forbidden keys at top-level (and common forbidden timing keys)
-        $forbiddenTop = ['start_date', 'end_date', 'date_pattern', 'stopType', 'repeat', 'enabled', 'status', 'uid', 'hash', 'id'];
+        $forbiddenTop = ['stopType', 'repeat', 'enabled', 'status', 'uid', 'hash', 'id'];
         foreach ($forbiddenTop as $k) {
             if (array_key_exists($k, $identity)) {
                 throw IdentityInvariantViolation::fail(
