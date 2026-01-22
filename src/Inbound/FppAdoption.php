@@ -81,8 +81,12 @@ final class FppAdoption
 
             $identity = $this->identityBuilder->buildCanonical($type, $target, $timing);
 
+            if (!isset($identity['id']) || !is_string($identity['id'])) {
+                throw new RuntimeException('IdentityBuilder did not produce identity.id');
+            }
+
             $event = [
-                'id' => $identity['hash'],
+                'id' => $identity['id'],
                 'identity' => $identity,
                 'type' => $type,
                 'target' => $target,
