@@ -28,6 +28,10 @@ Calendar Provider
       Manifest
 ```
 
+This model is intentionally asymmetric.  
+Manifest → Calendar is a projection of execution geometry, while  
+Calendar → Manifest is a reconstructive process that may expand intent.
+
 This abstraction allows flexibility across:
 
 - Pull vs push models
@@ -71,7 +75,8 @@ ingestCalendar(source: CalendarSource): CalendarEvent[]
 Where:
 
 - `CalendarEvent` is a neutral, lossless representation  
-  This representation is intentionally unstructured and does not correspond to Manifest Events or SubEvents.
+  This representation is intentionally unstructured and does not correspond directly to Manifest Events or SubEvents.  
+  A single inbound CalendarEvent may later expand into multiple Manifest SubEvents during resolution.
 - All recurrence, symbols, and exceptions are preserved
 
 ### Inbound Rules
@@ -83,6 +88,7 @@ Where:
 - No Manifest Events or SubEvents are created in this layer
 - No identity derivation or normalization is permitted
 - Provider-neutral records must remain structurally ungrouped
+- No identity inference, matching, or reconstruction is permitted
 
 ---
 
@@ -102,6 +108,9 @@ exportCalendar(
   target: CalendarTarget
 ): CalendarArtifact
 ```
+
+Export is driven by Manifest base SubEvent execution geometry.  
+ManifestEvent containers are treated as envelopes and do not influence export semantics.
 
 Where: Export is driven exclusively by Manifest `SubEvent` execution and timing fields; identity and ownership metadata are ignored.
 
@@ -131,6 +140,8 @@ During **initial adoption and export**, the system operates in a strictly
 - No grouping, consolidation, or inference is performed
 - No Manifest SubEvent expansion occurs at export time
 
+Only a single base SubEvent exists during adoption and export.
+
 In this phase, the calendar is treated as a **mirror of scheduler entries**,
 not as a source of higher-level intent.
 
@@ -152,7 +163,7 @@ This asymmetry is intentional:
 - Scheduler → Calendar is execution-preserving
 - Calendar → Manifest is intent-reconstructing
 
-Calendar I/O must never attempt to infer or synthesize SubEvents during export.
+Calendar I/O must never infer, expand, or synthesize additional SubEvents during export.
 
 ---
 
@@ -161,6 +172,7 @@ Calendar I/O must never attempt to infer or synthesize SubEvents during export.
 - Symbolic times (e.g. Dawn, Dusk) must remain symbolic if supported
 - Symbolic dates (e.g. holidays) must remain symbolic if supported
 - Unsupported symbolic constructs cause explicit export failure
+- Symbolic dates must not be written into calendar metadata, as calendar edits may invalidate symbolic meaning
 
 Silent degradation is forbidden.
 

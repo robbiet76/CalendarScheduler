@@ -61,7 +61,7 @@ Manifest Events are the unit of:
 ```ts
 ManifestEvent {
   id: string,
-  summary: string,
+  target: string,
 
   correlation: {
     source?: string,      // e.g. "google", "ics", "manual"
@@ -117,23 +117,39 @@ Identity is:
 IdentityObject {
   type: "playlist" | "command" | "sequence",
   target: string,
-  days: string,
-  start_time: TimeToken,
-  end_time: TimeToken
+  timing: {
+    days: number,
+    start_time: { symbolic: string|null, hard: string|null, offset: number },
+    end_time:   { symbolic: string|null, hard: string|null, offset: number },
+
+    // optional, excluded from identity hashing:
+    start_date?: { symbolic: string|null, hard: string|null },
+    end_date?:   { symbolic: string|null, hard: string|null }
+  }
 }
 ```
 
 ### Identity Invariants
 
-- Identity fields must be fully specified and non-null after ingestion.
+- Identity fields must be structurally complete after ingestion.
+  For each timing component, at least one of `symbolic` or `hard` MUST be provided.
+  Individual fields MAY be null where explicitly permitted.
 - Identity must not include stopType, repeat, enabled flags, or any execution-only settings.
-- Identity explicitly excludes all date semantics, including DatePattern, hard dates, symbolic dates, and year-specific constraints (dates may be normalized/expanded without changing identity).
-- Identity fields are derived from the base SubEvent execution geometry (type/target/days/start_time/end_time) and must match it exactly.
+- Identity excludes date fields from identity hashing, including start_date and end_date which MAY appear in identity.timing but are excluded from hashing.
+- Identity fields are derived exclusively from the *primary* SubEvent execution geometry
+  (`type`, `target`, `timing.days`, `timing.start_time`, `timing.end_time`) and must match it exactly.
+  Date ranges, behavior flags, payloads, and secondary SubEvents are explicitly excluded.
+
+- For each timing component:
+  - `start_time` and `end_time` MUST specify either `hard` or `symbolic`
+  - If `start_date` or `end_date` is present, it MUST specify either `hard` or `symbolic`
+  - Providing both is permitted
+  - Providing neither is invalid
 
 Rules:
 
 - Identity excludes operational settings (e.g. stopType, repeat)
-- Identity excludes resolved dates
+- Identity excludes date fields from hashing
 - Identity excludes provider artifacts
 - Changing any Identity field creates a *new* Manifest Event identity
 
@@ -153,42 +169,35 @@ SubEvents exist because not all calendar intent maps cleanly to a single FPP sch
 
 SubEvents represent FPP-required execution decomposition but remain part of the Manifest because they are derived intent, not FPP state.
 
-1 SubEvent ≠ 1 IdentityObject; identity exists only at the Manifest Event level.
-
 ```ts
 SubEvent {
-  role: "base" | "exception",
-
-  execution: {
-    type: "playlist" | "command" | "sequence",
-    target: string,
-    payload: object
-  },
+  type: "playlist" | "command" | "sequence",
+  target: string,
 
   timing: {
-    startDate: DatePattern | null,
-    endDate: DatePattern | null,
-    startTime: TimeToken,
-    endTime: TimeToken,
+    start_date: { symbolic: string|null, hard: string|null },
+    end_date:   { symbolic: string|null, hard: string|null },
+    start_time: { symbolic: string|null, hard: string|null, offset: number },
+    end_time:   { symbolic: string|null, hard: string|null, offset: number },
     days: number | null
   },
 
   behavior: {
-    enabled: boolean,
-    stopType: scalar,
-    repeat: scalar
-  }
+    enabled: scalar,
+    repeat: scalar,
+    stopType: scalar
+  },
+
+  payload?: object
 }
 ```
 
 Rules:
 
 - Every Manifest Event has **one or more SubEvents**
-- Exactly one SubEvent has `role: "base"`
-- Zero or more SubEvents may have `role: "exception"`
 - SubEvents have **no independent identity**
-- SubEvents are never diffed, ordered, or applied independently
-- Identity is defined at the Manifest Event level and is derived from the base SubEvent; exception SubEvents must not alter identity.
+- Identity is defined at the Manifest Event level and is derived from the base execution geometry (type/target/timing.days/timing.start_time/timing.end_time)
+- Payload exists only for command-type SubEvents
 
 ---
 
@@ -220,7 +229,7 @@ Rules:
 - DatePattern is immutable after ingestion
 - Expansion into executable dates occurs only during Apply
 
-DatePattern applies to SubEvent timing and intent realization, not to Manifest Event identity.
+DatePattern applies to SubEvent timing and intent realization, not to Manifest Event identity hashing.
 
 Examples:
 
@@ -313,45 +322,45 @@ Rules:
 ## Manifest Event Container
 
 {
-  "manifest": {
-    "events": {
-      "<eventId>": {
-        "summary": "string",
+  "events": {
+    "<eventId>": {
+      "target": "string",
 
-        "correlation": {
-          "source": "google | ics | manual | null",
-          "externalId": "string | null"
-        },
+      "correlation": {
+        "source": "google | ics | manual | null",
+        "externalId": "string | null"
+      },
 
-        "identity": {
-          "type": "playlist | command | sequence",
-          "target": "string",
-          "days": "string",
-          "start_time": "TimeToken",
-          "end_time": "TimeToken"
-        },
+      "identity": {
+        "type": "playlist | command | sequence",
+        "target": "string",
+        "timing": {
+          "days": 3,
+          "start_time": { "symbolic": null, "hard": "08:00:00", "offset": 0 },
+          "end_time": { "symbolic": null, "hard": "10:00:00", "offset": 0 }
+        }
+      },
 
-        "ownership": {
-          "managed": true,
-          "controller": "calendar | manual | unknown",
-          "locked": false
-        },
+      "ownership": {
+        "managed": true,
+        "controller": "calendar | manual | unknown",
+        "locked": false
+      },
 
-        "status": {
-          "enabled": true,
-          "deleted": false
-        },
+      "status": {
+        "enabled": true,
+        "deleted": false
+      },
 
-        "provenance": {
-          "source": "ics",
-          "provider": "string",
-          "imported_at": "ISO-8601"
-        },
+      "provenance": {
+        "source": "ics",
+        "provider": "string",
+        "imported_at": "ISO-8601"
+      },
 
-        "subEvents": [
-          /* FPP scheduler entries live here */
-        ]
-      }
+      "subEvents": [
+        /* FPP scheduler entries live here */
+      ]
     }
   }
 }
@@ -361,43 +370,24 @@ Rules:
 ## Manifest SubEvent Container
 
 {
-  "role": "base | exception",
-
-  "execution": {
-    "type": "playlist | command | sequence",
-    "target": "string",
-    "payload": {
-      "<string>": "<scalar | object>"
-    }
-  },
+  "type": "playlist | command | sequence",
+  "target": "string",
 
   "timing": {
-    "startDate": {
-      "hard": "YYYY-MM-DD | null",
-      "symbolic": "string | null"
-    },
-    "endDate": {
-      "hard": "YYYY-MM-DD | null",
-      "symbolic": "string | null"
-    },
-
-    "startTime": {
-      "value": "HH:MM:SS | null",
-      "symbolic": "string | null",
-      "offsetMinutes": 0
-    },
-    "endTime": {
-      "value": "HH:MM:SS | null",
-      "symbolic": "string | null",
-      "offsetMinutes": 0
-    },
-
+    "start_date": { "hard": "YYYY-MM-DD | null", "symbolic": "string | null" },
+    "end_date": { "hard": "YYYY-MM-DD | null", "symbolic": "string | null" },
+    "start_time": { "hard": "HH:MM:SS | null", "symbolic": "string | null", "offset": 0 },
+    "end_time": { "hard": "HH:MM:SS | null", "symbolic": "string | null", "offset": 0 },
     "days": "number | null"
   },
 
   "behavior": {
     "enabled": true,
-    "stopType": "scalar",
-    "repeat": "scalar"
+    "repeat": "scalar",
+    "stopType": "scalar"
+  },
+
+  "payload": {
+    "<string>": "<scalar | object>"
   }
 }

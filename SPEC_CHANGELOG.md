@@ -7,6 +7,30 @@ Any modification MUST be logged here.
 
 ---
 
+## v2.5 — 2026-01-22
+**Status:** Behavioral Correction & Clarification
+
+### Summary
+Identity canonicalization rules were corrected and aligned with real-world scheduler semantics after implementation validation.
+
+### Scope
+- 04 — Manifest Identity Model
+- 07 — Events & SubEvents
+- 12 — FPP Semantic Layer
+
+### Changes
+- Relaxed IdentityCanonicalizer invariants to require *either* symbolic or hard values (not both) for dates and times
+- Removed invalid prohibitions on date fields inside timing objects while still excluding them from identity hashing
+- Clarified that identity validity is based on structural completeness, not calendar realizability
+- Confirmed that FPP adoption produces identity-stable events suitable for id-keyed manifest storage
+
+### Notes
+- No new features introduced
+- Change reflects post-implementation validation
+- Backwards compatibility remains intentionally unsupported
+
+---
+
 ## v2.4 — 2026-01-21
 **Status:** Behavioral Alignment & Hardening
 

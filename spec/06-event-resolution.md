@@ -54,7 +54,7 @@ Resolution must not assume:
 
 ## Outputs
 
-Resolution produces **normalized execution semantics**, expressed as provider-agnostic timing and execution records suitable for SubEvent construction.
+Resolution produces **normalized execution semantics**, expressed as provider-agnostic timing and execution records suitable for downstream semantic projection (e.g., Manifest construction).
 
 Resolution output:
 - Preserves symbolic meaning
@@ -94,7 +94,17 @@ Instead, it converts them into:
 - `TimeToken`
 - `DatePattern`
 
+
 Symbolic intent is preserved until the FPP semantic layer.
+
+#### Symbolic / Hard Mixing (Hard Rule)
+
+Resolution must **not** produce hybrid timing fields where symbolic and hard meanings are mixed across a single timing window.
+
+- For each of `start_date`, `end_date`, `start_time`, `end_time`: **either** a symbolic value is carried **or** a hard value is carried.
+- It is valid to store both `symbolic` and `hard` fields in the structure, but Resolution must ensure they do not conflict and must not partially coerce symbolic intent into hard values.
+
+If Resolution cannot preserve a coherent symbolic representation, it must surface the event as **Partially Resolved** or **Unresolved** rather than guessing.
 
 ---
 
@@ -105,7 +115,20 @@ All timing information is normalized into canonical forms:
 - Canonical time tokens
 - Structured date patterns
 
+
 Equivalent calendar expressions must produce identical normalized output.
+
+#### Structural Completeness
+
+Resolution output timing must be **structurally complete**. Even when values are symbolic or open-ended, the timing object must include the full set of fields required downstream:
+
+- `start_date` (symbolic and/or hard)
+- `end_date` (symbolic and/or hard)
+- `start_time` (symbolic and/or hard)
+- `end_time` (symbolic and/or hard)
+- `days`
+
+Fields must not be omitted. Downstream layers must never be forced to guess missing timing structure.
 
 ---
 
@@ -129,7 +152,10 @@ If a calendar event cannot be expressed as a single execution semantic, resoluti
 - Identify one base semantic
 - Generate exception semantics
 
+
 Resolution produces base and exception semantics but does not order or schedule them.
+
+Resolution must decompose semantics **only** when the event meaning requires it. It must not split solely due to storage, identity, or scheduler representation constraints.
 
 ---
 

@@ -43,10 +43,11 @@ A **Manifest Event** is the authoritative semantic representation of exactly one
 
 > **Invariant (Post‑Import):** `1 Calendar Event → 1 Manifest Event`
 
-During initial adoption and export from FPP, Manifest Events may be  
-created without an originating Calendar Event. In this mode, each  
-FPP scheduler entry is represented as a standalone Manifest Event  
-containing exactly one base SubEvent.
+During FPP adoption and calendar export, no SubEvent decomposition occurs  
+beyond the single base SubEvent derived directly from the scheduler entry.
+
+This base SubEvent immediately establishes the Manifest Event’s identity  
+prior to persistence.
 
 Manifest Events are the unit of:
 - Identity
@@ -141,6 +142,28 @@ This guarantees:
 - Safe revert
 - No semantic fragmentation
 
+### Identity Derivation Scope
+
+A Manifest Event’s identity is derived **exclusively** from its base SubEvent’s  
+execution geometry, not from its full structure.
+
+Identity is constructed from:
+- `type`
+- `target`
+- `timing` (normalized; see Identity specification)
+
+Identity explicitly excludes:
+- Date ranges (`start_date`, `end_date`)
+- Behavior flags
+- Payload contents
+- Exception SubEvents
+- Calendar provenance
+
+This ensures:
+- Stable identity across calendar edits
+- Identity consistency between FPP and Calendar sources
+- Predictable diff and merge behavior
+
 ---
 
 ## DatePattern Semantics (FPP-Aligned)
@@ -164,6 +187,9 @@ DatePattern is:
 - Preserved verbatim in the Manifest
 - Never resolved during planning
 - Expanded only by the FPP semantics layer
+
+DatePattern fields participate in execution semantics only and do **not**  
+contribute to Manifest Event identity.
 
 ### Examples
 
@@ -212,6 +238,14 @@ Rules:
 - Manifest Events are ordered relative to one another
 - SubEvents never participate directly
 - Ordering rules are defined in **08 — Scheduler Ordering Model**
+
+---
+
+### Non‑Goals
+
+SubEvents are not a semantic unit and must never be treated as such.  
+Any design that attempts to diff, hash, or persist SubEvents independently  
+is invalid by definition.
 
 ---
 

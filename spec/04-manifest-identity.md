@@ -1,4 +1,3 @@
-
 ### Manifest Identity Semantics
 
 > Manifest Identity defines **which scheduler intent the plugin considers equivalent**, not how the FPP scheduler internally enumerates entries.
@@ -18,14 +17,33 @@ Normalization is an **intentional optimization**, not a platform constraint.
 
 #### What Defines Manifest Identity
 
-Manifest Identity is derived from the subset of execution geometry that defines a **logical execution slot** as perceived by the user. Identity includes:
+Manifest Identity is derived from the subset of execution geometry that defines a **logical execution slot** as perceived by the user.
 
-- **Execution type** (playlist, command, sequence)
+Identity includes:
+
+- **Execution type** (`playlist`, `command`, `sequence`)
 - **Execution target** (playlist name, command name, etc.)
-- **Day mask** (days of week applicability)
-- **Time window** (startTime and endTime, including symbolic values)
+- **Timing window** (canonicalized)
+  - `timing` must be a structured object
+  - `days` is required
+  - `start_time` is required (hard or symbolic)
+  - `end_time` is required (hard or symbolic)
 
 These fields determine whether two scheduler entries could ever be eligible at the same moment during a daily FPP scan. If two entries differ in any of these dimensions, they represent distinct scheduler intents and must not share identity.
+
+#### Timing Canonicalization Rules
+
+Timing participates in Manifest Identity subject to the following rules:
+
+- `timing` must be a structured object
+- `days` is required
+- `start_time` and `end_time` are required
+- Each of `start_time` and `end_time` must define **either**:
+  - a hard time (`hard`), **or**
+  - a symbolic time (`symbolic`)
+- `offset` is allowed (typically used with sun times)
+
+Date fields (`start_date`, `end_date`) may be present and are structurally validated (hard or symbolic required), but their values are **explicitly excluded from identity equivalence and hashing**.
 
 #### What Does *Not* Define Manifest Identity
 
@@ -50,10 +68,10 @@ Dates *can* participate in raw scheduler identity in FPP, but are intentionally 
 Date semantics are therefore:
 - Preserved in SubEvent timing
 - Subject to plugin-controlled normalization
-- Excluded from Manifest Identity hashing
+- Explicitly excluded from Manifest Identity hashing (even when present)
 
 #### Summary Rule
 
-> **Two SubEvents share the same Manifest Identity if and only if they represent the same logical execution slot — meaning they cannot both be eligible at the same moment during an FPP scheduler scan.**
+> Two SubEvents share the same Manifest Identity if and only if they represent the same logical execution slot — meaning that, ignoring date ranges, they cannot both be eligible at the same moment during a daily FPP scheduler scan.
 
 This definition is authoritative and governs diffing, reconciliation, and apply behavior throughout the system.
