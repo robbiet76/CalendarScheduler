@@ -1,13 +1,13 @@
-use GoogleCalendarScheduler\Platform\IcsFetcher;
-use GoogleCalendarScheduler\Platform\IcsParser;
 <?php
 declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Platform;
 
-use DateTimeImmutable;
+use GoogleCalendarScheduler\Platform\IcsFetcher;
+use GoogleCalendarScheduler\Platform\IcsParser;
 use GoogleCalendarScheduler\Platform\SunTimeDisplayEstimator;
 use GoogleCalendarScheduler\Platform\HolidayResolver;
+use DateTimeImmutable;
 
 /**
  * CalendarTranslator
