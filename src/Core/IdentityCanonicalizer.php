@@ -68,6 +68,15 @@ final class IdentityCanonicalizer
             );
         }
 
+        // Normalize timing keys: convert string keys to lowercase
+        if (isset($identity['timing']) && is_array($identity['timing'])) {
+            $normalizedTiming = [];
+            foreach ($identity['timing'] as $key => $value) {
+                $normalizedTiming[strtolower($key)] = $value;
+            }
+            $identity['timing'] = $normalizedTiming;
+        }
+
         // timing validation
         if (!is_array($identity['timing'])) {
             throw IdentityInvariantViolation::fail(
@@ -94,17 +103,6 @@ final class IdentityCanonicalizer
                     IdentityInvariantViolation::IDENTITY_FORBIDDEN_FIELD_PRESENT,
                     "Identity includes forbidden field: {$k}",
                     ['field' => $k]
-                );
-            }
-        }
-
-        // Ensure no date fields inside timing
-        foreach (['start_date', 'end_date', 'date_pattern', 'startDate', 'endDate'] as $k) {
-            if (array_key_exists($k, $identity['timing'])) {
-                throw IdentityInvariantViolation::fail(
-                    IdentityInvariantViolation::IDENTITY_FORBIDDEN_FIELD_PRESENT,
-                    "Identity.timing includes forbidden field: {$k}",
-                    ['field' => "timing.{$k}"]
                 );
             }
         }
