@@ -53,6 +53,7 @@ final class FppAdoption
     public function adopt(string $schedulePath): void
     {
         $events = $this->translator->scheduleToEvents($schedulePath);
+        /** @var array<int,array<string,mixed>> $events */
 
         $manifest = $this->manifestStore->loadDraft();
 
@@ -68,6 +69,7 @@ final class FppAdoption
             }
         }
 
+        /** @var array<string,mixed> $event */
         foreach ($events as $event) {
             if (
                 !isset($event['subEvents'][0]['timing']) ||
@@ -78,16 +80,34 @@ final class FppAdoption
                 );
             }
 
-            // Identity is computed from an event-level projection
-            // Timing is sourced from the single base subEvent
-            $identityInput = [
-                'type'   => $event['type'],
-                'target' => $event['target'],
-                'timing' => $event['subEvents'][0]['timing'],
-            ];
+            foreach ($event['subEvents'] as $subEvent) {
+                /** @var array<string,mixed> $subEvent */
+                if (
+                    !isset($subEvent['timing']) ||
+                    !is_array($subEvent['timing'])
+                ) {
+                    throw new RuntimeException(
+                        'FPP adoption requires each subEvent to have timing'
+                    );
+                }
 
-            $event['id'] = $this->identityBuilder->build($identityInput, []);
-            $manifest = $this->manifestStore->upsertEvent($manifest, $event);
+                /** @var array{type:string,target:string,subEvents:array<int,array<string,mixed>>} $event */
+                $type   = (string) $event['type'];
+                $target = (string) $event['target'];
+                $timing = $subEvent['timing'];
+
+                $identityInput = [
+                    'type'   => $type,
+                    'target' => $target,
+                    'timing' => $timing,
+                ];
+
+                $event['id'] = $this->identityBuilder->build($identityInput, []);
+                $manifest = $this->manifestStore->upsertEvent(
+                    $manifest,
+                    $event
+                );
+            }
         }
 
         $this->manifestStore->saveDraft($manifest);
