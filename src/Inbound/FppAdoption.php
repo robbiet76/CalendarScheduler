@@ -53,59 +53,96 @@ final class FppAdoption
      */
     public function adopt(string $schedulePath): void
     {
+        // Adoption must be 1:1 FPP entry → Manifest event
         $subEvents = $this->translator->scheduleToSubEvents($schedulePath);
-        /** @var array<int,array<string,mixed>> $subEvents */
 
+        // Clear previous adopted events (replacement-style adoption)
         $manifest = $this->manifestStore->loadDraft();
+        $manifest = $this->removeAllFppSourcedEvents($manifest);
 
-        // Remove all previously adopted FPP events (replacement-style adoption)
-        if (isset($manifest['events']) && is_array($manifest['events'])) {
-            foreach ($manifest['events'] as $eventId => $event) {
-                if (
-                    isset($event['provenance']['source']) &&
-                    $event['provenance']['source'] === 'fpp'
-                ) {
-                    unset($manifest['events'][$eventId]);
-                }
-            }
-        }
-
-        /** @var array<string,mixed> $subEvent */
         foreach ($subEvents as $subEvent) {
-            if (
-                !isset($subEvent['type']) ||
-                !isset($subEvent['target']) ||
-                !isset($subEvent['timing']) ||
-                !is_array($subEvent['timing'])
-            ) {
-                throw new RuntimeException(
-                    'FPP adoption requires each subEvent to have type, target, and timing array'
-                );
+            if (!is_array($subEvent)) {
+                continue;
             }
 
-            $identityInput = [
-                'type'   => (string) $subEvent['type'],
-                'target' => (string) $subEvent['target'],
-                'timing' => $subEvent['timing'],
-            ];
+            $type   = $subEvent['type']   ?? null;
+            $target = $subEvent['target'] ?? null;
+            $timing = $subEvent['timing'] ?? null;
+
+            if (!is_string($type) || $type === '') {
+                throw new RuntimeException('Adoption subEvent missing type');
+            }
+            if (!is_string($target) || $target === '') {
+                throw new RuntimeException('Adoption subEvent missing target');
+            }
+            if (!is_array($timing)) {
+                throw new RuntimeException('Adoption subEvent missing timing array');
+            }
+
+            $id = $this->identityBuilder->build($type, $target, $timing);
 
             $event = [
-                'type'     => $identityInput['type'],
-                'target'   => $identityInput['target'],
-                'subEvents' => [$subEvent],
+                'id' => $id,
+                'type' => $type,
+                'target' => $target,
+                'ownership' => [
+                    'managed' => false,
+                    'controller' => 'manual',
+                    'locked' => false,
+                ],
+                'correlation' => [
+                    'source' => null,
+                    'externalId' => null,
+                ],
                 'provenance' => [
                     'source' => 'fpp',
-                    'mode'   => 'adopted',
+                    'provider' => null,
+                    'imported_at' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
+                ],
+                'subEvents' => [
+                    $this->stripTypeTargetForManifest($subEvent),
                 ],
             ];
 
-            $event['id'] = $this->identityBuilder->build($identityInput, []);
-            $manifest = $this->manifestStore->upsertEvent(
-                $manifest,
-                $event
-            );
+            $manifest = $this->manifestStore->appendEvent($manifest, $event);
         }
 
         $this->manifestStore->saveDraft($manifest);
+    }
+
+    /**
+     * Remove all events that were previously adopted from FPP.
+     *
+     * @param array<string,mixed> $manifest
+     * @return array<string,mixed>
+     */
+    private function removeAllFppSourcedEvents(array $manifest): array
+    {
+        if (!isset($manifest['events']) || !is_array($manifest['events'])) {
+            return $manifest;
+        }
+
+        foreach ($manifest['events'] as $eventId => $event) {
+            if (
+                isset($event['provenance']['source']) &&
+                $event['provenance']['source'] === 'fpp'
+            ) {
+                unset($manifest['events'][$eventId]);
+            }
+        }
+
+        return $manifest;
+    }
+
+    /**
+     * Strip type/target fields from a SubEvent before storing in the Manifest.
+     *
+     * @param array<string,mixed> $subEvent
+     * @return array<string,mixed>
+     */
+    private function stripTypeTargetForManifest(array $subEvent): array
+    {
+        unset($subEvent['type'], $subEvent['target']);
+        return $subEvent;
     }
 }

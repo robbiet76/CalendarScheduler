@@ -8,36 +8,32 @@ final class IdentityBuilder
     private IdentityCanonicalizer $canonicalizer;
     private IdentityHasher $hasher;
 
-    public function __construct(
-        ?IdentityCanonicalizer $canonicalizer = null,
-        ?IdentityHasher $hasher = null
-    ) {
-        $this->canonicalizer = $canonicalizer ?? new IdentityCanonicalizer();
-        $this->hasher        = $hasher ?? new Sha256IdentityHasher();
+    public function __construct(IdentityCanonicalizer $canonicalizer, IdentityHasher $hasher)
+    {
+        $this->canonicalizer = $canonicalizer;
+        $this->hasher = $hasher;
     }
 
     /**
-     * Build a deterministic identity for a single event + subEvent pair.
+     * Build a stable identityHash from the identity-defining fields.
      *
-     * @param array<string,mixed> $event
-     * @param array<string,mixed> $subEvent
+     * @param 'playlist'|'sequence'|'command' $type
+     * @param array<string,mixed> $timing
      */
-    public function build(array $event, array $subEvent): string
+    public function build(string $type, string $target, array $timing): string
     {
-        $identityMaterial = [
-            'type'   => $event['type']   ?? null,
-            'target' => $event['target'] ?? null,
+        // Fail fast with a crisp error if caller violates contract
+        if (!is_array($timing)) {
+            throw new \RuntimeException('IdentityBuilder::build() requires timing array');
+        }
 
-            // SubEvent defines executable intent
-            'timing'   => $subEvent['timing']   ?? null,
-            'behavior' => $subEvent['behavior'] ?? null,
-            'payload'  => $subEvent['payload']  ?? null,
+        $identity = [
+            'type' => $type,
+            'target' => $target,
+            'timing' => $timing,
         ];
 
-        // Canonicalize intent (ordering, null handling, normalization)
-        $canonical = $this->canonicalizer->canonicalize($identityMaterial);
-
-        // Hash canonical intent
+        $canonical = $this->canonicalizer->canonicalize($identity);
         return $this->hasher->hash($canonical);
     }
 }
