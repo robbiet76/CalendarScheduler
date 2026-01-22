@@ -57,18 +57,25 @@ final class CalendarSnapshot
             if (
                 !isset($event['type']) ||
                 !isset($event['target']) ||
-                !isset($event['subEvents'][0]['timing']) ||
-                !is_array($event['subEvents'][0]['timing'])
+                !isset($event['timing']) ||
+                !is_array($event['timing'])
             ) {
                 throw new \RuntimeException(
-                    'CalendarSnapshot requires each event to have type, target, and base subEvent timing array'
+                    'CalendarSnapshot requires each event to have type, target, and event-level timing array'
                 );
             }
+
+            // Build a base subEvent from event-level data
+            $event['subEvents'] = [[
+                'timing'   => $event['timing'],
+                'behavior' => $event['behavior'] ?? [],
+                'payload'  => null,
+            ]];
 
             $identity = $this->identityBuilder->buildCanonical(
                 $event['type'],
                 $event['target'],
-                $event['subEvents'][0]['timing']
+                $event['timing']
             );
 
             if (!isset($identity['id'])) {
