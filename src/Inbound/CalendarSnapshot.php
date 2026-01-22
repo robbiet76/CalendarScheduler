@@ -5,6 +5,7 @@ namespace GoogleCalendarScheduler\Inbound;
 
 use GoogleCalendarScheduler\Core\ManifestStore;
 use GoogleCalendarScheduler\Core\IdentityBuilder;
+use GoogleCalendarScheduler\Core\IdentityHasher;
 use GoogleCalendarScheduler\Platform\CalendarTranslator;
 
 /**
@@ -22,15 +23,18 @@ final class CalendarSnapshot
     private CalendarTranslator $translator;
     private ManifestStore $manifestStore;
     private IdentityBuilder $identityBuilder;
+    private IdentityHasher $hasher;
 
     public function __construct(
         CalendarTranslator $translator,
         ManifestStore $manifestStore,
-        IdentityBuilder $identityBuilder
+        IdentityBuilder $identityBuilder,
+        IdentityHasher $hasher
     ) {
         $this->translator      = $translator;
         $this->manifestStore   = $manifestStore;
         $this->identityBuilder = $identityBuilder;
+        $this->hasher = $hasher;
     }
 
     /**
@@ -78,12 +82,11 @@ final class CalendarSnapshot
                 $event['timing']
             );
 
-            if (!isset($identity['id'])) {
-                throw new \RuntimeException('IdentityBuilder did not produce identity.id');
-            }
+            $id = $this->hasher->hash($identity);
 
+            $identity['id'] = $id;
             $event['identity'] = $identity;
-            $event['id']       = $identity['id'];
+            $event['id']       = $id;
 
             $manifest = $this->manifestStore->upsertEvent($manifest, $event);
         }
