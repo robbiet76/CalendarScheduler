@@ -44,7 +44,7 @@ final class CalendarManifestResolver implements EventResolver
                 continue;
             }
 
-            if ($existing !== $calEvent->event) {
+            if ($existing->event !== $calEvent->event) {
                 $result->addOperation(
                     new ResolutionOperation(
                         ResolutionOperation::UPSERT,

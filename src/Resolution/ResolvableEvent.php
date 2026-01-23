@@ -9,6 +9,89 @@ namespace GoogleCalendarScheduler\Resolution;
  */
 final class ResolvableEvent
 {
+    public static function fromCalendarEvent(
+        array $calendarEvent,
+        array $canonicalIdentity,
+        string $identityHash,
+        bool $managed,
+        ?string $externalKey = null
+    ): self {
+        if (!isset($calendarEvent['type'], $calendarEvent['target'], $calendarEvent['timing'])) {
+            throw new \InvalidArgumentException('Calendar event missing required fields');
+        }
+
+        $baseSubEvent = [
+            'timing'        => $calendarEvent['timing'],
+            'behavior'      => $calendarEvent['behavior'] ?? [],
+            'payload'       => $calendarEvent['payload'] ?? null,
+            'identity'      => $canonicalIdentity,
+            'identity_hash' => $identityHash,
+        ];
+
+        $event = $calendarEvent;
+        $event['subEvents'] = [$baseSubEvent];
+
+        return new self(
+            $identityHash,
+            $canonicalIdentity,
+            $event,
+            'calendar',
+            $managed,
+            $externalKey
+        );
+    }
+
+    public static function fromManifestEvent(
+        array $manifestEvent,
+        bool $managed
+    ): self {
+        if (!isset($manifestEvent['id'], $manifestEvent['identity'])) {
+            throw new \InvalidArgumentException('Manifest event missing identity or id');
+        }
+
+        $identityHash = $manifestEvent['id'];
+        $identity     = $manifestEvent['identity'];
+
+        return new self(
+            $identityHash,
+            $identity,
+            $manifestEvent,
+            'manifest',
+            $managed,
+            $manifestEvent['correlation']['externalId'] ?? null
+        );
+    }
+
+    public static function fromFppScheduleEntry(
+        array $scheduleEntry,
+        array $canonicalIdentity,
+        string $identityHash,
+        bool $managed
+    ): self {
+        $baseSubEvent = [
+            'timing'        => $canonicalIdentity['timing'],
+            'behavior'      => $scheduleEntry['behavior'] ?? [],
+            'payload'       => $scheduleEntry['payload'] ?? null,
+            'identity'      => $canonicalIdentity,
+            'identity_hash' => $identityHash,
+        ];
+
+        $event = [
+            'type'      => $canonicalIdentity['type'],
+            'target'    => $canonicalIdentity['target'],
+            'timing'    => $canonicalIdentity['timing'],
+            'subEvents' => [$baseSubEvent],
+        ];
+
+        return new self(
+            $identityHash,
+            $canonicalIdentity,
+            $event,
+            'fpp',
+            $managed
+        );
+    }
+
     public string $identityHash;
 
     /** Canonical identity object (NO id field) */
@@ -29,7 +112,7 @@ final class ResolvableEvent
     /** Non-fatal warnings attached during normalization */
     public array $warnings = [];
 
-    public function __construct(
+    private function __construct(
         string $identityHash,
         array $identity,
         array $event,

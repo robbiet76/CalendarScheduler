@@ -26,5 +26,23 @@ final class ResolutionInputs
         $this->calendarEvents     = $calendarEvents;
         $this->fppEvents          = $fppEvents;
         $this->policy             = $policy;
+
+        foreach ($this->calendarEvents as $event) {
+            if (!($event instanceof ResolvableEvent)) {
+                throw new \RuntimeException('ResolutionInputs requires normalized ResolvableEvent objects in calendarEvents');
+            }
+        }
+
+        foreach ($this->fppEvents as $event) {
+            if (!($event instanceof ResolvableEvent)) {
+                throw new \RuntimeException('ResolutionInputs requires normalized ResolvableEvent objects in fppEvents');
+            }
+        }
+
+        foreach ($this->manifestEventsById as $event) {
+            if (!($event instanceof ResolvableEvent)) {
+                throw new \RuntimeException('ResolutionInputs requires normalized ResolvableEvent objects in manifestEventsById');
+            }
+        }
     }
 }
