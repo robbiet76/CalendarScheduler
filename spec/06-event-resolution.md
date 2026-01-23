@@ -111,6 +111,35 @@ If Resolution cannot preserve a coherent symbolic representation, it must surfac
 ### 3. Normalize Timing Semantics
 
 All timing information is normalized into canonical forms:
+
+#### Scheduler-Domain Time Values
+
+Resolution treats `start_time.hard` and `end_time.hard` as **scheduler-domain values**, not generic clock times.
+
+As a result:
+- Time strings are preserved verbatim
+- Values that are not valid ISO-8601 or `DateTime` values may be carried
+- No coercion, rollover, or normalization is performed at this layer
+
+This explicitly includes:
+- `"24:00:00"` as a valid semantic boundary representing an all-day end marker in FPP
+
+#### All-Day Event Semantics (Scheduler-Aligned)
+
+Resolution supports scheduler-aligned all-day semantics.
+
+For FPP-compatible schedulers, an all-day event is represented as:
+
+- `start_time.hard = "00:00:00"`
+- `end_time.hard = "24:00:00"`
+
+Notes:
+- `"24:00:00"` is semantically meaningful and intentional
+- It MUST NOT be converted to `"23:59:59"` or rolled into the next day
+- Symbolic time MUST remain `null` for all-day events
+
+Resolution does not attempt to reinterpret or validate this boundary.
+
 - Unified day masks
 - Canonical time tokens
 - Structured date patterns
@@ -170,6 +199,7 @@ Resolution must not:
 - Perform diffing or apply actions
 - Construct Manifest Events
 - Construct SubEvents
+- Normalize or reinterpret scheduler-domain time values (e.g., `"24:00:00"`)
 
 ---
 
@@ -191,6 +221,8 @@ Resolution must be:
 - Order-independent
 
 Same input must always yield the same output.
+
+Determinism includes preserving semantically intentional but non-standard time values verbatim.
 
 ---
 
@@ -236,3 +268,7 @@ Event Resolution & Normalization is the semantic heart of the system.
 
 It ensures clarity, determinism, and long-term correctness by preserving meaning rather than prematurely resolving it.
 
+> **TODO (Future Revision):**
+> Introduce a dedicated normalization step for exporting scheduler-domain times to external calendar systems.
+>
+> This step may convert `"24:00:00"` into a provider-compatible representation (e.g., next-day `00:00:00`) **only at export boundaries**, never within Resolution or Manifest identity.

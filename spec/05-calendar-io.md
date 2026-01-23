@@ -129,6 +129,14 @@ Outbound Calendar I/O **must not**:
 - Modify identity or ownership
 - Merge or split entries
 
+### All-Day and Boundary Times
+
+The Calendar I/O layer must preserve scheduler-domain boundary times exactly as expressed in the Manifest.
+
+In particular, `24:00:00` is a valid end-time representation used to model all-day execution semantics and must not be normalized, rounded, or coerced within this layer.
+
+Any provider-specific constraints or transformations (e.g. converting `24:00:00` to a provider-safe representation) must occur strictly within provider adapters and never alter Manifest or Resolution semantics.
+
 ---
 
 ### Export Granularity and Adoption Semantics

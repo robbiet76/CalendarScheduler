@@ -56,19 +56,36 @@ final class CalendarTranslator
         $events = [];
 
         foreach ($records as $rec) {
+            $startDate = substr($rec['start'], 0, 10);
+            $endDate   = substr($rec['end'],   0, 10);
+            $startTime = substr($rec['start'], 11, 8);
+            $endTime   = substr($rec['end'],   11, 8);
+
+            $isAllDay = (
+                $startTime === '00:00:00' &&
+                $endTime   === '00:00:00' &&
+                (new DateTimeImmutable($startDate))
+                    ->modify('+1 day')
+                    ->format('Y-m-d') === $endDate
+            );
+
+            if ($isAllDay) {
+                $endTime = '24:00:00';
+            }
+
             $events[] = [
                 'type'   => 'playlist',
                 'target' => $rec['summary'] ?? '',
                 'timing' => [
-                    'start_date' => $this->resolveCalendarDate(substr($rec['start'], 0, 10)),
-                    'end_date'   => $this->resolveCalendarDate(substr($rec['end'],   0, 10)),
+                    'start_date' => $this->resolveCalendarDate($startDate),
+                    'end_date'   => $this->resolveCalendarDate($endDate),
                     'start_time' => [
-                        'hard'     => substr($rec['start'], 11, 8),
+                        'hard'     => $startTime,
                         'symbolic' => null,
                         'offset'   => 0,
                     ],
                     'end_time' => [
-                        'hard'     => substr($rec['end'], 11, 8),
+                        'hard'     => $endTime,
                         'symbolic' => null,
                         'offset'   => 0,
                     ],
