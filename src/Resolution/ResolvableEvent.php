@@ -6,41 +6,10 @@ namespace GoogleCalendarScheduler\Resolution;
 /**
  * Normalized event-level object used exclusively by the resolver.
  * This is NOT a ManifestEvent and is never persisted.
+ * Resolver inputs must be pre-normalized (calendar snapshot / manifest shape).
  */
 final class ResolvableEvent
 {
-    public static function fromCalendarEvent(
-        array $calendarEvent,
-        array $canonicalIdentity,
-        string $identityHash,
-        bool $managed,
-        ?string $externalKey = null
-    ): self {
-        if (!isset($calendarEvent['type'], $calendarEvent['target'], $calendarEvent['timing'])) {
-            throw new \InvalidArgumentException('Calendar event missing required fields');
-        }
-
-        $baseSubEvent = [
-            'timing'        => $calendarEvent['timing'],
-            'behavior'      => $calendarEvent['behavior'] ?? [],
-            'payload'       => $calendarEvent['payload'] ?? null,
-            'identity'      => $canonicalIdentity,
-            'identity_hash' => $identityHash,
-        ];
-
-        $event = $calendarEvent;
-        $event['subEvents'] = [$baseSubEvent];
-
-        return new self(
-            $identityHash,
-            $canonicalIdentity,
-            $event,
-            'calendar',
-            $managed,
-            $externalKey
-        );
-    }
-
     public static function fromManifestEvent(
         array $manifestEvent,
         bool $managed
@@ -49,8 +18,11 @@ final class ResolvableEvent
             throw new \InvalidArgumentException('Manifest event missing identity or id');
         }
 
-        $identityHash = $manifestEvent['id'];
-        $identity     = $manifestEvent['identity'];
+        $identityHash = $manifestEvent['id'] ?? ($manifestEvent['identity_hash'] ?? null);
+        if (!is_string($identityHash) || $identityHash === '') {
+            throw new \InvalidArgumentException('Manifest event missing resolvable identity hash');
+        }
+        $identity = $manifestEvent['identity'];
 
         return new self(
             $identityHash,
@@ -62,19 +34,69 @@ final class ResolvableEvent
         );
     }
 
+    /**
+     * Alias for calendar snapshot normalization.
+     * Required by ResolutionInputs for explicit intent.
+     */
+    public static function fromCalendarManifestEvent(
+        array $calendarEvent,
+        bool $managed = true
+    ): self {
+        return self::fromCalendarManifest($calendarEvent, $managed);
+    }
+
+    /**
+     * Normalize an FPP schedule.json entry that already contains identity and identity_hash.
+     * This is the expected V2 shape coming from CalendarSnapshot-derived schedules.
+     */
+    public static function fromFppScheduleEntrySimple(
+        array $scheduleEntry,
+        bool $managed
+    ): self {
+        if (!isset($scheduleEntry['identity'], $scheduleEntry['identity_hash'])) {
+            throw new \InvalidArgumentException('FPP schedule entry missing identity or identity_hash');
+        }
+
+        $identity = $scheduleEntry['identity'];
+        if (isset($identity['id'])) {
+            throw new \InvalidArgumentException('FPP schedule identity must not include id');
+        }
+
+        $identityHash = $scheduleEntry['identity_hash'];
+
+        $event = [
+            'type'      => $identity['type'],
+            'target'    => $identity['target'],
+            'timing'    => $identity['timing'],
+            'subEvents' => [$scheduleEntry],
+        ];
+
+        return new self(
+            $identityHash,
+            $identity,
+            $event,
+            'fpp',
+            $managed
+        );
+    }
+
     public static function fromFppScheduleEntry(
         array $scheduleEntry,
         array $canonicalIdentity,
         string $identityHash,
         bool $managed
     ): self {
-        $baseSubEvent = [
-            'timing'        => $canonicalIdentity['timing'],
-            'behavior'      => $scheduleEntry['behavior'] ?? [],
-            'payload'       => $scheduleEntry['payload'] ?? null,
-            'identity'      => $canonicalIdentity,
-            'identity_hash' => $identityHash,
-        ];
+        if (!isset($canonicalIdentity['type'], $canonicalIdentity['target'], $canonicalIdentity['timing'])) {
+            throw new \InvalidArgumentException('Canonical identity missing required fields: type, target, or timing');
+        }
+
+        $baseSubEvent = self::buildBaseSubEvent(
+            $canonicalIdentity['timing'],
+            $canonicalIdentity,
+            $identityHash,
+            $scheduleEntry['behavior'] ?? [],
+            $scheduleEntry['payload'] ?? null
+        );
 
         $event = [
             'type'      => $canonicalIdentity['type'],
@@ -90,6 +112,42 @@ final class ResolvableEvent
             'fpp',
             $managed
         );
+    }
+
+    public static function fromCalendarManifest(
+        array $calendarEvent,
+        bool $managed
+    ): self {
+        if (!isset($calendarEvent['id'], $calendarEvent['identity'], $calendarEvent['subEvents'])) {
+            throw new \InvalidArgumentException('Calendar manifest event missing required fields: id, identity, or subEvents');
+        }
+
+        $identityHash = $calendarEvent['id'];
+        $identity = $calendarEvent['identity'];
+        if (isset($identity['id'])) {
+            throw new \InvalidArgumentException('Calendar manifest identity must not include id');
+        }
+        $externalKey = $calendarEvent['correlation']['externalId'] ?? null;
+
+        return new self(
+            $identityHash,
+            $identity,
+            $calendarEvent,
+            'calendar',
+            $managed,
+            $externalKey
+        );
+    }
+
+    private static function buildBaseSubEvent(array $timing, array $identity, string $identityHash, array $behavior = [], $payload = null): array
+    {
+        return [
+            'timing'        => $timing,
+            'behavior'      => $behavior,
+            'payload'       => $payload,
+            'identity'      => $identity,
+            'identity_hash' => $identityHash,
+        ];
     }
 
     public string $identityHash;
@@ -120,6 +178,11 @@ final class ResolvableEvent
         bool $managed,
         ?string $externalKey = null
     ) {
+        // Safety: canonical identity must never include an id field
+        if (isset($identity['id'])) {
+            throw new \RuntimeException('ResolvableEvent.identity must not include id');
+        }
+
         $this->identityHash = $identityHash;
         $this->identity     = $identity;
         $this->event        = $event;
