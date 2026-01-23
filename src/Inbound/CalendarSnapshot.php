@@ -69,18 +69,19 @@ final class CalendarSnapshot
                 );
             }
 
-            // Build a base subEvent from event-level data
-            $event['subEvents'] = [[
-                'timing'   => $event['timing'],
-                'behavior' => $event['behavior'] ?? [],
-                'payload'  => null,
-            ]];
-
             $identity = $this->identityBuilder->buildCanonical(
                 $event['type'],
                 $event['target'],
                 $event['timing']
             );
+
+            // Build a base subEvent from event-level data (identity mirrors event identity)
+            $event['subEvents'] = [[
+                'timing'   => $event['timing'],
+                'behavior' => $event['behavior'] ?? [],
+                'payload'  => null,
+                'identity' => $identity,
+            ]];
 
             $id = $this->hasher->hash($identity);
             $event['identity'] = $identity;
