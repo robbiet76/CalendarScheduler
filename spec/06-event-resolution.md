@@ -6,7 +6,7 @@
 
 ## Purpose
 
-**Event Resolution** is the process by which **two sets of events (source vs manifest) are compared to determine intent-level differences**.
+**Event Resolution** is the process by which **two sets of normalized events (calendar snapshot vs FPP schedule) are compared to determine intent-level differences**.
 
 It answers the question:
 
@@ -35,46 +35,91 @@ Apply (FPP / Calendar)
 
 ## Inputs
 
-Event Resolution consumes two sets of **ResolvableEvents**:
+Event Resolution consumes **two sets of manifest-shaped events** (Option A):
 
-- Source events (calendar, yaml, manual intent)
-- Existing manifest events
+- **Source events:** CalendarSnapshot manifest `events`
+- **Existing events:** Scheduler manifest `events` (the plugin manifest store)
 
-Each ResolvableEvent must include:
-- `identity`
-- `identity_hash`
-- `ownership`
-- `correlation`
-- `subEvents`
+Resolution does **not** consume `schedule.json` directly.
+
+### Required event shape
+
+Each event MUST include:
+- `id` (string, equals `identity_hash`)
+- `identity` (object)
+- `subEvents` (array; may be empty but typically contains 1 base subEvent)
+- `ownership` (object)
+- `correlation` (object)
+
+Each subEvent MUST include:
+- `identity` (object)
+- `identity_hash` (string; equals parent identity hash)
+- `timing` (object)
+- `behavior` (object)
+- `payload` (object|null)
 
 ---
 
 ## Outputs
 
-Event Resolution produces a set of **ResolutionResults**.
+Event Resolution produces a single **ResolutionResult** containing:
+- Matched events (by identity_hash)
+- Calendar-only events
+- FPP-only events
+- Proposed ResolutionOperations (read-only / dry-run by default)
 
-Each ResolutionResult includes:
-- `identity_hash`
-- `status` (CREATE | UPDATE | DELETE | CONFLICT | NOOP)
-- `reason`
-- Optional `DiffIntent`
+Resolution produces *plans*, not mutations.
 
 ---
 
+## Frozen Contracts (Implementation Targets)
+
+### ResolvableEvent
+A ResolvableEvent is a canonical wrapper over a manifest event used for comparison.
+
+Fields:
+- `identity_hash` (string)
+- `identity` (array)
+- `ownership` (array)
+- `correlation` (array)
+- `subEvents` (array)
+
+Factories:
+- `ResolvableEvent::fromManifestEvent(array $event): ResolvableEvent`
+
+Rules:
+- MUST require `identity_hash` (via `id` or `identity_hash`) and `identity`
+- MUST NOT compute identity hashes
+- MUST treat input as already canonicalized manifest output
+
+### ResolutionInputs
+ResolutionInputs is normalization glue only.
+
+Factories:
+- `ResolutionInputs::fromManifests(array $sourceManifest, array $existingManifest, ?ResolutionPolicy $policy=null, array $context=[]): ResolutionInputs`
+
+Outputs:
+- `sourceByHash: array<string, ResolvableEvent>`
+- `existingByHash: array<string, ResolvableEvent>`
+
+### Resolver
+Resolver consumes ResolutionInputs and produces ResolutionResult.
+Resolver MUST be pure and deterministic.
+
 ## Resolution Rules
 
-Resolution is performed per identity hash.
+Resolution is performed per `identity_hash` over the union of:
+- source (calendar snapshot) hashes
+- existing (scheduler manifest) hashes
 
-Rules are evaluated in order:
+For each identity:
+1. Present in calendar only → propose UPSERT_TO_FPP
+2. Present in FPP only → propose DELETE_FROM_FPP (policy-gated)
+3. Present in both:
+   - If structural differences exist → propose UPDATE_FPP
+   - Otherwise → NOOP
 
-1. If identity exists in source but not manifest → CREATE  
-2. If identity exists in manifest but not source → DELETE  
-3. If identity exists in both:  
-   - If subEvents, timing, behavior, or payload differ → UPDATE  
-   - If ownership.locked = true and differences exist → CONFLICT  
-   - Otherwise → NOOP  
-
-Resolution must never mutate ownership.
+Policies may restrict which operations are emitted.
 
 ---
 
@@ -87,6 +132,16 @@ Two events are divergent if any of the following differ:
 - Payload of any subEvent
 
 Divergence detection is structural, not semantic.
+
+Resolution does not attempt semantic equivalence or scheduler inference.
+
+---
+
+## Policy Control
+
+All safety, ownership, and mutation rules are controlled exclusively by ResolutionPolicy.
+
+Resolvers must not infer or override policy behavior.
 
 ---
 

@@ -3,92 +3,80 @@ declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Resolution;
 
-use RuntimeException;
+use InvalidArgumentException;
 
 final class ResolutionInputs
 {
-    /** @var ResolvableEvent[] keyed by identity hash derived from canonical identity */
-    public array $manifestEventsById;
+    /** @var array<string, ResolvableEvent> */
+    public array $sourceByHash;
 
-    /** @var ResolvableEvent[] */
-    public array $calendarEvents;
-
-    /** @var ResolvableEvent[] */
-    public array $fppEvents;
+    /** @var array<string, ResolvableEvent> */
+    public array $existingByHash;
 
     public ResolutionPolicy $policy;
 
-    /** Arbitrary execution context (for audit / UI / undo) */
+    /** @var array */
     public array $context;
 
-    /**
-     * Internal constructor.
-     * Callers MUST use named factories to ensure normalization.
-     */
     private function __construct(
-        array $manifestEventsById,
-        array $calendarEvents,
-        array $fppEvents,
+        array $sourceByHash,
+        array $existingByHash,
         ResolutionPolicy $policy,
         array $context
     ) {
-        $this->manifestEventsById = $manifestEventsById;
-        $this->calendarEvents     = $calendarEvents;
-        $this->fppEvents          = $fppEvents;
-        $this->policy             = $policy;
-        $this->context            = $context;
+        $this->sourceByHash   = $sourceByHash;
+        $this->existingByHash = $existingByHash;
+        $this->policy         = $policy;
+        $this->context        = $context;
     }
 
     /**
-     * Factory: build ResolutionInputs from a calendar snapshot manifest
-     * and an FPP schedule.json structure.
+     * Option A: manifest-to-manifest resolution.
      *
-     * Calendar snapshot events are normalized via fromCalendarManifest.
-     * FPP schedule entries are normalized via fromFppScheduleEntry.
-     *
-     * This is the ONLY supported entry point for resolution.
+     * @param array $sourceManifest    CalendarSnapshot manifest (expects ['events'] map)
+     * @param array $existingManifest  Scheduler manifest (expects ['events'] map)
      */
-    public static function fromCalendarSnapshot(
-        array $calendarSnapshot,
-        array $fppSchedule,
-        ResolutionPolicy $policy,
+    public static function fromManifests(
+        array $sourceManifest,
+        array $existingManifest,
+        ?ResolutionPolicy $policy = null,
         array $context = []
     ): self {
-        if (!isset($calendarSnapshot['events']) || !is_array($calendarSnapshot['events'])) {
-            throw new RuntimeException('Calendar snapshot missing events array');
+        $policy = $policy ?? new ResolutionPolicy();
+
+        if (!isset($sourceManifest['events']) || !is_array($sourceManifest['events'])) {
+            throw new InvalidArgumentException('Source manifest missing events map');
+        }
+        if (!isset($existingManifest['events']) || !is_array($existingManifest['events'])) {
+            throw new InvalidArgumentException('Existing manifest missing events map');
         }
 
-        $calendarEvents = [];
-        $manifestEventsById = [];
+        $sourceByHash = self::indexManifestEvents($sourceManifest['events']);
+        $existingByHash = self::indexManifestEvents($existingManifest['events']);
 
-        foreach ($calendarSnapshot['events'] as $rawEvent) {
-            $event = ResolvableEvent::fromCalendarManifest($rawEvent, true);
-            if (!$event instanceof ResolvableEvent) {
-                throw new RuntimeException('Calendar manifest event normalization failed');
-            }
-            if ($event->identityHash === '') {
-                throw new RuntimeException('ResolvableEvent missing identityHash after normalization');
+        return new self($sourceByHash, $existingByHash, $policy, $context);
+    }
+
+    /**
+     * @param array $eventsMap map<string, array> (manifest.events)
+     * @return array<string, ResolvableEvent>
+     */
+    private static function indexManifestEvents(array $eventsMap): array
+    {
+        $out = [];
+        foreach ($eventsMap as $key => $event) {
+            if (!is_array($event)) {
+                throw new InvalidArgumentException('Manifest events map must contain event objects');
             }
 
-            $calendarEvents[] = $event;
-            $manifestEventsById[$event->identityHash] = $event;
+            // Prefer actual event id/hash over map key; but accept either.
+            if (!isset($event['id']) && is_string($key) && $key !== '') {
+                $event['id'] = $key;
+            }
+
+            $re = ResolvableEvent::fromManifestEvent($event);
+            $out[$re->identityHash] = $re;
         }
-
-        $fppEvents = [];
-        foreach ($fppSchedule as $rawEvent) {
-            $evt = ResolvableEvent::fromFppScheduleEntrySimple($rawEvent, false);
-            if (!$evt instanceof ResolvableEvent) {
-                throw new RuntimeException('FPP schedule entry normalization failed');
-            }
-            $fppEvents[] = $evt;
-        }
-
-        return new self(
-            $manifestEventsById,
-            $calendarEvents,
-            $fppEvents,
-            $policy,
-            $context
-        );
+        return $out;
     }
 }

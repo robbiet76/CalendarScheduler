@@ -3,41 +3,26 @@ declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Resolution;
 
-/**
- * One atomic event-level decision.
- * Apply phase later decides how to enact it.
- */
 final class ResolutionOperation
 {
-    public const UPSERT   = 'UPSERT';
+    public const CREATE   = 'CREATE';
+    public const UPDATE   = 'UPDATE';
     public const DELETE   = 'DELETE';
-    public const NOOP     = 'NOOP';
     public const CONFLICT = 'CONFLICT';
-    public const REVIEW  = 'REVIEW';
+    public const NOOP     = 'NOOP';
 
-    public string $op;
+    public string $status;
     public string $identityHash;
-
-    /** Full manifest event (required for UPSERT) */
-    public ?array $desiredEvent;
-
-    /** Short machine-readable reason */
     public string $reason;
 
-    /** Optional structured debug payload */
-    public array $details;
+    /** @var array|null future DiffIntent payload */
+    public ?array $diffIntent;
 
-    public function __construct(
-        string $op,
-        string $identityHash,
-        ?array $desiredEvent,
-        string $reason,
-        array $details = []
-    ) {
-        $this->op            = $op;
-        $this->identityHash  = $identityHash;
-        $this->desiredEvent  = $desiredEvent;
-        $this->reason        = $reason;
-        $this->details       = $details;
+    public function __construct(string $status, string $identityHash, string $reason, ?array $diffIntent = null)
+    {
+        $this->status = $status;
+        $this->identityHash = $identityHash;
+        $this->reason = $reason;
+        $this->diffIntent = $diffIntent;
     }
 }
