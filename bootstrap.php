@@ -53,6 +53,18 @@ require_once __DIR__ . '/src/Diff/DiffResult.php';
 require_once __DIR__ . '/src/Diff/Diff.php';
 
 // -----------------------------------------------------------------------------
+// Resolution — event-level reconciliation (PURE)
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Resolution/ResolvableEvent.php';
+require_once __DIR__ . '/src/Resolution/ResolutionOperation.php';
+require_once __DIR__ . '/src/Resolution/ResolutionResult.php';
+require_once __DIR__ . '/src/Resolution/ResolutionPolicy.php';
+require_once __DIR__ . '/src/Resolution/ResolutionInputs.php';
+require_once __DIR__ . '/src/Resolution/EventResolver.php';
+require_once __DIR__ . '/src/Resolution/CalendarManifestResolver.php';
+
+// -----------------------------------------------------------------------------
 // Platform — FPP-specific representation (Phase 2.5)
 // -----------------------------------------------------------------------------
 

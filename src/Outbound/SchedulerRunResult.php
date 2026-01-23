@@ -26,6 +26,7 @@ final class SchedulerRunResult
     private int $creates;
     private int $updates;
     private int $deletes;
+    private ?array $resolutionResults = null;
 
     public function __construct(
         bool $noop,
@@ -37,6 +38,21 @@ final class SchedulerRunResult
         $this->creates = $creates;
         $this->updates = $updates;
         $this->deletes = $deletes;
+    }
+
+    /**
+     * Attach resolution results for inspection (read-only).
+     * This does not affect create/update/delete counts.
+     */
+    public function setResolutionResults(array $results): self
+    {
+        $this->resolutionResults = $results;
+        return $this;
+    }
+
+    public function resolutionResults(): ?array
+    {
+        return $this->resolutionResults;
     }
 
     /**

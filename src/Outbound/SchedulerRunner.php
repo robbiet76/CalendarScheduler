@@ -6,6 +6,7 @@ namespace GoogleCalendarScheduler\Outbound;
 
 use GoogleCalendarScheduler\Planner\PlannerResult;
 use GoogleCalendarScheduler\Diff\Diff;
+// Removed: use GoogleCalendarScheduler\Resolution\Resolver;
 use GoogleCalendarScheduler\Platform\FppScheduleWriter;
 
 /**
@@ -21,6 +22,7 @@ use GoogleCalendarScheduler\Platform\FppScheduleWriter;
 final class SchedulerRunner
 {
     private Diff $diff;
+    private $resolver;
     private ApplyEngine $applyEngine;
     private FppScheduleWriter $writer;
 
@@ -40,12 +42,14 @@ final class SchedulerRunner
     public function __construct(
         callable $plannerResultProvider,
         Diff $diff,
+        $resolver,
         ApplyEngine $applyEngine,
         FppScheduleWriter $writer,
         callable $existingScheduleLoader
     ) {
         $this->plannerResultProvider = $plannerResultProvider;
         $this->diff = $diff;
+        $this->resolver = $resolver;
         $this->applyEngine = $applyEngine;
         $this->writer = $writer;
         $this->existingScheduleLoader = $existingScheduleLoader;
@@ -78,6 +82,24 @@ final class SchedulerRunner
             throw new \RuntimeException(
                 'Existing schedule loader must return an array'
             );
+        }
+
+        // ---------------------------------------------------------------------
+        // 2.5 Resolution — read-only visibility
+        // ---------------------------------------------------------------------
+
+        if (method_exists($options, 'isReadOnlyResolution') && $options->isReadOnlyResolution()) {
+            $resolutionResults = $this->resolver->resolve(
+                $plannerResult,
+                $existingSchedule
+            );
+
+            $result = new SchedulerRunResult(true, 0, 0, 0);
+            if (method_exists($result, 'setResolutionResults')) {
+                $result->setResolutionResults($resolutionResults);
+            }
+
+            return $result;
         }
 
         // ---------------------------------------------------------------------
