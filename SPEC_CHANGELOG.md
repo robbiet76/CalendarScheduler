@@ -7,6 +7,30 @@ Any modification MUST be logged here.
 
 ---
 
+## v2.6 — 2026-01-23
+**Status:** Behavioral Clarification & Calendar Stabilization
+
+### Summary
+Locked calendar ingestion and snapshot behavior after successful end-to-end validation against real Google Calendar data.
+
+### Scope
+- 05 — Calendar I/O
+- 06 — Event Resolution & Normalization
+- 07 — Events & SubEvents
+- 14 — UI & Controller Contract
+
+### Changes
+- Confirmed **single-calendar authority model**:
+  - Only one calendar may be connected at a time
+  - Users may switch calendars, but never merge multiple sources
+- Formalized **calendar snapshot stability** as a behavioral milestone
+- Clarified that:
+  - One calendar event maps to exactly one Manifest Event
+  - Calendar-originated events always produce a base SubEvent
+  - Override SubEvents are created only when platform constraints require them
+- Codified **all-day event semantics**:
+  - Represented as `
+  
 ## v2.5 — 2026-01-22
 **Status:** Behavioral Correction & Clarification
 

@@ -109,9 +109,52 @@ final class FPPSemantics
         return is_numeric($value) ? (int)$value : 0;
     }
 
+    /**
+     * Return the default repeat value for a given FPP entry type.
+     *
+     * This reflects native FPP scheduler behavior.
+     */
+    public static function defaultRepeatForType(string $type): int
+    {
+        return match ($type) {
+            self::TYPE_COMMAND  => 0,
+            default             => 1,
+        };
+    }
+
+    /**
+     * Determine if a repeat value represents an immediate repeat.
+     */
+    public static function isImmediateRepeat(int $value): bool
+    {
+        return $value === 1;
+    }
+
+    /**
+     * Determine if a repeat value represents no repeat.
+     */
+    public static function isNoneRepeat(int $value): bool
+    {
+        return $value === 0;
+    }
+
+    /**
+     * Determine if a repeat value represents a finite repeat count.
+     */
+    public static function isCountRepeat(int $value): bool
+    {
+        return $value > 1;
+    }
+
     /* =====================================================================
      * Default behavior values (FPP scheduler defaults)
      * ===================================================================== */
+
+    /**
+     * NOTE:
+     * These defaults describe FPP runtime behavior when fields are omitted.
+     * They are factual semantics, not planner policy.
+     */
 
     /**
      * Return canonical default behavior values used by FPP
@@ -181,6 +224,12 @@ final class FPPSemantics
         return is_string($value)
             && in_array($value, self::SYMBOLIC_TIMES, true);
     }
+
+    /**
+     * Default rounding interval (minutes) used by FPP
+     * when resolving symbolic times.
+     */
+    public const DEFAULT_TIME_ROUNDING_MINUTES = 30;
 
     /* =====================================================================
      * Symbolic time offset handling

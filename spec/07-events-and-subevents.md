@@ -112,6 +112,8 @@ Characteristics:
 - Represents the dominant schedule
 - Ordered last *within* the Manifest Event
 
+The base SubEvent is the exclusive source of Manifest Event identity; exception SubEvents never influence identity construction.
+
 ---
 
 ### Exception SubEvents
@@ -153,11 +155,13 @@ Identity is constructed from:
 - `timing` (normalized; see Identity specification)
 
 Identity explicitly excludes:
-- Date ranges (`start_date`, `end_date`)
+- Execution range semantics beyond normalized date patterns
 - Behavior flags
 - Payload contents
 - Exception SubEvents
 - Calendar provenance
+
+Date patterns (`start_date`, `end_date`) participate in identity only in normalized, symbolic-aware form, ensuring stable identity across calendar and FPP sources.
 
 This ensures:
 - Stable identity across calendar edits
@@ -188,8 +192,7 @@ DatePattern is:
 - Never resolved during planning
 - Expanded only by the FPP semantics layer
 
-DatePattern fields participate in execution semantics only and do **not**  
-contribute to Manifest Event identity.
+DatePattern fields participate in identity only in normalized form and never in expanded or execution-resolved form.
 
 ### Examples
 

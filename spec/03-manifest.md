@@ -262,6 +262,24 @@ OwnershipObject {
 ```
 
 ---
+### Managed vs Unmanaged Semantics
+
+The `managed` flag represents an explicit user grant allowing automated reconciliation actions to modify a Manifest Event.
+
+- **managed = true**
+  - The system MAY create, update, or delete this Manifest Event through reconciliation.
+  - The event is considered under automated control.
+  - All Diff and Apply operations are permitted, subject to locking rules.
+
+- **managed = false**
+  - The system MUST NOT mutate or delete this Manifest Event.
+  - Identity matches MAY be observed for informational or preview purposes only.
+  - Unmanaged events are excluded from all Apply operations.
+  - This guarantee exists to protect user-authored scheduler state from unintended mutation.
+
+The `managed` flag is never inferred. It MUST be set explicitly during ingestion or by direct user action.
+
+---
 
 ## StatusObject
 
@@ -317,6 +335,7 @@ Rules:
 
 - Manifest invariants are enforced strictly during calendar ingestion.
 - Manifest consumers may assume Manifest correctness and must not re-validate provider-originated invariants.
+- Unmanaged Manifest Events MUST be treated as read-only by all reconciliation and apply processes.
 
 ---
 

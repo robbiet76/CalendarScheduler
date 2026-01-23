@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -21,6 +21,10 @@ It exists to ensure:
 The UI is *not* part of the scheduling system.  
 The Controller is *not* part of the planning system.
 
+**Note:** The UI models *relationships between systems* (e.g., Calendar ↔ FPP) rather than individual schedule entries. Users opt into calendar relationships and sync authority levels, not per-event actions.
+
+The term ‘calendar’ is provider-agnostic. While Google Calendar is the initial provider, the contract supports future calendar sources without changing UI semantics.
+
 ---
 
 ## High-Level Responsibilities
@@ -30,10 +34,14 @@ The Controller is *not* part of the planning system.
 The UI is responsible for **presentation and user intent capture only**.
 
 It MUST:
-- Accept configuration input (calendar connection, flags)
-- Trigger preview and apply actions
+- Allow users to connect exactly one calendar at a time
+- Allow users to switch the active calendar relationship (e.g., different seasons, years, or providers), with exactly one active at any time
+- Allow users to select a sync authority mode (Create-only, Create & Update, Full control) for each calendar relationship
+- Trigger preview and apply actions for a given calendar relationship
 - Display planner output and diff summaries
 - Display errors exactly as returned
+
+The UI enforces a single active calendar relationship. Multiple calendars may be configured over time, but only one may be active and authoritative at any given moment.
 
 It MUST NOT:
 - Infer intent
@@ -42,6 +50,15 @@ It MUST NOT:
 - Perform reconciliation logic
 - Perform identity logic
 - Parse or mutate schedule.json
+- Present or require per-event opt-in
+## Sync Authority Modes
+
+The following sync authority modes are available for each calendar relationship:
+- Create-only
+- Create & Update
+- Full control (includes delete)
+
+These modes gate which Diff operations may be applied to FPP for a given calendar relationship. They do **not** affect planning or preview generation.
 
 ---
 
@@ -79,6 +96,7 @@ Preview MUST:
 - Use identical logic to Apply
 - Fail on the same invariants
 - Surface identity issues clearly
+- Output an *impact summary* suitable for user review (e.g., counts of creates, updates, deletes), without exposing raw scheduler entries.
 
 ---
 
@@ -156,6 +174,7 @@ The UI MUST NOT:
 - Assign identities
 - Resolve times or dates
 - Apply guard logic
+- Expose Manifest Events, SubEvents, or internal identities as first-class UI objects
 
 The Controller MUST NOT:
 - Read schedule.json

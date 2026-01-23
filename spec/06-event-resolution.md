@@ -2,255 +2,116 @@
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
-# 06 — Event Resolution & Normalization
+# 06 — Event Resolution
 
 ## Purpose
 
-The **Event Resolution & Normalization layer** translates **calendar-facing event data** into **scheduler-intent semantics** suitable for Manifest construction.
+**Event Resolution** is the process by which **two sets of events (source vs manifest) are compared to determine intent-level differences**.
 
 It answers the question:
 
-> **“What does this calendar event *mean* in scheduler terms?”**
+> “Given declared intent and existing state, what has changed?”
 
-This layer is responsible for:
-- Interpreting calendar patterns
-- Preserving symbolic meaning
-- Producing normalized, provider-agnostic intent
-- Detecting unsupported or ambiguous constructs
+Event Resolution operates **after identity construction** and **before diff generation**.
 
-This layer is **purely semantic**. It does **not** write scheduler entries, compare existing state, or apply guard rules.
+This layer is:
+- Pure
+- Deterministic
+- Side-effect free
 
 ---
 
 ## Position in the System
 
-```
-Calendar I/O
-   ↓
-Event Resolution & Normalization
-   ↓
-Manifest (Intent + Identity)
-   ↓
-Planner → Diff → Apply
-```
+Calendar Snapshot / FPP Snapshot  
+↓  
+Event Resolution  
+↓  
+Diff Intent  
+↓  
+Apply (FPP / Calendar)
 
 ---
 
 ## Inputs
 
-Resolution consumes **provider-neutral calendar events**, as emitted by the Calendar I/O layer.
+Event Resolution consumes two sets of **ResolvableEvents**:
 
-Inputs:
-- May include recurrence rules, exception dates, symbolic times
-- May be open-ended or partially specified
-- Are not yet scheduler-compatible
+- Source events (calendar, yaml, manual intent)
+- Existing manifest events
 
-Resolution must not assume:
-- A specific calendar provider
-- A specific transmission format
-- A specific scheduler implementation
+Each ResolvableEvent must include:
+- `identity`
+- `identity_hash`
+- `ownership`
+- `correlation`
+- `subEvents`
 
 ---
 
 ## Outputs
 
-Resolution produces **normalized execution semantics**, expressed as provider-agnostic timing and execution records suitable for downstream semantic projection (e.g., Manifest construction).
+Event Resolution produces a set of **ResolutionResults**.
 
-Resolution output:
-- Preserves symbolic meaning
-- Canonicalizes timing semantics
-- Identifies base semantics and exception semantics
-
-Outputs are:
-- Deterministic
-- Provider-agnostic
-- Safe for downstream Manifest construction
+Each ResolutionResult includes:
+- `identity_hash`
+- `status` (CREATE | UPDATE | DELETE | CONFLICT | NOOP)
+- `reason`
+- Optional `DiffIntent`
 
 ---
 
-## Core Responsibilities
+## Resolution Rules
 
-### 1. Interpret Calendar Semantics
+Resolution is performed per identity hash.
 
-Resolution interprets:
-- Recurrence rules
-- Date windows
-- Day-of-week constraints
-- Exception dates
-- Time windows
+Rules are evaluated in order:
 
-This interpretation is semantic, not mechanical.
+1. If identity exists in source but not manifest → CREATE  
+2. If identity exists in manifest but not source → DELETE  
+3. If identity exists in both:  
+   - If subEvents, timing, behavior, or payload differ → UPDATE  
+   - If ownership.locked = true and differences exist → CONFLICT  
+   - Otherwise → NOOP  
 
----
-
-### 2. Preserve Symbolic Meaning
-
-Resolution must **not eagerly resolve** symbolic constructs such as:
-- Dawn / Dusk
-- Holidays
-- Open-ended date patterns
-
-Instead, it converts them into:
-- `TimeToken`
-- `DatePattern`
-
-
-Symbolic intent is preserved until the FPP semantic layer.
-
-#### Symbolic / Hard Mixing (Hard Rule)
-
-Resolution must **not** produce hybrid timing fields where symbolic and hard meanings are mixed across a single timing window.
-
-- For each of `start_date`, `end_date`, `start_time`, `end_time`: **either** a symbolic value is carried **or** a hard value is carried.
-- It is valid to store both `symbolic` and `hard` fields in the structure, but Resolution must ensure they do not conflict and must not partially coerce symbolic intent into hard values.
-
-If Resolution cannot preserve a coherent symbolic representation, it must surface the event as **Partially Resolved** or **Unresolved** rather than guessing.
+Resolution must never mutate ownership.
 
 ---
 
-### 3. Normalize Timing Semantics
+## Divergence Detection
 
-All timing information is normalized into canonical forms:
+Two events are divergent if any of the following differ:
+- Number of subEvents
+- Timing of any subEvent
+- Behavior of any subEvent
+- Payload of any subEvent
 
-#### Scheduler-Domain Time Values
-
-Resolution treats `start_time.hard` and `end_time.hard` as **scheduler-domain values**, not generic clock times.
-
-As a result:
-- Time strings are preserved verbatim
-- Values that are not valid ISO-8601 or `DateTime` values may be carried
-- No coercion, rollover, or normalization is performed at this layer
-
-This explicitly includes:
-- `"24:00:00"` as a valid semantic boundary representing an all-day end marker in FPP
-
-#### All-Day Event Semantics (Scheduler-Aligned)
-
-Resolution supports scheduler-aligned all-day semantics.
-
-For FPP-compatible schedulers, an all-day event is represented as:
-
-- `start_time.hard = "00:00:00"`
-- `end_time.hard = "24:00:00"`
-
-Notes:
-- `"24:00:00"` is semantically meaningful and intentional
-- It MUST NOT be converted to `"23:59:59"` or rolled into the next day
-- Symbolic time MUST remain `null` for all-day events
-
-Resolution does not attempt to reinterpret or validate this boundary.
-
-- Unified day masks
-- Canonical time tokens
-- Structured date patterns
-
-
-Equivalent calendar expressions must produce identical normalized output.
-
-#### Structural Completeness
-
-Resolution output timing must be **structurally complete**. Even when values are symbolic or open-ended, the timing object must include the full set of fields required downstream:
-
-- `start_date` (symbolic and/or hard)
-- `end_date` (symbolic and/or hard)
-- `start_time` (symbolic and/or hard)
-- `end_time` (symbolic and/or hard)
-- `days`
-
-Fields must not be omitted. Downstream layers must never be forced to guess missing timing structure.
-
----
-
-### 4. Detect Unsupported Patterns
-
-Resolution must explicitly detect unsupported or ambiguous patterns, such as:
-- Multiple disjoint time windows
-- Irregular recurrence rules
-- Provider-specific constructs without semantic equivalents
-
-Unsupported patterns:
-- Are explicitly flagged
-- Include diagnostic context
-- Must not be silently coerced
-
----
-
-### 5. Decompose into Base and Exception Semantics When Required
-
-If a calendar event cannot be expressed as a single execution semantic, resolution must:
-- Identify one base semantic
-- Generate exception semantics
-
-
-Resolution produces base and exception semantics but does not order or schedule them.
-
-Resolution must decompose semantics **only** when the event meaning requires it. It must not split solely due to storage, identity, or scheduler representation constraints.
+Divergence detection is structural, not semantic.
 
 ---
 
 ## Explicit Non-Responsibilities
 
-Resolution must not:
-- Read `schedule.json`
-- Inspect existing scheduler state
-- Assign scheduler IDs
-- Apply guard dates
-- Resolve symbolic dates
-- Perform diffing or apply actions
-- Construct Manifest Events
-- Construct SubEvents
-- Normalize or reinterpret scheduler-domain time values (e.g., `"24:00:00"`)
+Event Resolution must not:
+- Apply changes
+- Modify manifest state
+- Modify ownership
+- Interpret scheduler runtime behavior
+- Resolve conflicts heuristically
 
 ---
 
-## Provider Independence
+## Relationship to Identity
 
-Resolution operates on abstract calendar concepts.
+Identity derivation occurs **before** Event Resolution.
 
-Provider-specific logic:
-- Lives exclusively in Calendar I/O
-- Must not leak into Intent or Identity
+Event Resolution treats identities as immutable.
 
 ---
 
-## Determinism Guarantees
+## Relationship to Scheduler Semantics
 
-Resolution must be:
-- Deterministic
-- Idempotent
-- Order-independent
-
-Same input must always yield the same output.
-
-Determinism includes preserving semantically intentional but non-standard time values verbatim.
-
----
-
-## Failure Modes
-
-Resolution may produce:
-
-1. **Resolved Intent**
-2. **Partially Resolved Intent** (symbolic)
-3. **Unresolved Event** (explicitly flagged)
-
-Silent failure is forbidden.
-
----
-
-## Relationship to Manifest Identity
-
-Resolution produces normalized execution semantics, not Identity.
-
-Identity derivation occurs later and must not influence resolution behavior.
-
----
-
-## Relationship to FPP Semantics
-
-Resolution is scheduler-agnostic.
-
-It applies no FPP-specific rules or defaults.
+Event Resolution is scheduler-agnostic and does not reason about runtime execution order or overlap.
 
 ---
 
@@ -264,11 +125,10 @@ Ambiguity must surface explicitly.
 
 ## Summary
 
-Event Resolution & Normalization is the semantic heart of the system.
+Event Resolution determines **what changed**, not **what should run**.
 
-It ensures clarity, determinism, and long-term correctness by preserving meaning rather than prematurely resolving it.
+It produces a precise, auditable intent delta suitable for downstream application.
 
-> **TODO (Future Revision):**
-> Introduce a dedicated normalization step for exporting scheduler-domain times to external calendar systems.
->
-> This step may convert `"24:00:00"` into a provider-compatible representation (e.g., next-day `00:00:00`) **only at export boundaries**, never within Resolution or Manifest identity.
+---
+
+**End of Document**

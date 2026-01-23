@@ -23,11 +23,12 @@ Identity includes:
 
 - **Execution type** (`playlist`, `command`, `sequence`)
 - **Execution target** (playlist name, command name, etc.)
-- **Timing window** (canonicalized)
+- **Timing window** (canonicalized), including normalized date patterns:
   - `timing` must be a structured object
-  - `days` is required
+  - `days` may be null for non-weekmask schedules (e.g. calendar-derived events)
   - `start_time` is required (hard or symbolic)
   - `end_time` is required (hard or symbolic)
+  - `start_date` and `end_date` (when present) participate as normalized DatePatterns
 
 These fields determine whether two scheduler entries could ever be eligible at the same moment during a daily FPP scan. If two entries differ in any of these dimensions, they represent distinct scheduler intents and must not share identity.
 
@@ -42,14 +43,14 @@ Timing participates in Manifest Identity subject to the following rules:
   - a hard time (`hard`), **or**
   - a symbolic time (`symbolic`)
 - `offset` is allowed (typically used with sun times)
+- `start_date` and `end_date` (if present) must define **either** a hard or symbolic value
 
-Date fields (`start_date`, `end_date`) may be present and are structurally validated (hard or symbolic required), but their values are **explicitly excluded from identity equivalence and hashing**.
+Date fields are structurally validated as part of identity equivalence and hashing.
 
 #### What Does *Not* Define Manifest Identity
 
 The following fields affect *when* an entry is active or *how* it executes, but do **not** define logical identity and are therefore excluded from identity hashing:
 
-- Date ranges (`startDate`, `endDate`)
 - Enablement state (`enabled`)
 - Playback behavior (`repeat`, `stopType`)
 - Execution payload or command arguments
@@ -72,6 +73,6 @@ Date semantics are therefore:
 
 #### Summary Rule
 
-> Two SubEvents share the same Manifest Identity if and only if they represent the same logical execution slot — meaning that, ignoring date ranges, they cannot both be eligible at the same moment during a daily FPP scheduler scan.
+> Two SubEvents share the same Manifest Identity if and only if their execution type, execution target, and fully normalized timing (including date and time patterns) are equivalent. Derived execution instances and metadata such as enablement state or playback behavior do not affect identity.
 
 This definition is authoritative and governs diffing, reconciliation, and apply behavior throughout the system.

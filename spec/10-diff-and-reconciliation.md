@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -101,7 +101,7 @@ An entry is classified as **delete** when:
 
 - It exists in the scheduler
 - Its identity does not exist in the desired state
-- It is marked as **managed**
+- It is marked as **managed** by the Manifest
 
 Unmanaged entries must never be deleted.
 
@@ -109,16 +109,15 @@ Unmanaged entries must never be deleted.
 
 ## Managed vs Unmanaged Entries
 
-The diff layer must distinguish between:
-
-- **Managed entries** (originating from the Manifest)
-- **Unmanaged entries** (manually created or external)
+Ownership (managed vs unmanaged) is defined by the Manifest and is authoritative.
 
 Rules:
 
 - Unmanaged entries are never deleted
 - Unmanaged entries are never reordered
-- Unmanaged entries are ignored unless explicitly referenced by user action or external tooling outside the diff process
+- Unmanaged entries may be surfaced in Preview
+- Unmanaged entries must never produce DiffOperations
+- Unmanaged entries must never be mutated by Apply
 
 ---
 
