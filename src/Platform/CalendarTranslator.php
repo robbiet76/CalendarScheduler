@@ -8,7 +8,9 @@ use GoogleCalendarScheduler\Platform\IcsParser;
 use GoogleCalendarScheduler\Platform\SunTimeDisplayEstimator;
 use GoogleCalendarScheduler\Platform\HolidayResolver;
 use GoogleCalendarScheduler\Platform\FppSemantics;
+use GoogleCalendarScheduler\Platform\YamlMetadata;
 use DateTimeImmutable;
+use DateTimeZone;
 
 /**
  * CalendarTranslator
@@ -53,13 +55,18 @@ final class CalendarTranslator
 
         $records = $parser->parse($raw, $now, $horizonEnd);
 
+        $localTz = new DateTimeZone(date_default_timezone_get());
+
         $events = [];
 
         foreach ($records as $rec) {
-            $startDate = substr($rec['start'], 0, 10);
-            $endDate   = substr($rec['end'],   0, 10);
-            $startTime = substr($rec['start'], 11, 8);
-            $endTime   = substr($rec['end'],   11, 8);
+            $dtStart = (new DateTimeImmutable($rec['start']))->setTimezone($localTz);
+            $dtEnd   = (new DateTimeImmutable($rec['end']))->setTimezone($localTz);
+
+            $startDate = $dtStart->format('Y-m-d');
+            $endDate   = $dtEnd->format('Y-m-d');
+            $startTime = $dtStart->format('H:i:s');
+            $endTime   = $dtEnd->format('H:i:s');
 
             $isAllDay = (
                 $startTime === '00:00:00' &&

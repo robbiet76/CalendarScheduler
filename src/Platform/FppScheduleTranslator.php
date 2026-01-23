@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Platform;
 
+use GoogleCalendarScheduler\Yaml\V2\YamlMetadata;
+
 /**
  * FppScheduleTranslator
  *
@@ -235,12 +237,12 @@ final class FppScheduleTranslator
     {
         return [
             'start_date' => [
-                'symbolic' => $e['startDate'] ?? null,
-                'hard'     => null,
+                'symbolic' => null,
+                'hard'     => $e['startDate'] ?? null,
             ],
             'end_date' => [
-                'symbolic' => $e['endDate'] ?? null,
-                'hard'     => null,
+                'symbolic' => null,
+                'hard'     => $e['endDate'] ?? null,
             ],
             'start_time' => [
                 'symbolic' => null,
