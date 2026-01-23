@@ -152,15 +152,13 @@ final class FppScheduleTranslator
      */
     private function detectType(array $e): string
     {
-        if (!empty($e['command'])) {
+        if (isset($e['command'])) {
             return 'command';
         }
-
-        if (!empty($e['playlist'])) {
-            return 'playlist';
+        if (isset($e['sequence']) && $e['sequence'] === 1) {
+            return 'sequence';
         }
-
-        return 'sequence';
+        return 'playlist';
     }
 
     /**
@@ -168,11 +166,14 @@ final class FppScheduleTranslator
      */
     private function extractTarget(string $type, array $e): string
     {
-        return match ($type) {
-            'command'  => (string)$e['command'],
-            'playlist' => (string)$e['playlist'],
-            'sequence' => (string)($e['playlist'] ?? ''),
-        };
+        if ($type === 'command') {
+            return (string)$e['command'];
+        }
+        // For playlist and sequence, use 'playlist'
+        $target = isset($e['playlist']) ? (string)$e['playlist'] : '';
+        // Remove trailing .fseq extension (case-insensitive) if present
+        $target = preg_replace('/\.fseq$/i', '', $target);
+        return $target;
     }
 
     /**
