@@ -83,8 +83,6 @@ final class CalendarSnapshot
             );
 
             $id = $this->hasher->hash($identity);
-
-            $identity['id'] = $id;
             $event['identity'] = $identity;
             $event['id']       = $id;
 
