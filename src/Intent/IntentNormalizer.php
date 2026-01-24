@@ -6,6 +6,7 @@ namespace GoogleCalendarScheduler\Intent;
 use GoogleCalendarScheduler\Intent\CalendarRawEvent;
 use GoogleCalendarScheduler\Intent\FppRawEvent;
 use GoogleCalendarScheduler\Intent\NormalizationContext;
+use GoogleCalendarScheduler\Platform\YamlMetadata;
 
 /**
  * IntentNormalizer
@@ -60,6 +61,11 @@ final class IntentNormalizer
         $end = new \DateTimeImmutable($raw->dtend);
         $end = $end->setTimezone($tz);
 
+        // --- YAML-driven type resolution ---
+        $yaml = YamlMetadata::fromDescription($raw->description);
+        $type = $yaml['type'] ?? null;
+        $type = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeType($type);
+
         // --- Identity (human intent) ---
         // All-day normalization is intentional and occurs ONLY at the Intent layer.
         // Raw calendar data must never coerce or invent times.
@@ -83,7 +89,7 @@ final class IntentNormalizer
         }
 
         $identity = [
-            'type'   => \GoogleCalendarScheduler\Platform\FPPSemantics::TYPE_PLAYLIST,
+            'type'   => $type,
             'target' => $raw->summary,
             'timing' => [
                 'start_date' => [
@@ -190,12 +196,13 @@ final class IntentNormalizer
                     }
                     $endDateHardForIntent = (new \DateTimeImmutable($lastStartDate, $tz))
                         ->modify('+' . ($durationDays - 1) . ' days')
+                        ->modify('-1 day')
                         ->format('Y-m-d');
                 } else {
                     $crossesMidnight = $end->format('Y-m-d') !== $start->format('Y-m-d');
                     $endDateHardForIntent = $crossesMidnight
-                        ? (new \DateTimeImmutable($lastStartDate, $tz))->modify('+1 day')->format('Y-m-d')
-                        : $lastStartDate;
+                        ? (new \DateTimeImmutable($lastStartDate, $tz))->modify('+1 day')->modify('-1 day')->format('Y-m-d')
+                        : (new \DateTimeImmutable($lastStartDate, $tz))->modify('-1 day')->format('Y-m-d');
                 }
             } else {
                 // 2) COUNT (only for DAILY)
