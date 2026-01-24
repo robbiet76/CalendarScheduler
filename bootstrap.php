@@ -74,6 +74,7 @@ require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 // -----------------------------------------------------------------------------
 // Platform — FPP-specific representation (Phase 2.5)
 // -----------------------------------------------------------------------------
+require_once __DIR__ . '/src/Platform/FPPSemantics.php';
 
 // -----------------------------------------------------------------------------
 // TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
