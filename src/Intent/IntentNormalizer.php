@@ -58,6 +58,25 @@ final class IntentNormalizer
         $end   = new \DateTimeImmutable($raw->dtend, $tz);
 
         // --- Identity (human intent) ---
+        // Handle all-day events explicitly:
+        // For all-day intents, times are null because the event spans entire days without specific start/end times.
+        // This preserves the intent without coercing times to 23:59:59 or 24:00:00.
+        // Date normalization happens here (IntentNormalizer) to ensure consistent interpretation,
+        // rather than in earlier layers like CalendarTranslator.
+        $isAllDay = ($raw->isAllDay ?? false) === true;
+
+        $startTimeHard = $start->format('H:i:s');
+        $endTimeHard   = $end->format('H:i:s');
+
+        // Calendar all-day events typically use an exclusive DTEND boundary.
+        // Intent represents whole-day span with times omitted.
+        $endDateHard = $end->format('Y-m-d');
+        if ($isAllDay) {
+            $startTimeHard = null;
+            $endTimeHard   = null;
+            $endDateHard   = $end->modify('-1 day')->format('Y-m-d');
+        }
+
         $identity = [
             'type'   => \GoogleCalendarScheduler\Platform\FPPSemantics::TYPE_PLAYLIST,
             'target' => $raw->summary,
@@ -67,16 +86,16 @@ final class IntentNormalizer
                     'symbolic' => null,
                 ],
                 'end_date' => [
-                    'hard' => $end->format('Y-m-d'),
+                    'hard' => $endDateHard,
                     'symbolic' => null,
                 ],
                 'start_time' => [
-                    'hard' => $start->format('H:i:s'),
+                    'hard' => $startTimeHard,
                     'symbolic' => null,
                     'offset' => 0,
                 ],
                 'end_time' => [
-                    'hard' => $end->format('H:i:s'),
+                    'hard' => $endTimeHard,
                     'symbolic' => null,
                     'offset' => 0,
                 ],
@@ -90,70 +109,175 @@ final class IntentNormalizer
         // --- Recurrence Expansion ---
         $subEvents = [];
         $rrule = $raw->rrule ?? null;
+
+        // Helper: compute per-occurrence end (and end_date hard) based on start + duration.
+        $baseDurationSeconds = $end->getTimestamp() - $start->getTimestamp();
+
+        // All-day duration in whole days using exclusive DTEND semantics.
+        // Example: start=2025-11-15 00:00, end=2025-11-16 00:00 => durationDays=1.
+        $durationDays = 0;
+        if ($isAllDay) {
+            $durationDays = (int)$start->diff($end)->format('%a');
+            if ($durationDays <= 0) {
+                $durationDays = 1;
+            }
+        }
+
+        // Parse UNTIL (RFC5545). This is a boundary on recurrence generation.
+        // We compare occurrences by DTSTART (start) and treat UNTIL as inclusive.
+        $until = null;
+        if (is_array($rrule) && isset($rrule['UNTIL']) && is_string($rrule['UNTIL']) && $rrule['UNTIL'] !== '') {
+            $untilStr = $rrule['UNTIL'];
+
+            // RFC common forms:
+            // - 20251127T075959Z
+            // - 20251127T075959
+            // - 20251127 (rare here)
+            try {
+                if (preg_match('/^\d{8}T\d{6}Z$/', $untilStr)) {
+                    $u = \DateTimeImmutable::createFromFormat('Ymd\\THis\\Z', $untilStr, new \DateTimeZone('UTC'));
+                    $until = $u ? $u->setTimezone($tz) : null;
+                } elseif (preg_match('/^\d{8}T\d{6}$/', $untilStr)) {
+                    $u = \DateTimeImmutable::createFromFormat('Ymd\\THis', $untilStr, $tz);
+                    $until = $u ?: null;
+                } elseif (preg_match('/^\d{8}$/', $untilStr)) {
+                    $u = \DateTimeImmutable::createFromFormat('Ymd', $untilStr, $tz);
+                    $until = $u ? $u->setTime(23, 59, 59) : null;
+                }
+            } catch (\Throwable) {
+                $until = null;
+            }
+        }
+
+        $exDateSet = [];
+        $exDates = $raw->provenance['exDates'] ?? [];
+        if (is_array($exDates)) {
+            foreach ($exDates as $ex) {
+                try {
+                    $exDt = new \DateTimeImmutable($ex, $tz);
+                    $key = $isAllDay
+                        ? $exDt->format('Y-m-d')
+                        : $exDt->format('Y-m-d H:i:s');
+                    $exDateSet[$key] = true;
+                } catch (\Throwable) {
+                    // ignore invalid EXDATE
+                }
+            }
+        }
+
         if ($rrule === null) {
             // No recurrence: single occurrence
             $subEvents[] = [
-                'timing'   => $identity['timing'],
+                'timing'   => [
+                    'start_date' => $identity['timing']['start_date'],
+                    'end_date'   => $identity['timing']['end_date'],
+                    'start_time' => [
+                        'hard' => $startTimeHard,
+                        'symbolic' => null,
+                        'offset' => 0,
+                    ],
+                    'end_time' => [
+                        'hard' => $endTimeHard,
+                        'symbolic' => null,
+                        'offset' => 0,
+                    ],
+                    'days' => null,
+                ],
                 'behavior' => $behavior,
                 'payload'  => null,
             ];
         } else {
-            // Only support FREQ=DAILY for now
-            $freq = strtoupper($rrule['FREQ'] ?? '');
+            // Only support FREQ=DAILY (for now)
+            $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
             if ($freq !== 'DAILY') {
-                throw new \RuntimeException("Unsupported RRULE frequency");
+                throw new \RuntimeException('Unsupported RRULE frequency');
             }
-            // Parse UNTIL if present
-            $until = null;
-            if (isset($rrule['UNTIL'])) {
-                // Try to parse as UTC or local
-                $untilStr = $rrule['UNTIL'];
-                // Acceptable formats: 20240601T120000Z or 20240601T120000
-                if (preg_match('/Z$/', $untilStr)) {
-                    $until = new \DateTimeImmutable($untilStr);
-                } else {
-                    $until = new \DateTimeImmutable($untilStr, $tz);
-                }
+
+            // Interval (default 1)
+            $interval = 1;
+            if (isset($rrule['INTERVAL']) && is_numeric($rrule['INTERVAL'])) {
+                $interval = max(1, (int)$rrule['INTERVAL']);
             }
-            // Expand daily occurrences
+
+            $countLimit = null;
+            if (isset($rrule['COUNT']) && is_numeric($rrule['COUNT'])) {
+                $countLimit = max(0, (int)$rrule['COUNT']);
+            }
+            $generatedCount = 0;
+
+            // We will generate occurrences from DTSTART, stepping by INTERVAL days.
             $curStart = $start;
-            $duration = $end->getTimestamp() - $start->getTimestamp();
+
+            // Track final occurrence end_date for identity normalization.
+            $finalEndDateHard = $identity['timing']['end_date']['hard'];
+
             while (true) {
-                // Stop if UNTIL is set and curStart > UNTIL
+                // UNTIL is inclusive. Stop when DTSTART is strictly after UNTIL.
                 if ($until !== null && $curStart > $until) {
                     break;
                 }
-                $curEnd = $curStart->modify("+{$duration} seconds");
+
+                $exKey = $isAllDay
+                    ? $curStart->format('Y-m-d')
+                    : $curStart->format('Y-m-d H:i:s');
+
+                if (isset($exDateSet[$exKey])) {
+                    $curStart = $curStart->modify('+' . $interval . ' days');
+                    continue;
+                }
+
+                if ($countLimit !== null && $generatedCount >= $countLimit) {
+                    break;
+                }
+
+                // Compute end for this occurrence.
+                if ($isAllDay) {
+                    $curEndExclusive = $curStart->modify('+' . $durationDays . ' days');
+                    $curEndDateHard  = $curEndExclusive->modify('-1 day')->format('Y-m-d');
+                } else {
+                    $curEnd = $curStart->modify('+' . $baseDurationSeconds . ' seconds');
+                    $curEndDateHard = $curEnd->format('Y-m-d');
+                }
+
                 $timing = [
                     'start_date' => [
                         'hard' => $curStart->format('Y-m-d'),
                         'symbolic' => null,
                     ],
                     'end_date' => [
-                        'hard' => $curEnd->format('Y-m-d'),
+                        'hard' => $curEndDateHard,
                         'symbolic' => null,
                     ],
                     'start_time' => [
-                        'hard' => $curStart->format('H:i:s'),
+                        'hard' => $startTimeHard,
                         'symbolic' => null,
                         'offset' => 0,
                     ],
                     'end_time' => [
-                        'hard' => $curEnd->format('H:i:s'),
+                        'hard' => $endTimeHard,
                         'symbolic' => null,
                         'offset' => 0,
                     ],
                     'days' => null,
                 ];
+
                 $subEvents[] = [
                     'timing'   => $timing,
                     'behavior' => $behavior,
                     'payload'  => null,
                 ];
-                // Next day
-                $curStart = $curStart->modify('+1 day');
-                // EXDATE handling to be added later
+
+                // Track final end date.
+                $finalEndDateHard = $curEndDateHard;
+
+                $generatedCount++;
+
+                // Step forward by INTERVAL days.
+                $curStart = $curStart->modify('+' . $interval . ' days');
             }
+
+            // For recurring events, identity should reflect the final expanded window.
+            $identity['timing']['end_date']['hard'] = $finalEndDateHard;
         }
 
         // --- Ownership ---
