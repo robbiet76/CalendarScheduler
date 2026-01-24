@@ -120,8 +120,9 @@ IdentityObject {
   target: string,
   timing: {
     days: number,
-    start_time: { symbolic: string|null, hard: string|null, offset: number },
-    end_time:   { symbolic: string|null, hard: string|null, offset: number },
+    start_time: { symbolic: string|null, hard: string|null, offset: number } | null,
+    end_time:   { symbolic: string|null, hard: string|null, offset: number } | null,
+    is_all_day: boolean,
 
     // optional, excluded from identity hashing:
     start_date?: { symbolic: string|null, hard: string|null },
@@ -133,16 +134,19 @@ IdentityObject {
 ### Identity Invariants
 
 - Identity fields must be structurally complete after ingestion.
-  For each timing component, at least one of `symbolic` or `hard` MUST be provided.
+  For each timing component, at least one of `symbolic` or `hard` MUST be provided unless `is_all_day` is `true`.
+  When `is_all_day === true`, both `start_time` and `end_time` MUST be `null`.
+  All-day intent MUST NOT invent concrete times (no 23:59:59, no 24:00:00).
   Individual fields MAY be null where explicitly permitted.
 - Identity must not include stopType, repeat, enabled flags, or any execution-only settings.
 - Identity excludes date fields from identity hashing, including start_date and end_date which MAY appear in identity.timing but are excluded from hashing.
 - Identity fields are derived exclusively from the *primary* SubEvent execution geometry
-  (`type`, `target`, `timing.days`, `timing.start_time`, `timing.end_time`) and must match it exactly.
+  (`type`, `target`, `timing.days`, `timing.start_time`, `timing.end_time`, `timing.is_all_day`) and must match it exactly.
   Date ranges, behavior flags, payloads, and secondary SubEvents are explicitly excluded.
+- All-day semantics participate in identity hashing; that is, changing between all-day and timed intent creates a *new* Manifest Event identity.
 
 - For each timing component:
-  - `start_time` and `end_time` MUST specify either `hard` or `symbolic`
+  - `start_time` and `end_time` MUST specify either `hard` or `symbolic` unless `is_all_day` is `true`, in which case they MUST be `null`.
   - If `start_date` or `end_date` is present, it MUST specify either `hard` or `symbolic`
   - Providing both is permitted
   - Providing neither is invalid
@@ -153,6 +157,7 @@ Rules:
 - Identity excludes date fields from hashing
 - Identity excludes provider artifacts
 - Changing any Identity field creates a *new* Manifest Event identity
+- Downstream materializers (e.g. FPP writer) are responsible for mapping all-day intent to platform-specific representations.
 
 ---
 
@@ -178,9 +183,10 @@ SubEvent {
   timing: {
     start_date: { symbolic: string|null, hard: string|null },
     end_date:   { symbolic: string|null, hard: string|null },
-    start_time: { symbolic: string|null, hard: string|null, offset: number },
-    end_time:   { symbolic: string|null, hard: string|null, offset: number },
-    days: number | null
+    start_time: { symbolic: string|null, hard: string|null, offset: number } | null,
+    end_time:   { symbolic: string|null, hard: string|null, offset: number } | null,
+    days: number | null,
+    is_all_day: boolean
   },
 
   behavior: {
@@ -197,8 +203,9 @@ Rules:
 
 - Every Manifest Event has **one or more SubEvents**
 - SubEvents have **no independent identity**
-- Identity is defined at the Manifest Event level and is derived from the base execution geometry (type/target/timing.days/timing.start_time/timing.end_time)
+- Identity is defined at the Manifest Event level and is derived from the base execution geometry (type/target/timing.days/timing.start_time/timing.end_time/timing.is_all_day)
 - Payload exists only for command-type SubEvents
+- All-day SubEvents carry `null` times for `start_time` and `end_time` and never contain hard-coded full-day times (e.g., no 23:59:59 or 24:00:00).
 
 ---
 
@@ -358,7 +365,8 @@ Rules:
         "timing": {
           "days": 3,
           "start_time": { "symbolic": null, "hard": "08:00:00", "offset": 0 },
-          "end_time": { "symbolic": null, "hard": "10:00:00", "offset": 0 }
+          "end_time": { "symbolic": null, "hard": "10:00:00", "offset": 0 },
+          "is_all_day": false
         }
       },
 
@@ -397,9 +405,10 @@ Rules:
   "timing": {
     "start_date": { "hard": "YYYY-MM-DD | null", "symbolic": "string | null" },
     "end_date": { "hard": "YYYY-MM-DD | null", "symbolic": "string | null" },
-    "start_time": { "hard": "HH:MM:SS | null", "symbolic": "string | null", "offset": 0 },
-    "end_time": { "hard": "HH:MM:SS | null", "symbolic": "string | null", "offset": 0 },
-    "days": "number | null"
+    "start_time": { "hard": "HH:MM:SS | null", "symbolic": "string | null", "offset": 0 } | null,
+    "end_time": { "hard": "HH:MM:SS | null", "symbolic": "string | null", "offset": 0 } | null,
+    "days": "number | null",
+    "is_all_day": boolean
   },
 
   "behavior": {

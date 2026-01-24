@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -45,20 +45,21 @@ This principle enforces a strict, ordered flow:
    External systems provide raw facts only (e.g., ICS data, schedule.json entries).
 
 2. **Source Translation**  
-   Provider-specific formats are normalized into provider-agnostic fact shapes.
-   No intent is inferred at this stage.
+   Provider-specific formats are normalized into *raw boundary objects* (e.g., CalendarRawEvent, FppRawEvent).  
+   These raw boundary objects preserve source truth and contain no intent or identity at this stage.
 
 3. **Intent Normalization**  
-   Facts are interpreted into human scheduling intent:
-   recurrence meaning, YAML semantics, symbolic values, identity, and subEvents.
+   The **IntentNormalizer** semantic boundary converts raw events into canonical Intent.  
+   Facts are interpreted into human scheduling intent: recurrence meaning, YAML semantics, symbolic values, identity, and subEvents.  
+   The Planner consumes normalized Intent objects rather than raw calendar data.
 
 4. **Manifest Canonicalization**  
-   Intent is stored in a stable, human-readable, deterministic form.
+   Intent is stored in a stable, human-readable, deterministic form.  
    If two manifest entries differ, they represent different intent.
 
 5. **Resolution**  
-   Resolution compares normalized intent from different sources and produces
-   CREATE / UPDATE / DELETE / CONFLICT / NOOP decisions.
+   Resolution compares normalized intent from different sources and produces  
+   CREATE / UPDATE / DELETE / CONFLICT / NOOP decisions.  
    Resolution never compensates for upstream errors.
 
 ### Hard Design Rules
@@ -80,8 +81,8 @@ This intent-first approach ensures:
 
 ### Canonical Intent Schema
 
-The system defines a single, canonical **Intent schema** representing human scheduling intent.
-All sources (calendar providers, FPP scheduler state, configuration files) MUST be normalized
+The system defines a single, canonical **Intent schema** representing human scheduling intent.  
+All sources (calendar providers, FPP scheduler state, configuration files) MUST be normalized  
 into this schema before comparison or resolution.
 
 Intent is immutable, declarative, and scheduler-agnostic.
@@ -103,21 +104,33 @@ An Intent Event is composed of:
 - `ownership` — mutation safety and locking
 - `correlation` — traceability back to source systems
 
-All identity hashes are derived exclusively from the normalized `identity` object.
+All identity hashes are derived exclusively from the normalized `identity` object.  
 Ownership and correlation MUST NOT influence identity.
 
-All resolution logic operates exclusively on normalized Intent objects.
-If inputs have not passed through the same intent normalization pipeline,
+All resolution logic operates exclusively on normalized Intent objects.  
+If inputs have not passed through the same intent normalization pipeline,  
 they MUST NOT be compared.
 
 (See **06 — Event Resolution** for the full Intent schema contract.)
+
+#### All-Day Semantics
+
+- Intent represents all-day events explicitly (e.g., `is_all_day = true`).  
+- For all-day intent, `start_time` and `end_time` are null.  
+- No placeholder times such as `23:59:59` or `24:00:00` are allowed in Intent.  
+- Scheduler-specific representations of all-day events are handled later in the Platform layer.
+
+Intent is an in-memory canonical object, while the Manifest is the durable serialization of Intent.  
+Resolution compares Intent derived from different sources, never raw data.
+
+---
 
 ## High-Level Data Flow
 
 ```
 Calendar Provider (ICS)
         ↓
-Provider Adapter (ICS → Canonical Events)
+Provider Adapter (ICS → Provider-agnostic Raw Events)
         ↓
 Planner (Events → Bundles → Desired Entries)
         ↓
@@ -130,7 +143,7 @@ Apply Engine
 FPP Scheduler (schedule.json)
 ```
 
-Each stage consumes the output of the previous stage and produces a strictly defined artifact.
+Provider adapters emit *raw factual events only*, with no intent, identity, defaults, or scheduling semantics inferred.
 
 ---
 
@@ -141,7 +154,7 @@ Each stage consumes the output of the previous stage and produces a strictly def
 **Responsibility**
 - Fetch calendar data
 - Parse provider-specific formats (ICS quirks, timezone rules)
-- Emit canonical calendar events
+- Emit canonical calendar events as provider-agnostic raw boundary objects
 
 **Key Rules**
 - No FPP knowledge
@@ -154,10 +167,17 @@ Each stage consumes the output of the previous stage and produces a strictly def
 
 ---
 
+### Raw Boundary Objects
+
+Raw boundary objects, such as `CalendarRawEvent` and `FppRawEvent`, preserve source truth exactly as received.  
+They contain no intent or identity and are never compared or diffed directly.
+
+---
+
 ### 2. Planning Layer
 
 **Responsibility**
-- Convert canonical calendar events into scheduler intent
+- Convert normalized Intent objects into scheduler intent bundles
 - Resolve unsupported constructs (exceptions, symbolic dates)
 - Emit Bundles as the atomic planning unit
 
@@ -166,6 +186,8 @@ Each stage consumes the output of the previous stage and produces a strictly def
 - Each Bundle contains one or more Intent entries
 
 **Key Rules**
+- Does NOT perform semantic normalization (this is done prior by IntentNormalizer)
+- Operates only on normalized Intent objects
 - No reading or writing of schedule.json
 - No diffing logic
 - Deterministic output

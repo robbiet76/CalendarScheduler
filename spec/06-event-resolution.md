@@ -61,6 +61,29 @@ Intent is the single human-readable representation of scheduling meaning.
 
 Manifest entries are serialized intent, not source facts.
 
+### All-day intent handling (Locked)
+
+All-day is **intent**, not a fabricated time window.
+
+Normalization MUST represent all-day intent explicitly and MUST NOT invent times such as `23:59:59` or `24:00:00`.
+
+Rules:
+- Canonical Intent MUST include `is_all_day: bool`.
+- If `is_all_day == true`:
+  - `start_time` MUST be `null`
+  - `end_time` MUST be `null`
+  - Each `subEvent.timing.start_time` MUST be `null`
+  - Each `subEvent.timing.end_time` MUST be `null`
+- If `is_all_day == false`:
+  - `start_time` and `end_time` MUST be non-null (hard or symbolic per rules below)
+  - Each `subEvent.timing.start_time` and `subEvent.timing.end_time` MUST be non-null and **hard-resolved**
+
+FPP-specific all-day materialization (e.g. `endTime = 24:00:00`) is an Apply/materialization concern and MUST NOT appear in Canonical Intent.
+
+Identity + hashing:
+- `is_all_day` participates in identity and hashing.
+- Switching between timed and all-day intent is an identity change (different `identity_hash`).
+
 ---
 
 ## Inputs
@@ -79,6 +102,7 @@ Resolution does **not** assume manifest-shaped inputs from CalendarSnapshot or a
 Each event MUST include:
 - `id` (string, equals `identity_hash`)
 - `identity` (object)
+- `is_all_day` (bool)
 - `subEvents` (array; may be empty but typically contains 1 base subEvent)
 - `ownership` (object)
 - `correlation` (object)
@@ -87,6 +111,7 @@ Each subEvent MUST include:
 - `identity` (object)
 - `identity_hash` (string; equals parent identity hash)
 - `timing` (object)
+- `is_all_day` (bool; MUST equal parent `is_all_day`)
 - `behavior` (object)
 - `payload` (object|null)
 
@@ -153,6 +178,7 @@ A Canonical Intent Event is a canonical post-normalization structure produced in
 Fields:
 - `identity_hash` (string)
 - `identity` (array)
+- `is_all_day` (bool)
 - `ownership` (array)
 - `correlation` (array)
 - `subEvents` (array)
@@ -165,6 +191,8 @@ Rules:
 - MUST require `identity_hash` (via `id` or `identity_hash`) and `identity`
 - MUST NOT compute identity hashes outside Resolution
 - MUST treat input as already canonicalized by Intent Normalization
+- MUST encode all-day intent via `is_all_day` and null times (see **All-day intent handling (Locked)**)
+- MUST NOT represent all-day by inventing platform-specific time sentinels such as `24:00:00`
 
 ### ResolutionInputs
 ResolutionInputs factories accept raw calendar provider records and existing manifest events, internally performing normalization and identity construction to produce:
@@ -200,6 +228,7 @@ Resolution outputs intent deltas, not scheduler actions.
 ## Divergence Detection
 
 Two events are divergent if any of the following differ:
+- All-day flag (`is_all_day`)
 - Number of subEvents
 - Timing of any subEvent
 - Behavior of any subEvent
@@ -241,7 +270,7 @@ Event Resolution treats identities as immutable once constructed.
 
 ## Relationship to Scheduler Semantics
 
-Event Resolution is scheduler-agnostic and does not reason about runtime execution order or overlap.
+Event Resolution is scheduler-agnostic and does not reason about runtime execution order or overlap. All-day platform encodings (such as FPP's `24:00:00`) are explicitly out of scope for Resolution.
 
 ---
 

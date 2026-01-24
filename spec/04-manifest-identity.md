@@ -2,6 +2,10 @@
 
 > Manifest Identity defines **which scheduler intent the plugin considers equivalent**, not how the FPP scheduler internally enumerates entries.
 
+Manifest Identity is derived from fully normalized Intent.
+The Manifest never computes identity directly from raw calendar data or raw FPP scheduler entries.
+All identity equivalence decisions are made only after Intent normalization.
+
 #### Platform Reality (FPP)
 
 In the FPP scheduler, **every scheduler entry is structurally distinct**. Any difference in execution geometry — including type, target, date range, time range, or day mask — produces a separate entry. FPP performs a strict top-down scan of entries to determine what executes next and does not attempt to normalize or minimize entries.
@@ -14,6 +18,8 @@ The Manifest does **not** mirror raw FPP scheduler fragmentation. Instead, it re
 - Provide stable identity across imports, edits, and seasonal shifts
 
 Normalization is an **intentional optimization**, not a platform constraint.
+
+This normalization is performed during Intent normalization and never during resolution or apply phases.
 
 #### What Defines Manifest Identity
 
@@ -46,6 +52,8 @@ Timing participates in Manifest Identity subject to the following rules:
 - `start_date` and `end_date` (if present) must define **either** a hard or symbolic value
 
 Date fields are structurally validated as part of identity equivalence and hashing.
+
+All timing canonicalization occurs during Intent normalization; resolution and diffing operate only on fully normalized timing structures.
 
 #### What Does *Not* Define Manifest Identity
 
