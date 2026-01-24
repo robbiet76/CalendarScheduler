@@ -111,179 +111,152 @@ final class IntentNormalizer
         // --- Behavior defaults ---
         $behavior = $context->fpp::defaultBehavior();
 
-        // --- Recurrence Expansion ---
-        $subEvents = [];
+        // --- Recurrence handling (NO expansion) ---
+        // FPP scheduler operates on date ranges. We NEVER generate one subEvent per day.
+        // RRULE is used ONLY to compute the intent window (end_date).
         $rrule = $raw->rrule ?? null;
 
-        // Helper: compute per-occurrence end (and end_date hard) based on start + duration.
-        $baseDurationSeconds = $end->getTimestamp() - $start->getTimestamp();
+        // Default identity end_date comes from DTEND (already adjusted for all-day exclusivity above).
+        $endDateHardForIntent = $identity['timing']['end_date']['hard'];
 
-        // All-day duration in whole days using exclusive DTEND semantics.
-        // Example: start=2025-11-15 00:00, end=2025-11-16 00:00 => durationDays=1.
-        $durationDays = 0;
-        if ($isAllDay) {
-            $durationDays = (int)$start->diff($end)->format('%a');
-            if ($durationDays <= 0) {
-                $durationDays = 1;
-            }
-        }
-
-        // Parse UNTIL (RFC5545). This is a boundary on recurrence generation.
-        // We compare occurrences by DTSTART (start) and treat UNTIL as inclusive.
-        $until = null;
-        if (is_array($rrule) && isset($rrule['UNTIL']) && is_string($rrule['UNTIL']) && $rrule['UNTIL'] !== '') {
-            $untilStr = $rrule['UNTIL'];
-
-            // RFC common forms:
-            // - 20251127T075959Z
-            // - 20251127T075959
-            // - 20251127 (rare here)
-            try {
-                if (preg_match('/^\d{8}T\d{6}Z$/', $untilStr)) {
-                    $u = \DateTimeImmutable::createFromFormat('Ymd\\THis\\Z', $untilStr, new \DateTimeZone('UTC'));
-                    $until = $u ? $u->setTimezone($tz) : null;
-                } elseif (preg_match('/^\d{8}T\d{6}$/', $untilStr)) {
-                    $u = \DateTimeImmutable::createFromFormat('Ymd\\THis', $untilStr, $tz);
-                    $until = $u ?: null;
-                } elseif (preg_match('/^\d{8}$/', $untilStr)) {
-                    $u = \DateTimeImmutable::createFromFormat('Ymd', $untilStr, $tz);
-                    $until = $u ? $u->setTime(23, 59, 59) : null;
-                }
-            } catch (\Throwable) {
-                $until = null;
-            }
-        }
-
-        $exDateSet = [];
+        // EXDATE support: if DTSTART is excluded, we cannot represent “skip first occurrence”
+        // without expanding into multiple windows, which is forbidden. Fail fast.
         $exDates = $raw->provenance['exDates'] ?? [];
-        if (is_array($exDates)) {
+        if (is_array($exDates) && $rrule !== null && count($exDates) > 0) {
+            $firstKey = $isAllDay
+                ? $start->format('Y-m-d')
+                : $start->format('Y-m-d H:i:s');
+
             foreach ($exDates as $ex) {
                 try {
-                    $exDt = new \DateTimeImmutable($ex, $tz);
-                    $key = $isAllDay
+                    $exDt = new \DateTimeImmutable((string)$ex, $tz);
+                    $exKey = $isAllDay
                         ? $exDt->format('Y-m-d')
                         : $exDt->format('Y-m-d H:i:s');
-                    $exDateSet[$key] = true;
+                    if ($exKey === $firstKey) {
+                        throw new \RuntimeException('EXDATE excludes DTSTART; cannot normalize without expanding into multiple windows');
+                    }
                 } catch (\Throwable) {
                     // ignore invalid EXDATE
                 }
             }
         }
 
-        if ($rrule === null) {
-            // No recurrence: single occurrence
-            $subEvents[] = [
-                'timing'   => [
-                    'start_date' => $identity['timing']['start_date'],
-                    'end_date'   => $identity['timing']['end_date'],
-                    'start_time' => [
-                        'hard' => $startTimeHard,
-                        'symbolic' => null,
-                        'offset' => 0,
-                    ],
-                    'end_time' => [
-                        'hard' => $endTimeHard,
-                        'symbolic' => null,
-                        'offset' => 0,
-                    ],
-                    'days' => null,
-                ],
-                'behavior' => $behavior,
-                'payload'  => null,
-            ];
-        } else {
-            // Only support FREQ=DAILY (for now)
+        if ($rrule !== null) {
             $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
+            if ($freq === '') {
+                throw new \RuntimeException('RRULE present but missing FREQ');
+            }
             if ($freq !== 'DAILY') {
                 throw new \RuntimeException('Unsupported RRULE frequency');
             }
 
-            // Interval (default 1)
-            $interval = 1;
-            if (isset($rrule['INTERVAL']) && is_numeric($rrule['INTERVAL'])) {
-                $interval = max(1, (int)$rrule['INTERVAL']);
+            // Determine the inclusive last date of the recurrence window.
+            // Supported: UNTIL or COUNT.
+            // NOTE: We do not expand occurrences; we only compute the final end_date.
+
+            // 1) UNTIL
+            $until = null;
+            if (isset($rrule['UNTIL']) && is_string($rrule['UNTIL']) && $rrule['UNTIL'] !== '') {
+                $untilStr = $rrule['UNTIL'];
+                try {
+                    if (preg_match('/^\d{8}T\d{6}Z$/', $untilStr)) {
+                        $u = \DateTimeImmutable::createFromFormat('Ymd\\THis\\Z', $untilStr, new \DateTimeZone('UTC'));
+                        $until = $u ? $u->setTimezone($tz) : null;
+                    } elseif (preg_match('/^\d{8}T\d{6}$/', $untilStr)) {
+                        $u = \DateTimeImmutable::createFromFormat('Ymd\\THis', $untilStr, $tz);
+                        $until = $u ?: null;
+                    } elseif (preg_match('/^\d{8}$/', $untilStr)) {
+                        $u = \DateTimeImmutable::createFromFormat('Ymd', $untilStr, $tz);
+                        // date-only UNTIL is inclusive for that whole day
+                        $until = $u ? $u->setTime(23, 59, 59) : null;
+                    }
+                } catch (\Throwable) {
+                    $until = null;
+                }
             }
 
-            $countLimit = null;
-            if (isset($rrule['COUNT']) && is_numeric($rrule['COUNT'])) {
-                $countLimit = max(0, (int)$rrule['COUNT']);
-            }
-            $generatedCount = 0;
+            if ($until !== null) {
+                // Inclusive last occurrence date is the UNTIL date in local tz.
+                $lastStartDate = $until->format('Y-m-d');
 
-            // We will generate occurrences from DTSTART, stepping by INTERVAL days.
-            $curStart = $start;
-
-            // Track final occurrence end_date for identity normalization.
-            $finalEndDateHard = $identity['timing']['end_date']['hard'];
-
-            while (true) {
-                // UNTIL is inclusive. Stop when DTSTART is strictly after UNTIL.
-                if ($until !== null && $curStart > $until) {
-                    break;
-                }
-
-                $exKey = $isAllDay
-                    ? $curStart->format('Y-m-d')
-                    : $curStart->format('Y-m-d H:i:s');
-
-                if (isset($exDateSet[$exKey])) {
-                    $curStart = $curStart->modify('+' . $interval . ' days');
-                    continue;
-                }
-
-                if ($countLimit !== null && $generatedCount >= $countLimit) {
-                    break;
-                }
-
-                // Compute end for this occurrence.
+                // Identity window end_date should be the last day on which an occurrence runs.
+                // If the event crosses midnight, the effective end_date is +1 day from the last start.
                 if ($isAllDay) {
-                    $curEndExclusive = $curStart->modify('+' . $durationDays . ' days');
-                    $curEndDateHard  = $curEndExclusive->modify('-1 day')->format('Y-m-d');
+                    // For all-day, duration is whole-day span; end_date should be lastStartDate + (durationDays-1).
+                    $durationDays = (int)$start->diff($end)->format('%a');
+                    if ($durationDays <= 0) {
+                        $durationDays = 1;
+                    }
+                    $endDateHardForIntent = (new \DateTimeImmutable($lastStartDate, $tz))
+                        ->modify('+' . ($durationDays - 1) . ' days')
+                        ->format('Y-m-d');
                 } else {
-                    $curEnd = $curStart->modify('+' . $baseDurationSeconds . ' seconds');
-                    $curEndDateHard = $curEnd->format('Y-m-d');
+                    $crossesMidnight = $end->format('Y-m-d') !== $start->format('Y-m-d');
+                    $endDateHardForIntent = $crossesMidnight
+                        ? (new \DateTimeImmutable($lastStartDate, $tz))->modify('+1 day')->format('Y-m-d')
+                        : $lastStartDate;
+                }
+            } else {
+                // 2) COUNT (only for DAILY)
+                $count = null;
+                if (isset($rrule['COUNT']) && is_numeric($rrule['COUNT'])) {
+                    $count = (int)$rrule['COUNT'];
+                }
+                if ($count === null || $count <= 0) {
+                    throw new \RuntimeException('RRULE must provide UNTIL or COUNT');
                 }
 
-                $timing = [
-                    'start_date' => [
-                        'hard' => $curStart->format('Y-m-d'),
-                        'symbolic' => null,
-                    ],
-                    'end_date' => [
-                        'hard' => $curEndDateHard,
-                        'symbolic' => null,
-                    ],
-                    'start_time' => [
-                        'hard' => $startTimeHard,
-                        'symbolic' => null,
-                        'offset' => 0,
-                    ],
-                    'end_time' => [
-                        'hard' => $endTimeHard,
-                        'symbolic' => null,
-                        'offset' => 0,
-                    ],
-                    'days' => null,
-                ];
+                // COUNT includes the DTSTART occurrence.
+                $interval = 1;
+                if (isset($rrule['INTERVAL']) && is_numeric($rrule['INTERVAL'])) {
+                    $interval = max(1, (int)$rrule['INTERVAL']);
+                }
 
-                $subEvents[] = [
-                    'timing'   => $timing,
-                    'behavior' => $behavior,
-                    'payload'  => null,
-                ];
+                $daysToAdd = ($count - 1) * $interval;
+                $lastStart = $start->modify('+' . $daysToAdd . ' days');
+                $lastStartDate = $lastStart->format('Y-m-d');
 
-                // Track final end date.
-                $finalEndDateHard = $curEndDateHard;
-
-                $generatedCount++;
-
-                // Step forward by INTERVAL days.
-                $curStart = $curStart->modify('+' . $interval . ' days');
+                if ($isAllDay) {
+                    $durationDays = (int)$start->diff($end)->format('%a');
+                    if ($durationDays <= 0) {
+                        $durationDays = 1;
+                    }
+                    $endDateHardForIntent = (new \DateTimeImmutable($lastStartDate, $tz))
+                        ->modify('+' . ($durationDays - 1) . ' days')
+                        ->format('Y-m-d');
+                } else {
+                    $crossesMidnight = $end->format('Y-m-d') !== $start->format('Y-m-d');
+                    $endDateHardForIntent = $crossesMidnight
+                        ? (new \DateTimeImmutable($lastStartDate, $tz))->modify('+1 day')->format('Y-m-d')
+                        : $lastStartDate;
+                }
             }
 
-            // For recurring events, identity should reflect the final expanded window.
-            $identity['timing']['end_date']['hard'] = $finalEndDateHard;
+            // Apply the computed end_date to the identity window.
+            $identity['timing']['end_date']['hard'] = $endDateHardForIntent;
         }
+
+        // Always produce exactly ONE subEvent: a single date-range window.
+        $subEvents = [[
+            'timing'   => [
+                'start_date' => $identity['timing']['start_date'],
+                'end_date'   => $identity['timing']['end_date'],
+                'start_time' => [
+                    'hard' => $startTimeHard,
+                    'symbolic' => null,
+                    'offset' => 0,
+                ],
+                'end_time' => [
+                    'hard' => $endTimeHard,
+                    'symbolic' => null,
+                    'offset' => 0,
+                ],
+                'days' => null,
+            ],
+            'behavior' => $behavior,
+            'payload'  => null,
+        ]];
 
         // --- Ownership ---
         $ownership = [
