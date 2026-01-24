@@ -114,8 +114,7 @@ final class IntentNormalizer
             ],
         ];
 
-        // --- Behavior defaults ---
-        $behavior = $context->fpp::defaultBehavior();
+        // --- Recurrence handling (NO expansion) ---
 
         // --- Recurrence handling (NO expansion) ---
         // FPP scheduler operates on date ranges. We NEVER generate one subEvent per day.
@@ -245,8 +244,27 @@ final class IntentNormalizer
         }
 
         // Always produce exactly ONE subEvent: a single date-range window.
+        $payload = [
+            'enabled'  => array_key_exists('enabled', $yaml)
+                ? \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled($yaml['enabled'])
+                : null,
+
+            'stopType' => array_key_exists('stopType', $yaml)
+                ? (string)$yaml['stopType']
+                : null,
+
+            'repeat'   => array_key_exists('repeat', $yaml)
+                ? (string)$yaml['repeat']
+                : null,
+        ];
+
+        $payload = array_filter(
+            $payload,
+            static fn($v) => $v !== null
+        );
+
         $subEvents = [[
-            'timing'   => [
+            'timing'  => [
                 'start_date' => $identity['timing']['start_date'],
                 'end_date'   => $identity['timing']['end_date'],
                 'start_time' => [
@@ -261,8 +279,7 @@ final class IntentNormalizer
                 ],
                 'days' => null,
             ],
-            'behavior' => $behavior,
-            'payload'  => null,
+            'payload' => $payload,
         ]];
 
         // --- Ownership ---

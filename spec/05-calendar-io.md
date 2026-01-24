@@ -123,6 +123,71 @@ Where:
 
 YAML extracted from the `description` field is treated as opaque metadata at this stage and **MUST NOT** influence timing, type, or any scheduling semantics during Calendar I/O processing.
 
+---
+
+## Calendar Description YAML
+
+Calendar event descriptions may contain an embedded YAML block that expresses
+**user-authored execution intent** for downstream scheduling systems.
+
+This YAML represents an explicit, editable control surface for users managing
+their schedules directly from the calendar.
+
+### Scope and Authority
+
+- The YAML is **authoritative user input**
+- It is owned and edited by the user
+- The system MUST preserve it losslessly
+- The Calendar I/O layer MUST NOT interpret its semantics
+
+The Calendar I/O layer treats description YAML as **opaque content**.
+All semantic interpretation occurs downstream during Intent normalization.
+
+### Purpose
+
+Calendar Description YAML exists to express **execution behavior** that cannot
+be reliably represented in calendar UI constructs alone.
+
+Examples include:
+- Execution type (playlist, sequence, command)
+- Stop behavior
+- Repeat behavior
+- Enabled / disabled state
+- Symbolic execution time (e.g. Dawn, Dusk)
+
+### Allowed Content (Non-Exhaustive)
+
+The following categories of fields MAY appear in description YAML:
+
+- Execution identity (e.g. `type`)
+- Execution control (e.g. `enabled`, `stopType`, `repeat`)
+- Symbolic timing overrides (e.g. `symbolicTime`)
+- Command execution payloads (for command-type events)
+
+### Forbidden Content
+
+Description YAML MUST NOT contain:
+
+- Hard dates
+- Hard times
+- Timezones
+- Day-of-week masks
+- Scheduler identifiers
+- Manifest identity hashes
+- Provider-specific runtime fields
+
+Calendar timing is defined exclusively by the calendar event itself.
+Embedding timing data in YAML creates ambiguity and drift and is forbidden.
+
+### Processing Rules
+
+- Calendar I/O MUST preserve description YAML exactly as received
+- Calendar I/O MUST NOT validate or normalize YAML content
+- Missing or malformed YAML MUST NOT cause Calendar I/O failure
+- YAML interpretation is deferred entirely to Intent normalization
+
+---
+
 ### Inbound Rules
 
 - No semantic interpretation is allowed
@@ -298,3 +363,134 @@ Failures surface immediately and do not partially apply.
 ---
 
 > Calendar I/O is the only layer that knows calendars exist.
+
+---
+
+## Appendix A — Calendar Description YAML Templates
+
+This appendix provides **recommended, user-editable YAML templates** that may be embedded
+inside a calendar event’s description field.
+
+These templates are **documentation only**.  
+They define *what users are allowed and encouraged to write*, not what the Calendar I/O
+layer interprets.
+
+The Calendar I/O layer MUST treat all YAML content as opaque text.
+
+---
+
+### General Rules
+
+- YAML expresses **execution behavior**, not calendar timing
+- Users are encouraged to edit YAML directly in the calendar UI
+- All fields are optional unless otherwise stated
+- Omitted fields imply downstream defaults
+- YAML MUST remain valid after calendar edits
+
+---
+
+### Common Execution Fields
+
+```yaml
+type: playlist | sequence | command
+enabled: true | false
+stopType: graceful | hard | graceful_loop
+repeat: none | immediate | <integer>
+```
+
+Notes:
+- These values describe **how FPP executes**, not *when*
+- Actual defaults are defined by FPP semantics, not by Calendar I/O
+- Human-readable values are preferred over numeric enums
+
+---
+
+### Symbolic Time Override
+
+Symbolic time may be used when calendar UI cannot express the desired behavior.
+
+```yaml
+symbolicTime:
+  start: Dawn | Dusk | SunRise | SunSet
+  offsetMinutes: 0
+```
+
+Rules:
+- Symbolic time applies only to execution start
+- Hard times and symbolic times MUST NOT be mixed
+- If symbolicTime is present, calendar start time is treated as a placeholder
+
+---
+
+### Playlist / Sequence Example
+
+```yaml
+type: sequence
+enabled: true
+stopType: hard
+repeat: immediate
+```
+
+---
+
+### Command Example (with Payload)
+
+```yaml
+type: command
+enabled: true
+repeat: none
+
+command:
+  name: RestartFPP
+  args:
+    delaySeconds: 30
+```
+
+---
+
+### Fully Loaded Example (Command + Symbolic Time)
+
+```yaml
+type: command
+enabled: true
+stopType: graceful
+repeat: none
+
+symbolicTime:
+  start: Dusk
+  offsetMinutes: -15
+
+command:
+  name: StartPlaylist
+  args:
+    playlist: EveningShow
+```
+
+---
+
+### Forbidden YAML Content
+
+Description YAML MUST NOT include:
+
+- Dates or date ranges
+- Times or timezones
+- Day-of-week masks
+- Scheduler IDs or hashes
+- Provider-specific metadata
+- Manifest identity fields
+
+Calendar timing is defined exclusively by the calendar event itself.
+Embedding timing data in YAML creates ambiguity and drift and is forbidden.
+
+---
+
+### Design Intent
+
+Calendar Description YAML is a **first-class user interface**, not an internal escape hatch.
+
+Users are expected to:
+- Read it
+- Edit it
+- Rely on it
+
+If a value cannot be safely edited by a user, it does not belong in YAML.
