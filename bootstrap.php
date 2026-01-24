@@ -72,18 +72,14 @@ require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 // require_once __DIR__ . '/src/Resolution/CalendarManifestResolver.php';
 
 // -----------------------------------------------------------------------------
-// Platform — FPP-specific representation (Phase 2.5)
-// -----------------------------------------------------------------------------
-require_once __DIR__ . '/src/Platform/FPPSemantics.php';
-
-// -----------------------------------------------------------------------------
 // TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
 // -----------------------------------------------------------------------------
-// require_once __DIR__ . '/src/Platform/FppSemantics.php';
+
 // require_once __DIR__ . '/src/Platform/FppScheduleTranslator.php';
 // require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
 // require_once __DIR__ . '/src/Platform/HolidayResolver.php';
 // require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
+require_once __DIR__ . '/src/Platform/FppSemantics.php';
 require_once __DIR__ . '/src/Platform/IcsFetcher.php';
 require_once __DIR__ . '/src/Platform/IcsParser.php';
 require_once __DIR__ . '/src/Platform/CalendarTranslator.php';
