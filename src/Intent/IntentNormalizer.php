@@ -54,10 +54,15 @@ final class IntentNormalizer
         // --- Parse base timestamps ---
         $tz = $context->timezone;
 
-        $start = new \DateTimeImmutable($raw->dtstart, $tz);
-        $end   = new \DateTimeImmutable($raw->dtend, $tz);
+        $start = new \DateTimeImmutable($raw->dtstart);
+        $start = $start->setTimezone($tz);
+
+        $end = new \DateTimeImmutable($raw->dtend);
+        $end = $end->setTimezone($tz);
 
         // --- Identity (human intent) ---
+        // All-day normalization is intentional and occurs ONLY at the Intent layer.
+        // Raw calendar data must never coerce or invent times.
         // Handle all-day events explicitly:
         // For all-day intents, times are null because the event spans entire days without specific start/end times.
         // This preserves the intent without coercing times to 23:59:59 or 24:00:00.

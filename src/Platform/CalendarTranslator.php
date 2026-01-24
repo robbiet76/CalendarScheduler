@@ -10,7 +10,7 @@ use DateTimeImmutable;
 /**
  * CalendarTranslator
  *
- * CalendarTranslator normalizes provider calendar data into raw, provider-neutral calendar event records.
+ * CalendarTranslator adapts provider calendar data into raw, provider-neutral calendar event records.
  * It MUST NOT resolve recurrence, symbolic dates, sun times, or emit manifest-shaped data.
  * This class emits raw calendar data only (no intent, no metadata parsing).
  */
@@ -40,8 +40,8 @@ final class CalendarTranslator
             $events[] = [
                 'summary'  => $rec['summary'] ?? '',
 
-                'dtstart'  => $rec['start'], // timezone-normalized local timestamp as produced by IcsParser
-                'dtend'    => $rec['end'],   // timezone-normalized local timestamp as produced by IcsParser
+                'dtstart'  => $rec['start'], // provider-timezone timestamp as produced by IcsParser
+                'dtend'    => $rec['end'],   // provider-timezone timestamp as produced by IcsParser
 
                 'rrule'    => $rec['rrule'] ?? null,
 

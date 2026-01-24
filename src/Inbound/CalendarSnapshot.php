@@ -5,6 +5,9 @@ namespace GoogleCalendarScheduler\Inbound;
 
 use GoogleCalendarScheduler\Core\ManifestStore;
 use GoogleCalendarScheduler\Platform\CalendarTranslator;
+use GoogleCalendarScheduler\Intent\NormalizationContext;
+use GoogleCalendarScheduler\Platform\FPPSemantics;
+use DateTimeZone;
 
 /**
  * CalendarSnapshot
@@ -28,6 +31,37 @@ final class CalendarSnapshot
     ) {
         $this->translator    = $translator;
         $this->manifestStore = $manifestStore;
+    }
+
+    /**
+     * Build NormalizationContext from FPP runtime environment.
+     *
+     * This is the authoritative ingestion boundary where environmental
+     * facts (timezone, semantics) are captured for downstream intent
+     * normalization.
+     */
+    private function buildNormalizationContext(): NormalizationContext
+    {
+        $envPath = __DIR__ . '/../../runtime/fpp-env.json';
+
+        if (!is_file($envPath)) {
+            throw new \RuntimeException('Missing fpp-env.json at ' . $envPath);
+        }
+
+        $env = json_decode(file_get_contents($envPath), true);
+        if (!is_array($env) || !isset($env['timezone'])) {
+            throw new \RuntimeException('Invalid fpp-env.json: missing timezone');
+        }
+
+        return new NormalizationContext(
+            new DateTimeZone($env['timezone']),
+            new FPPSemantics(),
+            [
+                'latitude'  => $env['latitude']  ?? null,
+                'longitude' => $env['longitude'] ?? null,
+                'locale'    => $env['rawLocale'] ?? null,
+            ]
+        );
     }
 
     /**
