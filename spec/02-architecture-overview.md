@@ -20,6 +20,98 @@ This section describes the high-level architecture of the scheduler system, its 
 
 ---
 
+## Intent-First Architecture
+
+**Principle:** The system models *human scheduling intent*, not external system state.
+
+The Manifest is the single, authoritative representation of intent. All external systems
+(calendars, FPP scheduler, configuration files) are treated strictly as sources of facts.
+No source is compared directly to another source.
+
+### Core Rule
+
+> **Manifest equals intent.**  
+> **Resolution compares intent to intent.**  
+> **Sources never compare directly to each other.**
+
+Any design that violates this rule is considered architecturally incorrect, even if it
+appears to function.
+
+### Architectural Implications
+
+This principle enforces a strict, ordered flow:
+
+1. **Source Acquisition**  
+   External systems provide raw facts only (e.g., ICS data, schedule.json entries).
+
+2. **Source Translation**  
+   Provider-specific formats are normalized into provider-agnostic fact shapes.
+   No intent is inferred at this stage.
+
+3. **Intent Normalization**  
+   Facts are interpreted into human scheduling intent:
+   recurrence meaning, YAML semantics, symbolic values, identity, and subEvents.
+
+4. **Manifest Canonicalization**  
+   Intent is stored in a stable, human-readable, deterministic form.
+   If two manifest entries differ, they represent different intent.
+
+5. **Resolution**  
+   Resolution compares normalized intent from different sources and produces
+   CREATE / UPDATE / DELETE / CONFLICT / NOOP decisions.
+   Resolution never compensates for upstream errors.
+
+### Hard Design Rules
+
+- If resolution must guess, the design is wrong.
+- If inputs have not passed through the same intent normalization, they must not be compared.
+- External systems never define intent — humans do.
+- Fix incorrect source interpretation; never mask it in resolution.
+- Adding new calendar providers must not require changes to Manifest or Resolution semantics.
+
+
+### Rationale
+
+This intent-first approach ensures:
+- Deterministic behavior
+- Auditable decisions
+- Clean separation of responsibilities
+- Safe evolution toward additional calendar providers or schedulers
+
+### Canonical Intent Schema
+
+The system defines a single, canonical **Intent schema** representing human scheduling intent.
+All sources (calendar providers, FPP scheduler state, configuration files) MUST be normalized
+into this schema before comparison or resolution.
+
+Intent is immutable, declarative, and scheduler-agnostic.
+
+**Core Rules**
+
+- Manifest equals intent.
+- Resolution compares intent to intent only.
+- Sources never compare directly to each other.
+- If intent differs, resolution reports change.
+- If intent matches, resolution MUST NOOP.
+
+**Intent Object Shape**
+
+An Intent Event is composed of:
+
+- `identity` — what the event is (type, target, timing)
+- `subEvents` — normalized executable units (usually one)
+- `ownership` — mutation safety and locking
+- `correlation` — traceability back to source systems
+
+All identity hashes are derived exclusively from the normalized `identity` object.
+Ownership and correlation MUST NOT influence identity.
+
+All resolution logic operates exclusively on normalized Intent objects.
+If inputs have not passed through the same intent normalization pipeline,
+they MUST NOT be compared.
+
+(See **06 — Event Resolution** for the full Intent schema contract.)
+
 ## High-Level Data Flow
 
 ```

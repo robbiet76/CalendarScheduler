@@ -66,6 +66,40 @@ The Calendar I/O Layer **must not**:
 
 Inbound Calendar I/O is responsible for *receiving* calendar data and translating it into a **provider-neutral event representation** suitable for resolution.
 
+### Canonical CalendarEvent Shape
+
+The inbound Calendar I/O layer expects CalendarTranslator implementations to emit a canonical, provider-neutral `CalendarEvent` object with the following structure:
+
+```json
+{
+  "source": {
+    "provider": "google",
+    "calendar_id": "primary"
+  },
+  "summary": "Meeting with Team",
+  "description": "Raw description text including embedded YAML metadata",
+  "dtstart": "2024-06-01T09:00:00-07:00",
+  "dtend": "2024-06-01T10:00:00-07:00",
+  "rrule": {
+    "freq": "WEEKLY",
+    "byday": ["MO", "WE", "FR"]
+  },
+  "provenance": {
+    "uid": "event-uid-1234",
+    "imported_at": "2024-06-01T12:00:00Z"
+  }
+}
+```
+
+Where:
+
+- `source`: identifies the calendar provider and optionally the calendar ID within that provider.
+- `summary`: the event title or summary.
+- `description`: raw event description text, which may include embedded YAML metadata (opaque at this stage).
+- `dtstart` and `dtend`: ISO 8601 timestamps with timezone information, representing the event start and end.
+- `rrule`: an unexpanded recurrence rule object representing recurrence patterns.
+- `provenance`: metadata including the original event UID and the import timestamp.
+
 ### Inbound Contract
 
 ```ts
@@ -74,10 +108,20 @@ ingestCalendar(source: CalendarSource): CalendarEvent[]
 
 Where:
 
-- `CalendarEvent` is a neutral, lossless representation  
+- `CalendarEvent` conforms to the canonical shape defined above.  
   This representation is intentionally unstructured and does not correspond directly to Manifest Events or SubEvents.  
   A single inbound CalendarEvent may later expand into multiple Manifest SubEvents during resolution.
 - All recurrence, symbols, and exceptions are preserved
+
+### CalendarTranslator Rules
+
+- CalendarTranslator **MUST** emit the canonical `CalendarEvent` shape as specified.
+- CalendarTranslator **MUST NOT** emit Manifest-like timing, identity, type, or SubEvent structures.
+- No hard or symbolic resolution (e.g., of symbolic times, holidays) occurs in Calendar I/O; these remain unresolved.
+
+### Description YAML Metadata Note
+
+YAML extracted from the `description` field is treated as opaque metadata at this stage and **MUST NOT** influence timing, type, or any scheduling semantics during Calendar I/O processing.
 
 ### Inbound Rules
 
@@ -89,6 +133,17 @@ Where:
 - No identity derivation or normalization is permitted
 - Provider-neutral records must remain structurally ungrouped
 - No identity inference, matching, or reconstruction is permitted
+
+---
+
+### CalendarTranslator Role
+
+The CalendarTranslator is a provider-specific adapter responsible for:
+
+- Normalizing raw provider data into the canonical, provider-neutral `CalendarEvent` shape
+- Maintaining a lossless representation of the original calendar data
+- Operating strictly pre-resolution and without semantic interpretation
+- Being stateless and side-effect free
 
 ---
 

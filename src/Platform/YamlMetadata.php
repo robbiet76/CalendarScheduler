@@ -35,6 +35,16 @@ namespace GoogleCalendarScheduler\Platform;
 final class YamlMetadata
 {
     /**
+     * Alias for parse(), used by CalendarTranslator.
+     *
+     * @param string|null $description
+     * @return array<string,mixed>
+     */
+    public static function fromDescription(?string $description): array
+    {
+        return self::parse($description);
+    }
+    /**
      * Parse YAML metadata from a calendar event description.
      *
      * @param string|null $description Raw description text from calendar event

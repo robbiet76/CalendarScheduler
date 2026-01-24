@@ -37,62 +37,74 @@ require_once __DIR__ . '/src/Core/ManifestStore.php';
 require_once __DIR__ . '/src/Core/FileManifestStore.php';
 
 // -----------------------------------------------------------------------------
-// Planner — desired-state construction (PURE)
+// Intent — canonical, source-agnostic scheduling intent (Phase 3)
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Planner/OrderingKey.php';
-require_once __DIR__ . '/src/Planner/PlannedEntry.php';
-require_once __DIR__ . '/src/Planner/PlannerResult.php';
-require_once __DIR__ . '/src/Planner/Planner.php';
+require_once __DIR__ . '/src/Intent/Intent.php';
+require_once __DIR__ . '/src/Intent/IntentNormalizer.php';
+require_once __DIR__ . '/src/Intent/CalendarRawEvent.php';
+require_once __DIR__ . '/src/Intent/FppRawEvent.php';
+require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 
 // -----------------------------------------------------------------------------
-// Diff — desired vs existing reconciliation (PURE)
+// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
 // -----------------------------------------------------------------------------
-
-require_once __DIR__ . '/src/Diff/DiffResult.php';
-require_once __DIR__ . '/src/Diff/Diff.php';
+// require_once __DIR__ . '/src/Planner/OrderingKey.php';
+// require_once __DIR__ . '/src/Planner/PlannedEntry.php';
+// require_once __DIR__ . '/src/Planner/PlannerResult.php';
+// require_once __DIR__ . '/src/Planner/Planner.php';
 
 // -----------------------------------------------------------------------------
-// Resolution — event-level reconciliation (PURE)
+// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
 // -----------------------------------------------------------------------------
+// require_once __DIR__ . '/src/Diff/DiffResult.php';
+// require_once __DIR__ . '/src/Diff/Diff.php';
 
-require_once __DIR__ . '/src/Resolution/ResolvableEvent.php';
-require_once __DIR__ . '/src/Resolution/ResolutionOperation.php';
-require_once __DIR__ . '/src/Resolution/ResolutionResult.php';
-require_once __DIR__ . '/src/Resolution/ResolutionPolicy.php';
-require_once __DIR__ . '/src/Resolution/ResolutionInputs.php';
-require_once __DIR__ . '/src/Resolution/EventResolver.php';
-require_once __DIR__ . '/src/Resolution/CalendarManifestResolver.php';
+// -----------------------------------------------------------------------------
+// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
+// -----------------------------------------------------------------------------
+// require_once __DIR__ . '/src/Resolution/ResolvableEvent.php';
+// require_once __DIR__ . '/src/Resolution/ResolutionOperation.php';
+// require_once __DIR__ . '/src/Resolution/ResolutionResult.php';
+// require_once __DIR__ . '/src/Resolution/ResolutionPolicy.php';
+// require_once __DIR__ . '/src/Resolution/ResolutionInputs.php';
+// require_once __DIR__ . '/src/Resolution/EventResolver.php';
+// require_once __DIR__ . '/src/Resolution/CalendarManifestResolver.php';
 
 // -----------------------------------------------------------------------------
 // Platform — FPP-specific representation (Phase 2.5)
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Platform/FppSemantics.php';
-require_once __DIR__ . '/src/Platform/FppScheduleTranslator.php';
-require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
+// -----------------------------------------------------------------------------
+// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
+// -----------------------------------------------------------------------------
+// require_once __DIR__ . '/src/Platform/FppSemantics.php';
+// require_once __DIR__ . '/src/Platform/FppScheduleTranslator.php';
+// require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
+// require_once __DIR__ . '/src/Platform/HolidayResolver.php';
+// require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
 require_once __DIR__ . '/src/Platform/IcsFetcher.php';
 require_once __DIR__ . '/src/Platform/IcsParser.php';
 require_once __DIR__ . '/src/Platform/CalendarTranslator.php';
-require_once __DIR__ . '/src/Platform/HolidayResolver.php';
-require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
 require_once __DIR__ . '/src/Platform/YamlMetadata.php';
 
 // -----------------------------------------------------------------------------
-// Outbound — scheduler execution
+// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
 // -----------------------------------------------------------------------------
-
-require_once __DIR__ . '/src/Outbound/ApplyEngine.php';
-require_once __DIR__ . '/src/Outbound/ApplyResult.php';
-require_once __DIR__ . '/src/Outbound/SchedulerRunOptions.php';
-require_once __DIR__ . '/src/Outbound/SchedulerRunResult.php';
-require_once __DIR__ . '/src/Outbound/SchedulerRunner.php';
+// require_once __DIR__ . '/src/Outbound/ApplyEngine.php';
+// require_once __DIR__ . '/src/Outbound/ApplyResult.php';
+// require_once __DIR__ . '/src/Outbound/SchedulerRunOptions.php';
+// require_once __DIR__ . '/src/Outbound/SchedulerRunResult.php';
+// require_once __DIR__ . '/src/Outbound/SchedulerRunner.php';
 
 // -----------------------------------------------------------------------------
 // Inbound — external systems -> manifest (draft snapshot)
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Inbound/FppAdoption.php';
+// -----------------------------------------------------------------------------
+// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
+// -----------------------------------------------------------------------------
+// require_once __DIR__ . '/src/Inbound/FppAdoption.php';
 require_once __DIR__ . '/src/Inbound/CalendarSnapshot.php';
 
 // -----------------------------------------------------------------------------
