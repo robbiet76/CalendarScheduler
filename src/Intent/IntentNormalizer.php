@@ -356,12 +356,36 @@ final class IntentNormalizer
         ];
 
         // --- Behavior (fully explicit) ---
-        $behavior = [
+        if (isset($d['repeat'])) {
+            $repeatNumeric = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeRepeat($d['repeat']);
+        } else {
+            $repeatNumeric = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
+        }
+
+        $repeatSemantic = \GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic($repeatNumeric);
+
+        if (isset($d['stopType'])) {
+            $stopTypeValue = $d['stopType'];
+        } else {
+            $stopTypeValue = null;
+        }
+
+        if (is_int($stopTypeValue)) {
+            $stopTypeSemantic = match ($stopTypeValue) {
+                \GoogleCalendarScheduler\Platform\FPPSemantics::STOP_TYPE_HARD => 'hard',
+                \GoogleCalendarScheduler\Platform\FPPSemantics::STOP_TYPE_GRACEFUL_LOOP => 'graceful_loop',
+                default => 'graceful',
+            };
+        } elseif (is_string($stopTypeValue)) {
+            $stopTypeSemantic = strtolower(trim($stopTypeValue));
+        } else {
+            $stopTypeSemantic = 'graceful';
+        }
+
+        $payload = [
             'enabled'  => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled($d['enabled'] ?? true),
-            'repeat'   => isset($d['repeat'])
-                ? \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeRepeat($d['repeat'])
-                : \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type),
-            'stopType' => \GoogleCalendarScheduler\Platform\FPPSemantics::stopTypeToEnum($d['stopType'] ?? null),
+            'repeat'   => $repeatSemantic,
+            'stopType' => $stopTypeSemantic,
         ];
 
         // --- SubEvents ---
@@ -373,8 +397,7 @@ final class IntentNormalizer
                 'end_time'   => $d['endTime'],
                 'days'       => isset($d['day']) ? (int)$d['day'] : null,
             ],
-            'behavior' => $behavior,
-            'payload'  => null,
+            'payload' => $payload,
         ]];
 
         // --- Ownership ---
