@@ -333,6 +333,34 @@ final class FPPSemantics
     }
 
     /* =====================================================================
+     * Scheduler guard semantics
+     * ===================================================================== */
+
+    /**
+     * Return the scheduler guard date used by FPP.
+     *
+     * FPP caps schedules at Dec 31 of (current year + 5).
+     */
+    public static function getSchedulerGuardDate(
+        \DateTimeImmutable $now
+    ): \DateTimeImmutable {
+        $currentYear = (int)$now->format('Y');
+        $guardYear   = $currentYear + 5;
+
+        return new \DateTimeImmutable(sprintf('%04d-12-31', $guardYear));
+    }
+
+    /**
+     * Determine whether a date matches the current FPP scheduler guard date.
+     */
+    public static function isSchedulerGuardDate(
+        string $ymd,
+        \DateTimeImmutable $now
+    ): bool {
+        return $ymd === self::getSchedulerGuardDate($now)->format('Y-m-d');
+    }
+
+    /* =====================================================================
      * Symbolic time identifiers
      * ===================================================================== */
 
