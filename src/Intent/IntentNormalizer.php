@@ -395,24 +395,30 @@ final class IntentNormalizer
         $target = preg_replace('/\.fseq$/i', '', $target);
 
         // --- Timing canonicalization (match calendar) ---
-        $startDateObj = new \DateTimeImmutable($d['startDate'], $tz);
-        $endDateObj   = new \DateTimeImmutable($d['endDate'], $tz);
+        $startDateHard = $d['startDate'];
+        $endDateHard   = $d['endDate'];
+
+        $startSymbolic = null;
+        $endSymbolic   = null;
+
+        if (is_string($startDateHard) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateHard)) {
+            try {
+                $startSymbolic = $holidayResolver->reverseResolveExact(
+                    new \DateTimeImmutable($startDateHard, $tz)
+                );
+            } catch (\Throwable) {}
+        }
+
+        if (is_string($endDateHard) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateHard)) {
+            try {
+                $endSymbolic = $holidayResolver->reverseResolveExact(
+                    new \DateTimeImmutable($endDateHard, $tz)
+                );
+            } catch (\Throwable) {}
+        }
+
         $startTimeHard = $d['startTime'];
         $endTimeHard   = $d['endTime'];
-
-        // Symbolic dates
-        $startSymbolic = null;
-        try {
-            $startSymbolic = $holidayResolver->reverseResolveExact($startDateObj);
-        } catch (\Throwable) {
-            $startSymbolic = null;
-        }
-        $endSymbolic = null;
-        try {
-            $endSymbolic = $holidayResolver->reverseResolveExact($endDateObj);
-        } catch (\Throwable) {
-            $endSymbolic = null;
-        }
 
         // --- Days normalization ---
         $normalizedDays = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
@@ -421,11 +427,11 @@ final class IntentNormalizer
 
         $identityTiming = [
             'start_date' => [
-                'hard' => $startDateObj->format('Y-m-d'),
+                'hard' => $startDateHard,
                 'symbolic' => $startSymbolic,
             ],
             'end_date' => [
-                'hard' => $endDateObj->format('Y-m-d'),
+                'hard' => $endDateHard,
                 'symbolic' => $endSymbolic,
             ],
             'start_time' => [
