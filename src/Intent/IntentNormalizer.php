@@ -172,10 +172,34 @@ final class IntentNormalizer
             if ($freq === '') {
                 throw new \RuntimeException('RRULE present but missing FREQ');
             }
-            if ($freq !== 'DAILY') {
+            if ($freq !== 'DAILY' && $freq !== 'WEEKLY') {
                 throw new \RuntimeException('Unsupported RRULE frequency');
             }
 
+            // WEEKLY + BYDAY maps to timing.days (no expansion)
+            if ($freq === 'WEEKLY') {
+                if (!isset($rrule['BYDAY']) || !is_string($rrule['BYDAY'])) {
+                    throw new \RuntimeException('WEEKLY RRULE requires BYDAY');
+                }
+
+                $byday = array_filter(array_map('trim', explode(',', $rrule['BYDAY'])));
+                if (count($byday) === 0) {
+                    throw new \RuntimeException('BYDAY must specify at least one weekday');
+                }
+
+                // Normalize weekday set: uppercase, unique, sorted
+                $byday = array_values(array_unique(array_map('strtoupper', $byday)));
+                sort($byday);
+
+                $identity['timing']['days'] = [
+                    'type'  => 'weekly',
+                    'value' => $byday,
+                ];
+            }
+
+            if ($freq === 'DAILY') {
+                $identity['timing']['days'] = null;
+            }
             // Determine the inclusive last date of the recurrence window.
             // Supported: UNTIL or COUNT.
             // NOTE: We do not expand occurrences; we only compute the final end_date.
@@ -302,7 +326,7 @@ final class IntentNormalizer
                     'symbolic' => null,
                     'offset' => 0,
                 ],
-                'days' => null,
+                'days' => $identity['timing']['days'],
             ],
             'payload' => $payload,
         ]];
