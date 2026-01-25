@@ -375,10 +375,9 @@ final class IntentNormalizer
     ): Intent {
         $d = $raw->data;
 
-        // --- Normalize FPP day semantics once (no raw integers allowed past this point) ---
-        $normalizedDays = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
-            $d['day'] ?? null
-        );
+        // --- Holiday resolver (exact match only) ---
+        $tz = $context->timezone;
+        $holidayResolver = new HolidayResolver($context->holidays ?? []);
 
         // --- Required fields validation (fail fast) ---
         foreach (['playlist', 'startDate', 'endDate', 'startTime', 'endTime'] as $k) {
@@ -392,17 +391,54 @@ final class IntentNormalizer
         $type = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeType($type);
 
         // --- Target normalization ---
-        // Strip known file extensions (.fseq)
         $target = (string)$d['playlist'];
         $target = preg_replace('/\.fseq$/i', '', $target);
 
-        // --- Identity timing ---
+        // --- Timing canonicalization (match calendar) ---
+        $startDateObj = new \DateTimeImmutable($d['startDate'], $tz);
+        $endDateObj   = new \DateTimeImmutable($d['endDate'], $tz);
+        $startTimeHard = $d['startTime'];
+        $endTimeHard   = $d['endTime'];
+
+        // Symbolic dates
+        $startSymbolic = null;
+        try {
+            $startSymbolic = $holidayResolver->reverseResolveExact($startDateObj);
+        } catch (\Throwable) {
+            $startSymbolic = null;
+        }
+        $endSymbolic = null;
+        try {
+            $endSymbolic = $holidayResolver->reverseResolveExact($endDateObj);
+        } catch (\Throwable) {
+            $endSymbolic = null;
+        }
+
+        // --- Days normalization ---
+        $normalizedDays = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
+            $d['day'] ?? null
+        );
+
         $identityTiming = [
-            'start_date' => $d['startDate'],
-            'end_date'   => $d['endDate'],
-            'start_time' => $d['startTime'],
-            'end_time'   => $d['endTime'],
-            'days'       => $normalizedDays,
+            'start_date' => [
+                'hard' => $startDateObj->format('Y-m-d'),
+                'symbolic' => $startSymbolic,
+            ],
+            'end_date' => [
+                'hard' => $endDateObj->format('Y-m-d'),
+                'symbolic' => $endSymbolic,
+            ],
+            'start_time' => [
+                'hard' => $startTimeHard,
+                'symbolic' => null,
+                'offset' => 0,
+            ],
+            'end_time' => [
+                'hard' => $endTimeHard,
+                'symbolic' => null,
+                'offset' => 0,
+            ],
+            'days' => $normalizedDays,
         ];
 
         $identity = [
@@ -417,7 +453,6 @@ final class IntentNormalizer
         } else {
             $repeatNumeric = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
         }
-
         $repeatSemantic = \GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic($repeatNumeric);
 
         if (isset($d['stopType'])) {
@@ -446,13 +481,7 @@ final class IntentNormalizer
 
         // --- SubEvents ---
         $subEvents = [[
-            'timing'   => [
-                'start_date' => $d['startDate'],
-                'end_date'   => $d['endDate'],
-                'start_time' => $d['startTime'],
-                'end_time'   => $d['endTime'],
-                'days'       => $normalizedDays,
-            ],
+            'timing'   => $identityTiming,
             'payload' => $payload,
         ]];
 
