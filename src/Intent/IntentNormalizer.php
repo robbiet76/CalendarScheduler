@@ -341,6 +341,18 @@ final class IntentNormalizer
         DraftTiming $draft,
         NormalizationContext $context
     ): CanonicalTiming {
+        // Guard: prevent 00:00–24:00 time window from leaking (all-day must be normalized)
+        if (
+            $draft->startTimeRaw === '00:00:00'
+            && $draft->endTimeRaw === '24:00:00'
+            && $draft->startTimeOffset === 0
+            && $draft->endTimeOffset === 0
+            && $draft->isAllDay === false
+        ) {
+            throw new \RuntimeException(
+                'Invalid timing: 00:00–24:00 must be represented as all-day intent'
+            );
+        }
         $holidayResolver = new HolidayResolver($context->holidays ?? []);
 
         $timing = [
