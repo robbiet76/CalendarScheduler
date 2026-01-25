@@ -403,15 +403,22 @@ final class IntentNormalizer
 
         // --- Start date ---
         if (is_string($startDateRaw) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateRaw)) {
-            $resolved = $holidayResolver->resolveSymbolic(
-                $startDateRaw,
-                (int)(new \DateTimeImmutable('now', $tz))->format('Y')
-            );
-            if ($resolved === null) {
-                throw new \RuntimeException("Unresolvable symbolic startDate: {$startDateRaw}");
+            try {
+                $resolved = $holidayResolver->resolveSymbolic(
+                    $startDateRaw,
+                    (int)(new \DateTimeImmutable('now'))->format('Y')
+                );
+                if ($resolved !== null) {
+                    $startDateHard = $resolved->format('Y-m-d');
+                    $startSymbolic = $startDateRaw;
+                } else {
+                    $startDateHard = null;
+                    $startSymbolic = $startDateRaw;
+                }
+            } catch (\Throwable) {
+                $startDateHard = null;
+                $startSymbolic = $startDateRaw;
             }
-            $startSymbolic = $startDateRaw;
-            $startDateHard = $resolved->format('Y-m-d');
         } else {
             $startDateHard = $startDateRaw;
             try {
@@ -425,15 +432,22 @@ final class IntentNormalizer
 
         // --- End date ---
         if (is_string($endDateRaw) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateRaw)) {
-            $resolved = $holidayResolver->resolveSymbolic(
-                $endDateRaw,
-                (int)(new \DateTimeImmutable('now', $tz))->format('Y')
-            );
-            if ($resolved === null) {
-                throw new \RuntimeException("Unresolvable symbolic endDate: {$endDateRaw}");
+            try {
+                $resolved = $holidayResolver->resolveSymbolic(
+                    $endDateRaw,
+                    (int)(new \DateTimeImmutable('now'))->format('Y')
+                );
+                if ($resolved !== null) {
+                    $endDateHard = $resolved->format('Y-m-d');
+                    $endSymbolic = $endDateRaw;
+                } else {
+                    $endDateHard = null;
+                    $endSymbolic = $endDateRaw;
+                }
+            } catch (\Throwable) {
+                $endDateHard = null;
+                $endSymbolic = $endDateRaw;
             }
-            $endSymbolic = $endDateRaw;
-            $endDateHard = $resolved->format('Y-m-d');
         } else {
             $endDateHard = $endDateRaw;
             try {
