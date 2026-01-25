@@ -375,6 +375,11 @@ final class IntentNormalizer
     ): Intent {
         $d = $raw->data;
 
+        // --- Normalize FPP day semantics once (no raw integers allowed past this point) ---
+        $normalizedDays = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
+            $d['day'] ?? null
+        );
+
         // --- Required fields validation (fail fast) ---
         foreach (['playlist', 'startDate', 'endDate', 'startTime', 'endTime'] as $k) {
             if (!isset($d[$k])) {
@@ -397,9 +402,7 @@ final class IntentNormalizer
             'end_date'   => $d['endDate'],
             'start_time' => $d['startTime'],
             'end_time'   => $d['endTime'],
-            'days'       => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
-                $d['day'] ?? null
-            ),
+            'days'       => $normalizedDays,
         ];
 
         $identity = [
@@ -448,9 +451,7 @@ final class IntentNormalizer
                 'end_date'   => $d['endDate'],
                 'start_time' => $d['startTime'],
                 'end_time'   => $d['endTime'],
-                'days'       => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
-                    $d['day'] ?? null
-                ),
+                'days'       => $normalizedDays,
             ],
             'payload' => $payload,
         ]];
