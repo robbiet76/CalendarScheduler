@@ -214,18 +214,100 @@ final class FPPSemantics
         ];
     }
 
+
     /* =====================================================================
-     * Day-of-week enum semantics (FPP bitmask)
+     * Day(s) semantics (FPP scheduler)
      * ===================================================================== */
 
+    // Preset day indices (UI dropdown)
+    public const DAY_SUN        = 0;
+    public const DAY_MON        = 1;
+    public const DAY_TUE        = 2;
+    public const DAY_WED        = 3;
+    public const DAY_THU        = 4;
+    public const DAY_FRI        = 5;
+    public const DAY_SAT        = 6;
+    public const DAY_EVERYDAY   = 7;
+    public const DAY_WKDAYS     = 8;
+    public const DAY_WKEND      = 9;
+    public const DAY_M_W_F      = 10;
+    public const DAY_T_TH       = 11;
+    public const DAY_SUN_THURS  = 12;
+    public const DAY_FRI_SAT    = 13;
+    public const DAY_ODD        = 14;
+    public const DAY_EVEN       = 15;
+
+    // Day mask encoding
+    public const DAY_MASK_FLAG = 0x10000;
+
+    public const DAY_MASK_BITS = [
+        0x04000 => 'SU',
+        0x02000 => 'MO',
+        0x01000 => 'TU',
+        0x00800 => 'WE',
+        0x00400 => 'TH',
+        0x00200 => 'FR',
+        0x00100 => 'SA',
+    ];
+
     /**
-     * Raw day mask values are preserved as-is.
+     * Normalize FPP day encoding into Intent timing.days structure.
      *
-     * Interpretation is handled elsewhere.
+     * Returns:
+     * - null
+     * - ['type' => 'weekly', 'value' => [...]]
+     * - ['type' => 'date_parity', 'value' => 'odd' | 'even']
+     *
+     * Throws if encoding is unsupported or ambiguous.
      */
-    public static function normalizeDayMask(mixed $value): int
+    public static function normalizeDays(mixed $value): ?array
     {
-        return is_numeric($value) ? (int)$value : 0;
+        if (!is_int($value)) {
+            return null;
+        }
+
+        // Preset index mode
+        if ($value < self::DAY_MASK_FLAG) {
+            return match ($value) {
+                self::DAY_EVERYDAY => null,
+
+                self::DAY_ODD => [
+                    'type'  => 'date_parity',
+                    'value' => 'odd',
+                ],
+
+                self::DAY_EVEN => [
+                    'type'  => 'date_parity',
+                    'value' => 'even',
+                ],
+
+                default => self::presetIndexToWeekly($value),
+            };
+        }
+
+        // Day mask mode
+        if ($value & self::DAY_MASK_FLAG) {
+            $days = [];
+
+            foreach (self::DAY_MASK_BITS as $bit => $code) {
+                if ($value & $bit) {
+                    $days[] = $code;
+                }
+            }
+
+            if ($days === []) {
+                return null;
+            }
+
+            sort($days);
+
+            return [
+                'type'  => 'weekly',
+                'value' => $days,
+            ];
+        }
+
+        throw new \RuntimeException("Unsupported FPP day encoding: {$value}");
     }
 
     /* =====================================================================
@@ -289,5 +371,35 @@ final class FPPSemantics
     public static function normalizeTimeOffset(mixed $value): int
     {
         return is_numeric($value) ? (int)$value : 0;
+    }
+    
+    /**
+     * Convert preset day index to weekly timing.days structure.
+     */
+    private static function presetIndexToWeekly(int $index): ?array
+    {
+        $value = match ($index) {
+            self::DAY_SUN       => ['SU'],
+            self::DAY_MON       => ['MO'],
+            self::DAY_TUE       => ['TU'],
+            self::DAY_WED       => ['WE'],
+            self::DAY_THU       => ['TH'],
+            self::DAY_FRI       => ['FR'],
+            self::DAY_SAT       => ['SA'],
+            self::DAY_WKDAYS    => ['MO','TU','WE','TH','FR'],
+            self::DAY_WKEND     => ['SU','SA'],
+            self::DAY_M_W_F     => ['MO','WE','FR'],
+            self::DAY_T_TH      => ['TU','TH'],
+            self::DAY_SUN_THURS => ['SU','MO','TU','WE','TH'],
+            self::DAY_FRI_SAT   => ['FR','SA'],
+            default             => null,
+        };
+
+        return $value === null
+            ? null
+            : [
+                'type'  => 'weekly',
+                'value' => $value,
+            ];
     }
 }
