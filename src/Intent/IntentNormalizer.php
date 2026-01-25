@@ -142,12 +142,20 @@ final class IntentNormalizer
         }
 
         // --- Type normalization ---
-        $type = ($d['sequence'] ?? 0) ? 'sequence' : 'playlist';
+        if (!empty($d['command'])) {
+            $type = 'command';
+        } else {
+            $type = ($d['sequence'] ?? 0) ? 'sequence' : 'playlist';
+        }
         $type = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeType($type);
 
         // --- Target normalization ---
-        $target = (string)$d['playlist'];
-        $target = preg_replace('/\.fseq$/i', '', $target);
+        if ($type === 'command') {
+            $target = (string) $d['command'];
+        } else {
+            $target = (string) $d['playlist'];
+            $target = preg_replace('/\.fseq$/i', '', $target);
+        }
 
         $draftTiming     = $this->draftTimingFromFpp($raw);
         $canonicalTiming = $this->normalizeTiming($draftTiming, $context);
@@ -184,6 +192,12 @@ final class IntentNormalizer
             'repeat'   => $repeatSemantic,
             'stopType' => $stopTypeSemantic,
         ];
+        if ($type === 'command') {
+            $payload['command'] = [
+                'name' => $target,
+                'args' => is_array($d['args'] ?? null) ? $d['args'] : [],
+            ];
+        }
 
         // --- Ownership ---
         $ownership = [
