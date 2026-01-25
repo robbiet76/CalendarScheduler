@@ -7,6 +7,7 @@ use GoogleCalendarScheduler\Intent\CalendarRawEvent;
 use GoogleCalendarScheduler\Intent\FppRawEvent;
 use GoogleCalendarScheduler\Intent\NormalizationContext;
 use GoogleCalendarScheduler\Platform\YamlMetadata;
+use GoogleCalendarScheduler\Platform\HolidayResolver;
 
 /**
  * IntentNormalizer
@@ -55,6 +56,10 @@ final class IntentNormalizer
         // --- Parse base timestamps ---
         $tz = $context->timezone;
 
+        // --- Holiday resolver (exact match only) ---
+        // Holidays are explicit environmental input provided via NormalizationContext.
+        $holidayResolver = new HolidayResolver($context->holidays ?? []);
+
         $start = new \DateTimeImmutable($raw->dtstart);
         $start = $start->setTimezone($tz);
 
@@ -76,6 +81,13 @@ final class IntentNormalizer
         // rather than in earlier layers like CalendarTranslator.
         $isAllDay = ($raw->isAllDay ?? false) === true;
 
+        $startSymbolic = null;
+        try {
+            $startSymbolic = $holidayResolver->reverseResolveExact($start);
+        } catch (\Throwable) {
+            $startSymbolic = null;
+        }
+
         $startTimeHard = $start->format('H:i:s');
         $endTimeHard   = $end->format('H:i:s');
 
@@ -94,7 +106,7 @@ final class IntentNormalizer
             'timing' => [
                 'start_date' => [
                     'hard' => $start->format('Y-m-d'),
-                    'symbolic' => null,
+                    'symbolic' => $startSymbolic,
                 ],
                 'end_date' => [
                     'hard' => $endDateHard,
@@ -113,6 +125,14 @@ final class IntentNormalizer
                 'days' => null,
             ],
         ];
+
+        // Populate symbolic end_date for the base window (exact match only).
+        try {
+            $endDateForSymbolic = new \DateTimeImmutable($identity['timing']['end_date']['hard'], $tz);
+            $identity['timing']['end_date']['symbolic'] = $holidayResolver->reverseResolveExact($endDateForSymbolic);
+        } catch (\Throwable) {
+            $identity['timing']['end_date']['symbolic'] = null;
+        }
 
         // --- Recurrence handling (NO expansion) ---
 
@@ -241,6 +261,13 @@ final class IntentNormalizer
 
             // Apply the computed end_date to the identity window.
             $identity['timing']['end_date']['hard'] = $endDateHardForIntent;
+            // Update symbolic end_date based on final hard end_date (exact match only).
+            try {
+                $endDateForSymbolic = new \DateTimeImmutable($identity['timing']['end_date']['hard'], $tz);
+                $identity['timing']['end_date']['symbolic'] = $holidayResolver->reverseResolveExact($endDateForSymbolic);
+            } catch (\Throwable) {
+                $identity['timing']['end_date']['symbolic'] = null;
+            }
         }
 
         // --- Execution payload (FPP semantics) ---
