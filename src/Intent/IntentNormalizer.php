@@ -243,25 +243,21 @@ final class IntentNormalizer
             $identity['timing']['end_date']['hard'] = $endDateHardForIntent;
         }
 
-        // Always produce exactly ONE subEvent: a single date-range window.
+        // --- Execution payload (FPP semantics) ---
+        // Calendar YAML may override, but defaults ALWAYS come from FPPSemantics.
+        $defaults = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultBehavior();
+
         $payload = [
-            'enabled'  => array_key_exists('enabled', $yaml)
-                ? \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled($yaml['enabled'])
-                : null,
+            'enabled'  => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled(
+                $yaml['enabled'] ?? $defaults['enabled']
+            ),
 
-            'stopType' => array_key_exists('stopType', $yaml)
-                ? (string)$yaml['stopType']
-                : null,
+            'stopType' => $yaml['stopType'] ?? 'graceful',
 
-            'repeat'   => array_key_exists('repeat', $yaml)
-                ? (string)$yaml['repeat']
-                : null,
+            'repeat'   => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeRepeat(
+                $yaml['repeat'] ?? \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type)
+            ),
         ];
-
-        $payload = array_filter(
-            $payload,
-            static fn($v) => $v !== null
-        );
 
         $subEvents = [[
             'timing'  => [
