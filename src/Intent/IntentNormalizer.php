@@ -397,7 +397,9 @@ final class IntentNormalizer
             'end_date'   => $d['endDate'],
             'start_time' => $d['startTime'],
             'end_time'   => $d['endTime'],
-            'days'       => isset($d['day']) ? (int)$d['day'] : null,
+            'days'       => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
+                $d['day'] ?? null
+            ),
         ];
 
         $identity = [
@@ -446,7 +448,9 @@ final class IntentNormalizer
                 'end_date'   => $d['endDate'],
                 'start_time' => $d['startTime'],
                 'end_time'   => $d['endTime'],
-                'days'       => isset($d['day']) ? (int)$d['day'] : null,
+                'days'       => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
+                    $d['day'] ?? null
+                ),
             ],
             'payload' => $payload,
         ]];
