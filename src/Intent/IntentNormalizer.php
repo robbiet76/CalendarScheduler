@@ -53,19 +53,6 @@ final class IntentNormalizer
         CalendarRawEvent $raw,
         NormalizationContext $context
     ): Intent {
-        // --- Parse base timestamps ---
-        $tz = $context->timezone;
-
-        // --- Holiday resolver (exact match only) ---
-        // Holidays are explicit environmental input provided via NormalizationContext.
-        $holidayResolver = new HolidayResolver($context->holidays ?? []);
-
-        $start = new \DateTimeImmutable($raw->dtstart);
-        $start = $start->setTimezone($tz);
-
-        $end = new \DateTimeImmutable($raw->dtend);
-        $end = $end->setTimezone($tz);
-
         // --- YAML-driven type resolution ---
         $yaml = YamlMetadata::fromDescription($raw->description);
         $type = $yaml['type'] ?? null;
@@ -79,220 +66,14 @@ final class IntentNormalizer
         // This preserves the intent without coercing times to 23:59:59 or 24:00:00.
         // Date normalization happens here (IntentNormalizer) to ensure consistent interpretation,
         // rather than in earlier layers like CalendarTranslator.
-        $isAllDay = ($raw->isAllDay ?? false) === true;
+        $draftTiming = $this->draftTimingFromCalendar($raw);
+        $canonicalTiming = $this->normalizeTiming($draftTiming, $context);
 
-        $startSymbolic = null;
-        try {
-            $startSymbolic = $holidayResolver->reverseResolveExact($start);
-        } catch (\Throwable) {
-            $startSymbolic = null;
-        }
-
-        $startTimeHard = $start->format('H:i:s');
-        $endTimeHard   = $end->format('H:i:s');
-
-        // Calendar all-day events typically use an exclusive DTEND boundary.
-        // Intent represents whole-day span with times omitted.
-        $endDateHard = $end->format('Y-m-d');
-        if ($isAllDay) {
-            $startTimeHard = null;
-            $endTimeHard   = null;
-            $endDateHard   = $end->modify('-1 day')->format('Y-m-d');
-        }
-
-        $identity = [
-            'type'   => $type,
-            'target' => $raw->summary,
-            'timing' => [
-                'start_date' => [
-                    'hard' => $start->format('Y-m-d'),
-                    'symbolic' => $startSymbolic,
-                ],
-                'end_date' => [
-                    'hard' => $endDateHard,
-                    'symbolic' => null,
-                ],
-                'start_time' => [
-                    'hard' => $startTimeHard,
-                    'symbolic' => null,
-                    'offset' => 0,
-                ],
-                'end_time' => [
-                    'hard' => $endTimeHard,
-                    'symbolic' => null,
-                    'offset' => 0,
-                ],
-                'days' => null,
-            ],
-        ];
-
-        // Populate symbolic end_date for the base window (exact match only).
-        try {
-            $endDateForSymbolic = new \DateTimeImmutable($identity['timing']['end_date']['hard']);
-            $identity['timing']['end_date']['symbolic'] = $holidayResolver->reverseResolveExact($endDateForSymbolic);
-        } catch (\Throwable) {
-            $identity['timing']['end_date']['symbolic'] = null;
-        }
-
-        // --- Recurrence handling (NO expansion) ---
 
         // --- Recurrence handling (NO expansion) ---
         // FPP scheduler operates on date ranges. We NEVER generate one subEvent per day.
         // RRULE is used ONLY to compute the intent window (end_date).
-        $rrule = $raw->rrule ?? null;
-
-        // Default identity end_date comes from DTEND (already adjusted for all-day exclusivity above).
-        $endDateHardForIntent = $identity['timing']['end_date']['hard'];
-
-        // EXDATE support: if DTSTART is excluded, we cannot represent “skip first occurrence”
-        // without expanding into multiple windows, which is forbidden. Fail fast.
-        $exDates = $raw->provenance['exDates'] ?? [];
-        if (is_array($exDates) && $rrule !== null && count($exDates) > 0) {
-            $firstKey = $isAllDay
-                ? $start->format('Y-m-d')
-                : $start->format('Y-m-d H:i:s');
-
-            foreach ($exDates as $ex) {
-                try {
-                    $exDt = new \DateTimeImmutable((string)$ex, $tz);
-                    $exKey = $isAllDay
-                        ? $exDt->format('Y-m-d')
-                        : $exDt->format('Y-m-d H:i:s');
-                    if ($exKey === $firstKey) {
-                        throw new \RuntimeException('EXDATE excludes DTSTART; cannot normalize without expanding into multiple windows');
-                    }
-                } catch (\Throwable) {
-                    // ignore invalid EXDATE
-                }
-            }
-        }
-
-        if ($rrule !== null) {
-            $freq = strtoupper((string)($rrule['FREQ'] ?? ''));
-            if ($freq === '') {
-                throw new \RuntimeException('RRULE present but missing FREQ');
-            }
-            if ($freq !== 'DAILY' && $freq !== 'WEEKLY') {
-                throw new \RuntimeException('Unsupported RRULE frequency');
-            }
-
-            // WEEKLY + BYDAY maps to timing.days (no expansion)
-            if ($freq === 'WEEKLY') {
-                if (!isset($rrule['BYDAY']) || !is_string($rrule['BYDAY'])) {
-                    throw new \RuntimeException('WEEKLY RRULE requires BYDAY');
-                }
-
-                $byday = array_filter(array_map('trim', explode(',', $rrule['BYDAY'])));
-                if (count($byday) === 0) {
-                    throw new \RuntimeException('BYDAY must specify at least one weekday');
-                }
-
-                // Normalize weekday set: uppercase, unique, sorted
-                $byday = array_values(array_unique(array_map('strtoupper', $byday)));
-                sort($byday);
-
-                $identity['timing']['days'] = [
-                    'type'  => 'weekly',
-                    'value' => $byday,
-                ];
-            }
-
-            if ($freq === 'DAILY') {
-                $identity['timing']['days'] = null;
-            }
-            // Determine the inclusive last date of the recurrence window.
-            // Supported: UNTIL or COUNT.
-            // NOTE: We do not expand occurrences; we only compute the final end_date.
-
-            // 1) UNTIL
-            $until = null;
-            if (isset($rrule['UNTIL']) && is_string($rrule['UNTIL']) && $rrule['UNTIL'] !== '') {
-                $untilStr = $rrule['UNTIL'];
-                try {
-                    if (preg_match('/^\d{8}T\d{6}Z$/', $untilStr)) {
-                        $u = \DateTimeImmutable::createFromFormat('Ymd\\THis\\Z', $untilStr, new \DateTimeZone('UTC'));
-                        $until = $u ? $u->setTimezone($tz) : null;
-                    } elseif (preg_match('/^\d{8}T\d{6}$/', $untilStr)) {
-                        $u = \DateTimeImmutable::createFromFormat('Ymd\\THis', $untilStr, $tz);
-                        $until = $u ?: null;
-                    } elseif (preg_match('/^\d{8}$/', $untilStr)) {
-                        $u = \DateTimeImmutable::createFromFormat('Ymd', $untilStr, $tz);
-                        // date-only UNTIL is inclusive for that whole day
-                        $until = $u ? $u->setTime(23, 59, 59) : null;
-                    }
-                } catch (\Throwable) {
-                    $until = null;
-                }
-            }
-
-            if ($until !== null) {
-                // Inclusive last occurrence date is the UNTIL date in local tz.
-                $lastStartDate = $until->format('Y-m-d');
-
-                // Identity window end_date should be the last day on which an occurrence runs.
-                // If the event crosses midnight, the effective end_date is +1 day from the last start.
-                if ($isAllDay) {
-                    // For all-day, duration is whole-day span; end_date should be lastStartDate + (durationDays-1).
-                    $durationDays = (int)$start->diff($end)->format('%a');
-                    if ($durationDays <= 0) {
-                        $durationDays = 1;
-                    }
-                    $endDateHardForIntent = (new \DateTimeImmutable($lastStartDate, $tz))
-                        ->modify('+' . ($durationDays - 1) . ' days')
-                        ->modify('-1 day')
-                        ->format('Y-m-d');
-                } else {
-                    $crossesMidnight = $end->format('Y-m-d') !== $start->format('Y-m-d');
-                    $endDateHardForIntent = $crossesMidnight
-                        ? (new \DateTimeImmutable($lastStartDate, $tz))->modify('+1 day')->modify('-1 day')->format('Y-m-d')
-                        : (new \DateTimeImmutable($lastStartDate, $tz))->modify('-1 day')->format('Y-m-d');
-                }
-            } else {
-                // 2) COUNT (only for DAILY)
-                $count = null;
-                if (isset($rrule['COUNT']) && is_numeric($rrule['COUNT'])) {
-                    $count = (int)$rrule['COUNT'];
-                }
-                if ($count === null || $count <= 0) {
-                    throw new \RuntimeException('RRULE must provide UNTIL or COUNT');
-                }
-
-                // COUNT includes the DTSTART occurrence.
-                $interval = 1;
-                if (isset($rrule['INTERVAL']) && is_numeric($rrule['INTERVAL'])) {
-                    $interval = max(1, (int)$rrule['INTERVAL']);
-                }
-
-                $daysToAdd = ($count - 1) * $interval;
-                $lastStart = $start->modify('+' . $daysToAdd . ' days');
-                $lastStartDate = $lastStart->format('Y-m-d');
-
-                if ($isAllDay) {
-                    $durationDays = (int)$start->diff($end)->format('%a');
-                    if ($durationDays <= 0) {
-                        $durationDays = 1;
-                    }
-                    $endDateHardForIntent = (new \DateTimeImmutable($lastStartDate, $tz))
-                        ->modify('+' . ($durationDays - 1) . ' days')
-                        ->format('Y-m-d');
-                } else {
-                    $crossesMidnight = $end->format('Y-m-d') !== $start->format('Y-m-d');
-                    $endDateHardForIntent = $crossesMidnight
-                        ? (new \DateTimeImmutable($lastStartDate, $tz))->modify('+1 day')->format('Y-m-d')
-                        : $lastStartDate;
-                }
-            }
-
-            // Apply the computed end_date to the identity window.
-            $identity['timing']['end_date']['hard'] = $endDateHardForIntent;
-            // Update symbolic end_date based on final hard end_date (exact match only).
-            try {
-                $endDateForSymbolic = new \DateTimeImmutable($identity['timing']['end_date']['hard']);
-                $identity['timing']['end_date']['symbolic'] = $holidayResolver->reverseResolveExact($endDateForSymbolic);
-            } catch (\Throwable) {
-                $identity['timing']['end_date']['symbolic'] = null;
-            }
-        }
+        // All timing logic is now handled by CanonicalTiming.
 
         // --- Execution payload (FPP semantics) ---
         // Calendar YAML may override, but defaults ALWAYS come from FPPSemantics.
@@ -312,24 +93,6 @@ final class IntentNormalizer
             $payload['repeat'] = \GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic($defaultNumeric);
         }
 
-        $subEvents = [[
-            'timing'  => [
-                'start_date' => $identity['timing']['start_date'],
-                'end_date'   => $identity['timing']['end_date'],
-                'start_time' => [
-                    'hard' => $startTimeHard,
-                    'symbolic' => null,
-                    'offset' => 0,
-                ],
-                'end_time' => [
-                    'hard' => $endTimeHard,
-                    'symbolic' => null,
-                    'offset' => 0,
-                ],
-                'days' => $identity['timing']['days'],
-            ],
-            'payload' => $payload,
-        ]];
 
         // --- Ownership ---
         $ownership = [
@@ -344,21 +107,13 @@ final class IntentNormalizer
             'uid'    => $raw->provenance['uid'] ?? null,
         ];
 
-        // --- Identity hash ---
-        $identityHash = hash(
-            'sha256',
-            json_encode(
-                ['identity' => $identity, 'subEvents' => $subEvents],
-                JSON_THROW_ON_ERROR
-            )
-        );
-
-        return new Intent(
-            $identityHash,
-            $identity,
+        return $this->buildIntent(
+            $type,
+            $raw->summary,
+            $canonicalTiming,
+            $payload,
             $ownership,
-            $correlation,
-            $subEvents
+            $correlation
         );
     }
 
@@ -394,106 +149,9 @@ final class IntentNormalizer
         $target = (string)$d['playlist'];
         $target = preg_replace('/\.fseq$/i', '', $target);
 
-        // --- Timing canonicalization (match calendar) ---
-        $startDateRaw = $d['startDate'];
-        $endDateRaw   = $d['endDate'];
+        $draftTiming     = $this->draftTimingFromFpp($raw);
+        $canonicalTiming = $this->normalizeTiming($draftTiming, $context);
 
-        $startSymbolic = null;
-        $endSymbolic   = null;
-
-        // --- Start date ---
-        if (is_string($startDateRaw) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateRaw)) {
-            try {
-                $resolved = $holidayResolver->resolveSymbolic(
-                    $startDateRaw,
-                    (int)(new \DateTimeImmutable('now'))->format('Y')
-                );
-                if ($resolved !== null) {
-                    $startDateHard = $resolved->format('Y-m-d');
-                    $startSymbolic = $startDateRaw;
-                } else {
-                    $startDateHard = null;
-                    $startSymbolic = $startDateRaw;
-                }
-            } catch (\Throwable) {
-                $startDateHard = null;
-                $startSymbolic = $startDateRaw;
-            }
-        } else {
-            $startDateHard = $startDateRaw;
-            try {
-                $startSymbolic = $holidayResolver->reverseResolveExact(
-                    new \DateTimeImmutable($startDateHard)
-                );
-            } catch (\Throwable) {
-                $startSymbolic = null;
-            }
-        }
-
-        // --- End date ---
-        if (is_string($endDateRaw) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateRaw)) {
-            try {
-                $resolved = $holidayResolver->resolveSymbolic(
-                    $endDateRaw,
-                    (int)(new \DateTimeImmutable('now'))->format('Y')
-                );
-                if ($resolved !== null) {
-                    $endDateHard = $resolved->format('Y-m-d');
-                    $endSymbolic = $endDateRaw;
-                } else {
-                    $endDateHard = null;
-                    $endSymbolic = $endDateRaw;
-                }
-            } catch (\Throwable) {
-                $endDateHard = null;
-                $endSymbolic = $endDateRaw;
-            }
-        } else {
-            $endDateHard = $endDateRaw;
-            try {
-                $endSymbolic = $holidayResolver->reverseResolveExact(
-                    new \DateTimeImmutable($endDateHard)
-                );
-            } catch (\Throwable) {
-                $endSymbolic = null;
-            }
-        }
-
-        $startTimeHard = $d['startTime'];
-        $endTimeHard   = $d['endTime'];
-
-        // --- Days normalization ---
-        $normalizedDays = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays(
-            $d['day'] ?? null
-        );
-
-        $identityTiming = [
-            'start_date' => [
-                'hard' => $startDateHard,
-                'symbolic' => $startSymbolic,
-            ],
-            'end_date' => [
-                'hard' => $endDateHard,
-                'symbolic' => $endSymbolic,
-            ],
-            'start_time' => [
-                'hard' => $startTimeHard,
-                'symbolic' => null,
-                'offset' => 0,
-            ],
-            'end_time' => [
-                'hard' => $endTimeHard,
-                'symbolic' => null,
-                'offset' => 0,
-            ],
-            'days' => $normalizedDays,
-        ];
-
-        $identity = [
-            'type'   => $type,
-            'target' => $target,
-            'timing' => $identityTiming,
-        ];
 
         // --- Behavior (fully explicit) ---
         if (isset($d['repeat'])) {
@@ -527,12 +185,6 @@ final class IntentNormalizer
             'stopType' => $stopTypeSemantic,
         ];
 
-        // --- SubEvents ---
-        $subEvents = [[
-            'timing'   => $identityTiming,
-            'payload' => $payload,
-        ]];
-
         // --- Ownership ---
         $ownership = [
             'source' => 'fpp',
@@ -545,11 +197,292 @@ final class IntentNormalizer
             ],
         ];
 
-        // --- Identity hash ---
-        $identityHash = hash('sha256', json_encode([
-            'identity'  => $identity,
-            'subEvents' => $subEvents,
-        ], JSON_THROW_ON_ERROR));
+        return $this->buildIntent(
+            $type,
+            $target,
+            $canonicalTiming,
+            $payload,
+            $ownership,
+            $correlation
+        );
+    }
+
+    // ===============================
+    // Shared normalization helpers
+    // (stubs – not yet wired)
+    // ===============================
+
+    private function draftTimingFromCalendar(CalendarRawEvent $raw): DraftTiming
+    {
+        $isAllDay = ($raw->isAllDay ?? false) === true;
+
+        $startDateRaw = null;
+        $endDateRaw   = null;
+        $startTimeRaw = null;
+        $endTimeRaw   = null;
+        $daysRaw      = null;
+
+        try {
+            if ($raw->dtstart !== null) {
+                $startDt = new \DateTimeImmutable($raw->dtstart);
+                $startDateRaw = $startDt->format('Y-m-d');
+                if (!$isAllDay) {
+                    $startTimeRaw = $startDt->format('H:i:s');
+                }
+            }
+
+            if ($raw->dtend !== null) {
+                $endDt = new \DateTimeImmutable($raw->dtend);
+                $endDateRaw = $endDt->format('Y-m-d');
+                if (!$isAllDay) {
+                    $endTimeRaw = $endDt->format('H:i:s');
+                }
+            }
+        } catch (\Throwable) {
+            // Leave fields null on parse failure
+        }
+
+        // Extract BYDAY from RRULE (calendar side only, no expansion)
+        if (is_array($raw->rrule) && isset($raw->rrule['BYDAY'])) {
+            $byday = $raw->rrule['BYDAY'];
+            if (is_string($byday)) {
+                $daysRaw = array_values(
+                    array_filter(
+                        array_map('trim', explode(',', $byday))
+                    )
+                );
+            } elseif (is_array($byday)) {
+                $daysRaw = array_values($byday);
+            }
+
+            // Validation guard: BYDAY must not be empty
+            if ($daysRaw === []) {
+                throw new \RuntimeException(
+                    'Calendar RRULE with BYDAY must specify at least one day'
+                );
+            }
+
+            // Validation guard: invalid BYDAY tokens
+            $validDays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+            foreach ($daysRaw as $d) {
+                if (!in_array($d, $validDays, true)) {
+                    throw new \RuntimeException(
+                        "Invalid BYDAY token '{$d}' in calendar RRULE"
+                    );
+                }
+            }
+        }
+
+        // Validation guard: BYDAY requires FREQ=WEEKLY (calendar semantics)
+        if ($daysRaw !== null && is_array($raw->rrule)) {
+            if (isset($raw->rrule['FREQ']) && strtoupper((string) $raw->rrule['FREQ']) !== 'WEEKLY') {
+                throw new \RuntimeException(
+                    'Calendar RRULE with BYDAY must use FREQ=WEEKLY'
+                );
+            }
+        }
+        $startTimeOffset = 0;
+        $endTimeOffset = 0;
+        $provenance = [];
+        return new DraftTiming(
+            $startDateRaw,
+            $endDateRaw,
+            $startTimeRaw,
+            $endTimeRaw,
+            $startTimeOffset,
+            $endTimeOffset,
+            $daysRaw,
+            $isAllDay,
+            $provenance
+        );
+    }
+
+    private function draftTimingFromFpp(FppRawEvent $raw): DraftTiming
+    {
+        $d = $raw->data;
+
+        return new DraftTiming(
+            $d['startDate'] ?? null,
+            $d['endDate'] ?? null,
+            $d['startTime'] ?? null,
+            $d['endTime'] ?? null,
+            (int)($d['startTimeOffset'] ?? 0),
+            (int)($d['endTimeOffset'] ?? 0),
+            $d['day'] ?? null,
+            false,
+            ['source' => 'fpp']
+        );
+    }
+
+    private function normalizeTiming(
+        DraftTiming $draft,
+        NormalizationContext $context
+    ): CanonicalTiming {
+        $holidayResolver = new HolidayResolver($context->holidays ?? []);
+
+        $timing = [
+            'start_date' => $this->normalizeDateField(
+                $draft->startDateRaw,
+                $holidayResolver
+            ),
+            'end_date' => $this->normalizeDateField(
+                $draft->endDateRaw,
+                $holidayResolver
+            ),
+            'start_time' => $this->normalizeTimeField(
+                $draft->startTimeRaw,
+                $draft->startTimeOffset
+            ),
+            'end_time' => $this->normalizeTimeField(
+                $draft->endTimeRaw,
+                $draft->endTimeOffset
+            ),
+            'days' => $this->normalizeDays(
+                $draft->daysRaw,
+                $draft->provenance['source'] ?? 'calendar'
+            ),
+        ];
+
+        return new CanonicalTiming($timing);
+    }
+
+    private function normalizeDateField(
+        ?string $raw,
+        HolidayResolver $resolver
+    ): array {
+        if ($raw === null || $raw === '') {
+            return [
+                'hard'     => null,
+                'symbolic' => null,
+            ];
+        }
+
+        // ISO-8601 hard date (YYYY-MM-DD)
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
+            return [
+                'hard'     => $raw,
+                'symbolic' => null,
+            ];
+        }
+
+        // Symbolic date (holiday or named marker)
+        if ($resolver->has($raw)) {
+            return [
+                'hard'     => null,
+                'symbolic' => $raw,
+            ];
+        }
+
+        // Unknown symbolic value – preserve intent, do not resolve
+        return [
+            'hard'     => null,
+            'symbolic' => $raw,
+        ];
+    }
+
+    private function normalizeTimeField(
+        ?string $raw,
+        int $offset
+    ): array {
+        if ($raw === null || $raw === '') {
+            return [
+                'hard'     => null,
+                'symbolic' => null,
+                'offset'   => $offset,
+            ];
+        }
+
+        // Hard clock time (HH:MM or HH:MM:SS)
+        if (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $raw)) {
+            return [
+                'hard'     => $raw,
+                'symbolic' => null,
+                'offset'   => $offset,
+            ];
+        }
+
+        // Symbolic time marker (e.g. Dusk, Dawn)
+        return [
+            'hard'     => null,
+            'symbolic' => $raw,
+            'offset'   => $offset,
+        ];
+    }
+
+    private function normalizeDays(
+        array|int|null $raw,
+        string $source
+    ): ?array {
+        if ($raw === null) {
+            return null;
+        }
+
+        $order = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
+        // Calendar side: already normalized (RRULE BYDAY, etc)
+        if (is_array($raw)) {
+            $days = array_values(array_unique($raw));
+
+            // Full week or empty → every day
+            if ($days === [] || count($days) === 7) {
+                return null;
+            }
+
+            // Canonical ordering
+            usort($days, fn($a, $b) =>
+                array_search($a, $order, true) <=> array_search($b, $order, true)
+            );
+
+            return [
+                'type'  => 'weekly',
+                'value' => $days,
+            ];
+        }
+
+        // FPP side: numeric day index / bitmask
+        if (is_int($raw)) {
+            $days = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays($raw);
+
+            if ($days === null || $days === [] || count($days) === 7) {
+                return null;
+            }
+
+            // Canonical ordering
+            usort($days, fn($a, $b) =>
+                array_search($a, $order, true) <=> array_search($b, $order, true)
+            );
+
+            return [
+                'type'  => 'weekly',
+                'value' => $days,
+            ];
+        }
+
+        throw new \RuntimeException(
+            'Invalid days value in normalizeDays'
+        );
+    }
+
+    private function buildIntent(
+        string $type,
+        string $target,
+        CanonicalTiming $timing,
+        array $payload,
+        array $ownership,
+        array $correlation
+    ): Intent {
+        $identity = [
+            'type'   => $type,
+            'target' => $target,
+            'timing' => $timing->toArray(),
+        ];
+
+        $subEvents = [[
+            'timing'  => $timing->toArray(),
+            'payload' => $payload,
+        ]];
+
+        $identityHash = $this->computeIdentityHash($identity, $subEvents);
 
         return new Intent(
             $identityHash,
@@ -558,5 +491,46 @@ final class IntentNormalizer
             $correlation,
             $subEvents
         );
+    }
+
+    private function computeIdentityHash(
+        array $identity,
+        array $subEvents
+    ): string {
+        return hash(
+            'sha256',
+            json_encode(
+                ['identity' => $identity, 'subEvents' => $subEvents],
+                JSON_THROW_ON_ERROR
+            )
+        );
+    }
+}
+
+
+final class DraftTiming
+{
+    public function __construct(
+        public readonly ?string $startDateRaw,
+        public readonly ?string $endDateRaw,
+        public readonly ?string $startTimeRaw,
+        public readonly ?string $endTimeRaw,
+        public readonly int $startTimeOffset,
+        public readonly int $endTimeOffset,
+        public readonly array|int|null $daysRaw,
+        public readonly bool $isAllDay,
+        public readonly array $provenance = []
+    ) {}
+}
+
+final class CanonicalTiming
+{
+    public function __construct(
+        private array $timing
+    ) {}
+
+    public function toArray(): array
+    {
+        return $this->timing;
     }
 }

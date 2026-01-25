@@ -53,6 +53,33 @@ final class HolidayResolver
         }
     }
 
+    /**
+     * Returns true if the given symbolic token matches a known holiday name/shortName.
+     * Intentionally a pure membership check (no date resolution).
+     */
+    public function has(string $token): bool
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return false;
+        }
+
+        foreach ($this->holidayIndex as $shortName => $def) {
+            if (strcasecmp($shortName, $token) === 0) {
+                return true;
+            }
+
+            if (is_array($def)) {
+                $name = isset($def['name']) ? (string)$def['name'] : '';
+                if ($name !== '' && strcasecmp($name, $token) === 0) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     /* ============================================================
      * Symbolic → Hard
      * ============================================================ */
