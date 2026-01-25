@@ -128,7 +128,7 @@ final class IntentNormalizer
 
         // Populate symbolic end_date for the base window (exact match only).
         try {
-            $endDateForSymbolic = new \DateTimeImmutable($identity['timing']['end_date']['hard'], $tz);
+            $endDateForSymbolic = new \DateTimeImmutable($identity['timing']['end_date']['hard']);
             $identity['timing']['end_date']['symbolic'] = $holidayResolver->reverseResolveExact($endDateForSymbolic);
         } catch (\Throwable) {
             $identity['timing']['end_date']['symbolic'] = null;
@@ -287,7 +287,7 @@ final class IntentNormalizer
             $identity['timing']['end_date']['hard'] = $endDateHardForIntent;
             // Update symbolic end_date based on final hard end_date (exact match only).
             try {
-                $endDateForSymbolic = new \DateTimeImmutable($identity['timing']['end_date']['hard'], $tz);
+                $endDateForSymbolic = new \DateTimeImmutable($identity['timing']['end_date']['hard']);
                 $identity['timing']['end_date']['symbolic'] = $holidayResolver->reverseResolveExact($endDateForSymbolic);
             } catch (\Throwable) {
                 $identity['timing']['end_date']['symbolic'] = null;
@@ -401,10 +401,41 @@ final class IntentNormalizer
         $startSymbolic = null;
         $endSymbolic   = null;
 
+        // Forward symbolic resolution (exact match only)
+        if (is_string($startDateHard) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateHard)) {
+            try {
+                $resolved = $holidayResolver->resolveSymbolic(
+                    $startDateHard,
+                    (int)(new \DateTimeImmutable('now', $tz))->format('Y')
+                );
+                if ($resolved !== null) {
+                    $startSymbolic = $startDateHard;
+                    $startDateHard = $resolved->format('Y-m-d');
+                }
+            } catch (\Throwable) {
+                // leave symbolic unresolved
+            }
+        }
+
+        if (is_string($endDateHard) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateHard)) {
+            try {
+                $resolved = $holidayResolver->resolveSymbolic(
+                    $endDateHard,
+                    (int)(new \DateTimeImmutable('now', $tz))->format('Y')
+                );
+                if ($resolved !== null) {
+                    $endSymbolic = $endDateHard;
+                    $endDateHard = $resolved->format('Y-m-d');
+                }
+            } catch (\Throwable) {
+                // leave symbolic unresolved
+            }
+        }
+
         if (is_string($startDateHard) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateHard)) {
             try {
                 $startSymbolic = $holidayResolver->reverseResolveExact(
-                    new \DateTimeImmutable($startDateHard, $tz)
+                    new \DateTimeImmutable($startDateHard)
                 );
             } catch (\Throwable) {}
         }
@@ -412,7 +443,7 @@ final class IntentNormalizer
         if (is_string($endDateHard) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateHard)) {
             try {
                 $endSymbolic = $holidayResolver->reverseResolveExact(
-                    new \DateTimeImmutable($endDateHard, $tz)
+                    new \DateTimeImmutable($endDateHard)
                 );
             } catch (\Throwable) {}
         }
