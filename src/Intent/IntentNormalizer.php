@@ -193,10 +193,19 @@ final class IntentNormalizer
             'stopType' => $stopTypeSemantic,
         ];
         if ($type === 'command') {
-            $payload['command'] = [
-                'name' => $target,
-                'args' => is_array($d['args'] ?? null) ? $d['args'] : [],
+            // Construct command payload, copying all entries except excluded fields
+            $command = [];
+            $exclude = [
+                'enabled', 'sequence', 'day', 'startTime', 'startTimeOffset', 'endTime', 'endTimeOffset',
+                'repeat', 'startDate', 'endDate', 'stopType', 'playlist', 'command'
             ];
+            foreach ($d as $k => $v) {
+                if (!in_array($k, $exclude, true)) {
+                    $command[$k] = $v;
+                }
+            }
+            $command['name'] = (string) $d['command'];
+            $payload['command'] = $command;
         }
 
         // --- Ownership ---
