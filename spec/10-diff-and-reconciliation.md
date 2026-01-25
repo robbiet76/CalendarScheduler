@@ -50,6 +50,17 @@ Explicitly forbidden:
 
 Identity matching is performed at the Manifest Event level. Individual scheduler entries produced from SubEvents are never matched independently.
 
+### Symbolic Timing Considerations
+
+Symbolic timing fields (e.g. holidays, seasonal markers):
+
+- Are first-class identity-stable inputs
+- Must not be resolved to concrete dates during Diff
+- Must be compared symbolically
+- Must not influence identity matching
+
+Resolved dates are an execution concern and are out of scope for Diff.
+
 If identity is missing or invalid:
 
 - **Preview mode:** Surface the issue
@@ -88,10 +99,22 @@ An entry is classified as **update** when:
 Rules:
 
 - Identity fields are immutable
-- Ordering differences alone do not trigger updates
+- Ordering differences alone do not trigger updates.
+
+If two entries are otherwise identical, a change in scheduler index or position is not considered a diff.
+
 - No partial updates are allowed
 
 Updates are atomic at the Manifest Event level. If any SubEvent realization differs, the entire event is classified as an update; partial SubEvent updates are forbidden.
+
+Comparison is performed against the canonical Manifest representation.
+
+Rules:
+- Structural equivalence is evaluated, not textual representation
+- Omitted and explicit `null` values are considered equivalent
+- Defaulted values are normalized prior to comparison
+- Symbolic timing fields are compared symbolically, not by resolved hard dates
+- Hard date fields may be null by design and do not imply difference
 
 ---
 
@@ -102,6 +125,10 @@ An entry is classified as **delete** when:
 - It exists in the scheduler
 - Its identity does not exist in the desired state
 - It is marked as **managed** by the Manifest
+
+Manifest Identity must be stable across symbolic date changes.
+
+Resolved or inferred dates must never be incorporated into identity.
 
 Unmanaged entries must never be deleted.
 

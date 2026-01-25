@@ -69,6 +69,7 @@ This principle enforces a strict, ordered flow:
 - External systems never define intent — humans do.
 - Fix incorrect source interpretation; never mask it in resolution.
 - Adding new calendar providers must not require changes to Manifest or Resolution semantics.
+- Defaults and scheduler-specific policy are applied ONLY via semantic layers (e.g., FPPSemantics), never in Planner or Resolution.
 
 
 ### Rationale
@@ -123,27 +124,37 @@ they MUST NOT be compared.
 Intent is an in-memory canonical object, while the Manifest is the durable serialization of Intent.  
 Resolution compares Intent derived from different sources, never raw data.
 
+#### Symbolic vs Hard Date Rules
+
+- Symbolic dates (e.g., "first Sunday in May") are NOT resolved during intent normalization or manifest storage.
+- Symbolic dates MAY be resolved during the Apply phase when concrete scheduler scope (e.g., year) is known.
+- Planner MUST NOT resolve symbolic dates into concrete calendar dates without explicit scope.
+- FPP Semantic Layer handles symbolic time and date resolution only when applying intent to concrete scheduler scopes.
+- Defaults and scheduler-specific policies that affect date interpretation are applied exclusively in semantic layers, never in core planning or resolution.
+
 ---
 
 ## High-Level Data Flow
 
 ```
-Calendar Provider (ICS)
-        ↓
-Provider Adapter (ICS → Provider-agnostic Raw Events)
-        ↓
-Planner (Events → Bundles → Desired Entries)
-        ↓
-Manifest (Identity, Intent, Provenance)
-        ↓
-Comparator / Diff Engine
-        ↓
-Apply Engine
-        ↓
-FPP Scheduler (schedule.json)
+Calendar Provider (ICS)               FPP Scheduler (schedule.json)
+        ↓                                    ↓
+Provider Adapter (ICS → Raw Events)   FPP Adapter (schedule.json → Raw Events)
+        ↓                                    ↓
+                      IntentNormalizer (Raw Events → Intent)
+                                    ↓
+                                Planner (Intent → Bundles → Desired Entries)
+                                    ↓
+                           Manifest (Identity, Intent, Provenance)
+                                    ↓
+                           Comparator / Diff Engine
+                                    ↓
+                                Apply Engine
+                                    ↓
+                           FPP Scheduler (schedule.json)
 ```
 
-Provider adapters emit *raw factual events only*, with no intent, identity, defaults, or scheduling semantics inferred.
+Provider adapters emit *raw factual events only*, with no intent, identity, defaults, or scheduling semantics inferred. Raw boundary objects never write to or modify the Manifest directly.
 
 ---
 
@@ -178,7 +189,8 @@ They contain no intent or identity and are never compared or diffed directly.
 
 **Responsibility**
 - Convert normalized Intent objects into scheduler intent bundles
-- Resolve unsupported constructs (exceptions, symbolic dates)
+- Bundle or expand unsupported constructs (exceptions, complex recurrences)
+- MUST NOT resolve symbolic dates into concrete calendar dates without an explicit year or scope.
 - Emit Bundles as the atomic planning unit
 
 **Outputs**
@@ -243,7 +255,9 @@ They contain no intent or identity and are never compared or diffed directly.
 **Responsibility**
 - Encapsulate all Falcon Player–specific behavior
 - Translate abstract intent into valid FPP scheduler entries
-- Handle symbolic time/date resolution if required
+- Handle symbolic time resolution (e.g., Dusk, offsets) when a concrete date is known
+- Handle symbolic date resolution ONLY when applying intent to a concrete scheduler scope (e.g., specific year or execution window)
+- MUST NOT resolve symbolic dates during intent normalization or manifest storage
 
 **Key Rules**
 - No calendar logic
@@ -348,3 +362,11 @@ Violations of these boundaries are architectural defects.
 ## Summary
 
 This architecture favors clarity, determinism, and long-term maintainability. Each layer has a single responsibility, and the Manifest provides a stable contract between planning and execution. The system is designed to evolve—new providers, new schedulers, new semantics—without destabilizing existing behavior.
+
+---
+
+### Clarified Manifest Rule Block
+
+> **Manifest represents managed intent — the authoritative, normalized scheduling intent that the system controls.**  
+> **Resolution compares managed intent to managed intent only.**  
+> **Sources provide observed intent (raw input) which is normalized into managed intent; sources never compare directly to each other or to managed intent.**

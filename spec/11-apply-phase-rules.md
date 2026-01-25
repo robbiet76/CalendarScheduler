@@ -110,6 +110,7 @@ Rules:
 - Managed entries are written in Planner-defined order
 - Entries derived from a single Manifest Event (base + exception SubEvents) must remain grouped and must never interleave with entries from another event
 - Unmanaged entries remain grouped at the top
+- The position of unmanaged entries is determined by the DiffResult snapshot and must not require runtime inspection of `schedule.json`
 - Relative unmanaged order is preserved
 - No ordering heuristics are permitted
 

@@ -49,6 +49,8 @@ Resolution MUST NOT compare:
 
 All inputs MUST be normalized into **Canonical Intent Events** by Intent Normalization before any comparison occurs.
 
+Identity construction occurs during Intent Normalization. Event Resolution treats identity hashes as immutable and authoritative.
+
 During migration and refactoring phases, Resolution MAY accept partially-normalized inputs **only** in diagnostic or read-only modes. In such cases, Resolution MUST surface ambiguity explicitly and MUST NOT silently compensate or infer intent.
 
 ---
@@ -58,6 +60,8 @@ During migration and refactoring phases, Resolution MAY accept partially-normali
 Event Resolution consumes ONLY **Canonical Intent Events**.
 
 Intent is the single human-readable representation of scheduling meaning.
+
+Manifest entries represent serialized Canonical Intent, not raw source facts. Resolution assumes manifest inputs are already semantically normalized.
 
 Manifest entries are serialized intent, not source facts.
 
@@ -119,13 +123,16 @@ Each subEvent MUST include:
 
 ## Normalization Responsibility
 
-Resolution is the final authority for all normalization required for comparison, including:
+Resolution is the final authority for structural normalization required for comparison, including:
 
 - Recurrence expansion
 - YAML semantic application
 - Timing normalization
 - Identity construction
 - SubEvent construction
+
+Resolution MAY perform structural normalization (ordering, grouping, recurrence expansion).  
+Resolution MUST NOT perform semantic interpretation, symbolic date resolution, time inference, or identity derivation.
 
 Upstream components (CalendarSnapshot, FPP ingestion, parsers):
 - MAY extract raw data and provenance
@@ -184,7 +191,7 @@ Fields:
 - `subEvents` (array)
 
 Factories:
-- `CanonicalIntentEvent::fromManifestEvent(array $event): CanonicalIntentEvent`
+- `CanonicalIntentEvent::fromManifestEvent(array $event)` assumes the manifest entry already represents fully normalized Canonical Intent and performs no semantic interpretation or identity derivation.
 
 Rules:
 - MUST represent final intent, never raw or partially-resolved data
@@ -262,7 +269,7 @@ Event Resolution must not:
 
 ## Relationship to Identity
 
-Identity derivation occurs **inside** Event Resolution normalization.
+Identity derivation occurs during Intent Normalization. Event Resolution does not derive or modify identity.
 
 Event Resolution treats identities as immutable once constructed.
 

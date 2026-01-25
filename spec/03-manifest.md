@@ -37,7 +37,7 @@ Backwards compatibility is **explicitly not a goal**. The Manifest is free to ev
 
 5. **Dual date preservation**  \
    When a concrete (hard) date is provided, it is always preserved. If that date resolves to a known holiday, the symbolic holiday representation is stored in addition. Date semantics are never collapsed or replaced.  
-   Hard dates and symbolic dates are never inferred from FPP output; preservation occurs only during calendar ingestion.
+   Hard dates and symbolic dates are never inferred from FPP output for identity. FPP ingestion may preserve symbolic tokens as symbolic only; any raw FPP payload retention is trace-only under provenance.
 
 6. **Atomic execution units**  \
    Execution details are grouped into SubEvents that are always applied and ordered atomically.
@@ -64,10 +64,7 @@ ManifestEvent {
   type: "playlist" | "command" | "sequence",
   target: string,
 
-  correlation: {
-    source?: string,      // e.g. "google", "ics", "manual"
-    externalId?: string   // provider UID or equivalent (trace only)
-  },
+  correlation: CorrelationObject,
 
   identity: IdentityObject,
   subEvents: SubEvent[],
@@ -81,12 +78,21 @@ ManifestEvent {
 
 ---
 
-## UID (Provider Trace Identifier)
+## CorrelationObject (Trace Identifiers)
 
 ```ts
 CorrelationObject {
-  source?: string,      // e.g. "google", "ics", "manual"
-  externalId?: string   // provider UID or equivalent (trace only)
+  // Trace-only identifiers. Never used for equality/diffing.
+  source?: string,        // e.g. "google", "ics", "manual", "fpp"
+
+  // Calendar/provider UID or equivalent (trace only)
+  externalId?: string,
+
+  // Optional platform reference for traceability (NOT raw schedule payload)
+  fppRef?: {
+    index?: number,       // position in schedule.json array when observed
+    hash?: string         // optional stable hash/key if available
+  }
 }
 ```
 
@@ -96,6 +102,8 @@ Rules:
 - Correlation is never used for equality or diffing
 - Correlation may collide across providers
 - Correlation may be absent for manually created Manifest Events
+- Correlation MUST NOT contain raw provider payload blobs (e.g. schedule.json entries).
+- Raw provider payload snapshots, when retained, live under ProvenanceObject.trace (see below) and remain non-semantic.
 
 ---
 
@@ -119,14 +127,12 @@ IdentityObject {
   type: "playlist" | "command" | "sequence",
   target: string,
   timing: {
-    days: number,
+    start_date: { symbolic: string|null, hard: string|null },
+    end_date:   { symbolic: string|null, hard: string|null },
     start_time: { symbolic: string|null, hard: string|null, offset: number } | null,
     end_time:   { symbolic: string|null, hard: string|null, offset: number } | null,
-    is_all_day: boolean,
-
-    // optional, excluded from identity hashing:
-    start_date?: { symbolic: string|null, hard: string|null },
-    end_date?:   { symbolic: string|null, hard: string|null }
+    days: { type: "weekly", value: string[] } | null,
+    is_all_day: boolean
   }
 }
 ```
@@ -139,11 +145,10 @@ IdentityObject {
   All-day intent MUST NOT invent concrete times (no 23:59:59, no 24:00:00).
   Individual fields MAY be null where explicitly permitted.
 - Identity must not include stopType, repeat, enabled flags, or any execution-only settings.
-- Identity excludes date fields from identity hashing, including start_date and end_date which MAY appear in identity.timing but are excluded from hashing.
 - Identity fields are derived exclusively from the *primary* SubEvent execution geometry
-  (`type`, `target`, `timing.days`, `timing.start_time`, `timing.end_time`, `timing.is_all_day`) and must match it exactly.
-  Date ranges, behavior flags, payloads, and secondary SubEvents are explicitly excluded.
-- All-day semantics participate in identity hashing; that is, changing between all-day and timed intent creates a *new* Manifest Event identity.
+  (`type`, `target`, `timing.start_date`, `timing.end_date`, `timing.days`, `timing.start_time`, `timing.end_time`, `timing.is_all_day`) and must match it exactly.
+  Behavior flags, payloads, and secondary SubEvents are explicitly excluded.
+- DatePatterns participate in identity hashing as patterns only (hard/symbolic). The system MUST NOT forward-resolve symbolic holidays into year-specific hard dates for identity or hashing.
 
 - For each timing component:
   - `start_time` and `end_time` MUST specify either `hard` or `symbolic` unless `is_all_day` is `true`, in which case they MUST be `null`.
@@ -154,7 +159,7 @@ IdentityObject {
 Rules:
 
 - Identity excludes operational settings (e.g. stopType, repeat)
-- Identity excludes date fields from hashing
+- Identity includes date patterns (start_date/end_date) as patterns only; it never hashes year-specific forward-resolved expansions.
 - Identity excludes provider artifacts
 - Changing any Identity field creates a *new* Manifest Event identity
 - Downstream materializers (e.g. FPP writer) are responsible for mapping all-day intent to platform-specific representations.
@@ -185,7 +190,7 @@ SubEvent {
     end_date:   { symbolic: string|null, hard: string|null },
     start_time: { symbolic: string|null, hard: string|null, offset: number } | null,
     end_time:   { symbolic: string|null, hard: string|null, offset: number } | null,
-    days: number | null,
+    days: { type: "weekly", value: string[] } | null,
     is_all_day: boolean
   },
 
@@ -263,7 +268,7 @@ Symbolic-only:
 ```ts
 OwnershipObject {
   managed: boolean,
-  controller: "calendar" | "manual" | "unknown",
+  controller: "calendar" | "manual" | "fpp" | "unknown",
   locked: boolean
 }
 ```
@@ -286,6 +291,13 @@ The `managed` flag represents an explicit user grant allowing automated reconcil
 
 The `managed` flag is never inferred. It MUST be set explicitly during ingestion or by direct user action.
 
+Defaults by ingestion source:
+
+- Calendar-derived events (google/ics): `managed = true`, `controller = "calendar"` (unless explicitly overridden).
+- FPP-observed events (schedule.json snapshot): `managed = false`, `controller = "fpp"`.
+
+These defaults are lifecycle semantics (authority), not planner policy.
+
 ---
 
 ## StatusObject
@@ -297,15 +309,30 @@ StatusObject {
 }
 ```
 
+Semantics:
+
+- `enabled` expresses the intended enabled state when applying a managed Manifest Event.
+  For unmanaged / FPP-observed events, `enabled` is observational only and MUST NOT be treated as permission to mutate.
+- `deleted` is a Manifest-level tombstone flag. It does not imply provider deletion.
+
 ---
 
 ## ProvenanceObject
 
 ```ts
 ProvenanceObject {
-  source: "ics",
+  source: "google" | "ics" | "manual" | "fpp",
   provider: string,
-  imported_at: string // ISO-8601
+  imported_at: string, // ISO-8601
+
+  // Optional non-semantic snapshots for debugging/traceability.
+  // MUST NOT be used for identity, hashing, diffing, or apply decisions.
+  trace?: {
+    calendar?: object,
+    fpp?: {
+      raw?: object
+    }
+  }
 }
 ```
 
@@ -355,7 +382,7 @@ Rules:
       "target": "string",
 
       "correlation": {
-        "source": "google | ics | manual | null",
+        "source": "google | ics | manual | fpp | null",
         "externalId": "string | null"
       },
 
@@ -363,7 +390,9 @@ Rules:
         "type": "playlist | command | sequence",
         "target": "string",
         "timing": {
-          "days": 3,
+          "start_date": { "symbolic": null, "hard": "2025-11-15" },
+          "end_date": { "symbolic": null, "hard": "2025-11-26" },
+          "days": null,
           "start_time": { "symbolic": null, "hard": "08:00:00", "offset": 0 },
           "end_time": { "symbolic": null, "hard": "10:00:00", "offset": 0 },
           "is_all_day": false
@@ -407,7 +436,7 @@ Rules:
     "end_date": { "hard": "YYYY-MM-DD | null", "symbolic": "string | null" },
     "start_time": { "hard": "HH:MM:SS | null", "symbolic": "string | null", "offset": 0 } | null,
     "end_time": { "hard": "HH:MM:SS | null", "symbolic": "string | null", "offset": 0 } | null,
-    "days": "number | null",
+    "days": { "type": "weekly", "value": ["MO","TH"] } | null,
     "is_all_day": boolean
   },
 

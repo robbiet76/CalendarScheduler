@@ -163,6 +163,8 @@ Identity explicitly excludes:
 
 Date patterns (`start_date`, `end_date`) participate in identity only in normalized, symbolic-aware form, ensuring stable identity across calendar and FPP sources.
 
+For date fields, the identity layer treats `hard` and `symbolic` as alternative representations of the same semantic boundary. If both are present, either one may be used for equivalence (see Date Semantics). If only one is present, that value alone is used.
+
 This ensures:
 - Stable identity across calendar edits
 - Identity consistency between FPP and Calendar sources
@@ -170,37 +172,159 @@ This ensures:
 
 ---
 
-## DatePattern Semantics (FPP-Aligned)
+## Weekday Constraints (`timing.days`)
 
-SubEvents use intent-level date patterns that align with FPP’s native scheduling model.
+The `timing.days` field constrains execution to specific weekdays within the
+inclusive `[start_date → end_date]` window.
+
+This field is **optional** and participates in identity when present.
+
+### Allowed Values
+
+`timing.days` MUST be one of:
+
+- `null`  
+  Indicates execution on **all days** within the date window.  
+  This is the default and is equivalent to an unconstrained daily schedule.
+
+- An object of the form:
+
+```ts
+{
+  type: "weekly",
+  value: Weekday[]
+}
+```
+
+- An object of the form:
+
+```ts
+{
+  type: "date_parity",
+  value: "odd" | "even"
+}
+```
+
+Where `Weekday` is one of:
+
+```
+SU, MO, TU, WE, TH, FR, SA
+```
+
+### Semantics
+
+- `type: "weekly"` constrains execution to the specified weekdays only.
+- `value` represents a **set**, not a sequence:
+  - Order is not significant
+  - Duplicate values are invalid
+- Weekday constraints do **not** alter date arithmetic.
+  They only restrict which days within the window are eligible for execution.
+- `type: "date_parity"` constrains execution to odd or even calendar dates within the date window.
+- Date parity is evaluated against the calendar day-of-month, not weekday.
+
+### Identity Rules
+
+When present, `timing.days` participates in Manifest Event identity.
+
+Normalization rules for identity:
+- `value` MUST be normalized to:
+  - uppercase
+  - two-letter weekday identifiers
+  - sorted lexicographically
+- Two Manifest Events that differ only by `timing.days` are **not identical**.
+- When `type` is `"date_parity"`, the values `"odd"` and `"even"` are distinct and participate in identity equivalence.
+
+### Calendar Mapping (Informative)
+
+Calendar recurrence rules may populate `timing.days` as follows:
+
+- `RRULE:FREQ=DAILY`  
+  → `timing.days = null`
+
+- `RRULE:FREQ=WEEKLY;BYDAY=…`  
+  → `timing.days.type = "weekly"`  
+  → `timing.days.value = BYDAY`
+
+- No direct RRULE mapping exists for date parity; this form originates from FPP scheduler semantics (Odd/Even).
+
+Non-daily recurrence rules remain unsupported unless explicitly mapped.
+
+### Execution Notes
+
+- `timing.days` does not cause SubEvent expansion.
+- Exactly one base SubEvent is still generated.
+- Platform-specific execution details (e.g. FPP day bitmasks)
+  are applied only during materialization and never stored in Intent.
+
+## Date Semantics (Hard vs Symbolic)
+
+Intent-level dates are stored in a provider-neutral structure that preserves both:
+- **Hard** date patterns (explicit, user-authored or provider-authored)
+- **Symbolic** dates (named holidays / locale-defined symbols originating from FPP)
 
 Each SubEvent contains:
 
 ```ts
-start_date: DatePattern
-end_date:   DatePattern
+start_date: DateValue
+end_date:   DateValue
 ```
 
-### DatePattern Rules
+Where:
+
+```ts
+type DateValue = {
+  hard: DatePattern | null,
+  symbolic: string | null
+}
+```
+
+### DatePattern
+
+A `DatePattern` is an FPP-aligned date pattern string:
 
 - `YYYY-MM-DD` → absolute date
-- `0000` year → applies every year
-- `00` month → applies every month
+- `0000-MM-DD` → applies every year on that month/day
+- `0000-00-DD` / `0000-MM-00` / `0000-00-00` → wildcard patterns (FPP semantics)
 
-DatePattern is:
+`DatePattern` values are:
 - Preserved verbatim in the Manifest
-- Never resolved during planning
-- Expanded only by the FPP semantics layer
+- Never expanded during planning
+- Expanded only during materialization using the FPP semantics layer
 
-DatePattern fields participate in identity only in normalized form and never in expanded or execution-resolved form.
+### Symbolic Dates
+
+A symbolic date is a locale-defined identifier (for example: `Thanksgiving`, `Christmas`, `Epiphany`) originating from FPP's holiday definitions.
+
+Symbolic dates are:
+- Preserved verbatim
+- Not expanded or converted to a concrete calendar date during normalization
+- Interpreted only when materializing to FPP (or when explicitly rendered for display)
+
+### Rule: When `hard` is allowed to be non-null
+
+`hard` MUST be non-null only when the source provides an explicit `DatePattern`.
+
+This means:
+- **Calendar import:** If the provider supplies a concrete date (e.g. `2025-11-27`), it is stored in `hard`.
+- **YAML / user intent:** If the user supplies a `DatePattern` (including wildcard patterns), it is stored in `hard`.
+- **FPP adoption:** If the scheduler entry uses a holiday name, it is stored in `symbolic` and `hard` MUST remain `null`.
+
+**Prohibited:** Deriving `hard` from a `symbolic` value during normalization.
+
+Rationale: symbolic dates do not uniquely determine a year and may represent recurring seasonal intent.
+
+### Optional annotation (non-normative)
+
+If a concrete `hard` date is recognized as a known holiday for that specific year/locale, implementations MAY also populate `symbolic` as an informational annotation. This does not change identity semantics and does not imply expansion of `symbolic`.
 
 ### Examples
 
-| Start Date | End Date | Meaning |
+| start_date | end_date | Meaning |
 |-----------|----------|--------|
-| `0000-02-14` | `0000-02-14` | Every February 14 |
-| `0000-00-01` | `0000-00-07` | First week of every month |
-| `0000-01-01` | `0000-12-31` | Entire year, every year |
+| `{ hard: "2025-12-25", symbolic: "Christmas" }` | `{ hard: "2025-12-25", symbolic: "Christmas" }` | Christmas Day in 2025 (annotated) |
+| `{ hard: null, symbolic: "Thanksgiving" }` | `{ hard: null, symbolic: "Christmas" }` | A holiday-to-holiday seasonal window (year-agnostic) |
+| `{ hard: "0000-02-14", symbolic: null }` | `{ hard: "0000-02-14", symbolic: null }` | Every Feb 14 |
+| `{ hard: "0000-01-01", symbolic: null }` | `{ hard: "0000-12-31", symbolic: null }` | Entire year, every year |
 
 ---
 

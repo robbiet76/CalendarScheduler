@@ -30,11 +30,11 @@ Identity includes:
 - **Execution type** (`playlist`, `command`, `sequence`)
 - **Execution target** (playlist name, command name, etc.)
 - **Timing window** (canonicalized), including normalized date patterns:
-  - `timing` must be a structured object
-  - `days` may be null for non-weekmask schedules (e.g. calendar-derived events)
-  - `start_time` is required (hard or symbolic)
-  - `end_time` is required (hard or symbolic)
-  - `start_date` and `end_date` (when present) participate as normalized DatePatterns
+  - ``timing`` must be a structured object
+  - ``days`` may be null (meaning "Everyday") or a structured weekly selector
+  - ``start_time`` is required (hard or symbolic)
+  - ``end_time`` is required (hard or symbolic)
+  - ``start_date`` and ``end_date`` participate as normalized **DatePatterns** when present
 
 These fields determine whether two scheduler entries could ever be eligible at the same moment during a daily FPP scan. If two entries differ in any of these dimensions, they represent distinct scheduler intents and must not share identity.
 
@@ -43,13 +43,14 @@ These fields determine whether two scheduler entries could ever be eligible at t
 Timing participates in Manifest Identity subject to the following rules:
 
 - `timing` must be a structured object
-- `days` is required
+- `days` may be null (meaning "Everyday") or a structured weekly selector
 - `start_time` and `end_time` are required
 - Each of `start_time` and `end_time` must define **either**:
   - a hard time (`hard`), **or**
   - a symbolic time (`symbolic`)
 - `offset` is allowed (typically used with sun times)
-- `start_date` and `end_date` (if present) must define **either** a hard or symbolic value
+- `start_date` and `end_date` (if present) must define at least one of: `hard` (YYYY-MM-DD) or `symbolic` (holiday/alias).
+- Resolution is **not** permitted during identity hashing: symbolic dates must not be converted into hard dates for the purpose of identity.
 
 Date fields are structurally validated as part of identity equivalence and hashing.
 
@@ -68,19 +69,13 @@ These fields may differ while still representing the **same normalized scheduler
 
 #### Dates and Normalization
 
-Dates *can* participate in raw scheduler identity in FPP, but are intentionally **normalized out** of Manifest Identity. The plugin may collapse or expand date ranges as needed, provided that runtime behavior under FPP’s scan model is preserved. This ensures:
+Dates *do* participate in Manifest Identity, but only as normalized DatePatterns (hard and/or symbolic), never as implicitly resolved values. This supports identity stability across years while still preventing accidental collisions between intents that can be eligible at different times.
 
-- Identity stability across year boundaries
-- Reduced diff noise from seasonal edits
-- Predictable reconciliation behavior
-
-Date semantics are therefore:
-- Preserved in SubEvent timing
-- Subject to plugin-controlled normalization
-- Explicitly excluded from Manifest Identity hashing (even when present)
+Date normalization rules:
+- Calendar-derived events may populate both `hard` and `symbolic` when a hard date matches a known symbolic holiday.
+- FPP-derived events should preserve symbolic dates in `symbolic` and leave `hard` null (no forward resolution).
+- Identity equivalence treats DatePatterns as matching when either their `symbolic` values match or their `hard` values match.
 
 #### Summary Rule
 
-> Two SubEvents share the same Manifest Identity if and only if their execution type, execution target, and fully normalized timing (including date and time patterns) are equivalent. Derived execution instances and metadata such as enablement state or playback behavior do not affect identity.
-
-This definition is authoritative and governs diffing, reconciliation, and apply behavior throughout the system.
+> Two SubEvents share the same Manifest Identity if and only if their execution type, execution target, and fully normalized timing are equivalent. Timing equivalence includes weekly day selection (or null meaning "Everyday"), start/end times, and DatePatterns (when present), where DatePatterns match if either hard or symbolic components match.

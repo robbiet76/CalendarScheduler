@@ -115,6 +115,10 @@ Managed Manifest Events are first ordered by:
 3. Type (playlist / command / sequence)
 4. Target (lexical)
 
+Baseline chronological ordering operates on **effective ordering keys**, which may be symbolic or concrete.
+
+Symbolic dates (e.g., "Thanksgiving", "Christmas") are ordered **relative to other symbolic dates only** and are never resolved to a specific calendar year during ordering. Ordering must not introduce or assume a concrete year.
+
 Type and target ordering in this phase serve deterministic tie-breaking only and do not imply semantic priority. All semantic conflict resolution is performed exclusively during dominance resolution.
 
 > This phase does *not* attempt to resolve conflicts.
@@ -137,6 +141,8 @@ Two Manifest Events overlap if:
 - Their day masks intersect
 - Their daily time windows intersect (including overnight wrap)
 
+If overlap cannot be conclusively disproven due to symbolic boundaries or unresolved timing components, events are treated as **potentially overlapping** for the purposes of dominance evaluation. The planner must prefer conservative dominance over speculative non-overlap.
+
 If no overlap exists, **ordering must not change**.
 
 ---
@@ -152,6 +158,8 @@ If two overlapping events occur on the same day:
 Rationale:
 - Later schedules are intentional overrides
 - Early schedules represent background layers
+
+Effective daily start time may be concrete or symbolic (e.g., "Dawn", "Dusk") and may include offsets. Comparison is semantic, not resolutive: symbolic times are compared symbolically and are not converted to concrete clock times during ordering.
 
 ---
 
@@ -179,6 +187,8 @@ If placing Event A above Event B would prevent Event B from ever starting at its
 
 Rationale:
 - Events must be able to start at least once
+
+If an event’s first occurrence cannot be concretely determined due to symbolic timing, starvation prevention is evaluated conservatively without resolving symbolic values to specific dates.
 
 ---
 

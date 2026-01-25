@@ -53,6 +53,10 @@ It must **never**:
 - Perform provider-specific logic
 - Re-validate Manifest identity invariants (these are enforced exclusively by ManifestStore)
 
+> Note: Preservation of unmanaged entry ordering refers only to unmanaged entries
+> supplied to the Planner as part of an external snapshot. The Planner MUST NOT
+> read from FPP or query `schedule.json` directly.
+
 ---
 
 ## Outputs
@@ -102,6 +106,16 @@ Rules:
 The Planner is responsible for **all ordering decisions** for managed entries.
 
 Ordering decisions are based on the effective timing of each Manifest Event, derived from the combined effect of all its SubEvents (base and exceptions).
+
+Effective timing MAY be symbolic.
+
+The Planner MUST compare symbolic timing values without resolving them into
+concrete dates or times. Symbolic values are ordered only relative to other
+symbolic values according to the Scheduler Ordering Model.
+
+If ordering cannot be conclusively determined due to symbolic ambiguity,
+the Planner MUST apply a deterministic, conservative ordering that preserves
+safety and atomicity. Arbitrary or hash-based ordering is forbidden.
 
 It MUST:
 
@@ -155,6 +169,8 @@ The Planner guarantees:
 - Stable ordering given identical input
 - No dependency on runtime timing
 - No dependency on external state
+- Deterministic behavior in the presence of symbolic or ambiguous timing,
+  using defined conservative ordering rules
 
 Violations of determinism are considered **critical defects**.
 
@@ -167,6 +183,9 @@ The Planner MUST fail fast on:
 - Invalid Manifest structure
 - Missing required identity fields (presence only; identity correctness is enforced by ManifestStore)
 - Violations of atomicity
+
+Symbolic or unresolved timing values are NOT considered invalid and MUST NOT
+cause Planner failure.
 
 The Planner MUST surface:
 

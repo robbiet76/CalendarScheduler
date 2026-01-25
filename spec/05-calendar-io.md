@@ -29,8 +29,7 @@ Calendar Provider
 ```
 
 This model is intentionally asymmetric.  
-Manifest → Calendar is a projection of execution geometry, while  
-Calendar → Manifest is a reconstructive process that may expand intent.
+Manifest → Calendar is a projection of execution geometry. Calendar → System produces provider‑neutral records; intent reconstruction and expansion occur downstream during Intent Normalization and Resolution.
 
 This abstraction allows flexibility across:
 
@@ -270,6 +269,8 @@ During **initial adoption and export**, the system operates in a strictly
 
 Only a single base SubEvent exists during adoption and export.
 
+During this phase, each ManifestEvent contains exactly one base SubEvent.
+
 In this phase, the calendar is treated as a **mirror of scheduler entries**,
 not as a source of higher-level intent.
 
@@ -299,8 +300,12 @@ Calendar I/O must never infer, expand, or synthesize additional SubEvents during
 
 - Symbolic times (e.g. Dawn, Dusk) must remain symbolic if supported
 - Symbolic dates (e.g. holidays) must remain symbolic if supported
+- `hard` MAY be non-null only when the value is explicitly concrete and year-specific at the source (e.g. ISO date from provider data or an explicit date in Manifest)
+- `hard` MUST be null when the source value is symbolic, recurring, or year-agnostic (e.g. holidays like Thanksgiving, Christmas; seasonal markers)
+- Symbolic values MUST be represented exclusively in the `symbolic` field and preserved without forward resolution
+- Year selection and concrete date materialization are deferred to Resolution, never Calendar I/O or Intent normalization
 - Unsupported symbolic constructs cause explicit export failure
-- Symbolic dates must not be written into calendar metadata, as calendar edits may invalidate symbolic meaning
+- Symbolic dates must not be encoded into description YAML or other editable free‑text metadata as a substitute for provider‑supported structures, as calendar edits may invalidate symbolic meaning.
 
 Silent degradation is forbidden.
 
@@ -333,6 +338,8 @@ Calendar I/O failures are **hard failures**.
 - Unsupported recurrence patterns
 - Unsupported symbolic constructs
 
+Malformed or missing description YAML is explicitly non‑fatal; failures apply only to unsupported provider constructs or symbolic semantics.
+
 Failures surface immediately and do not partially apply.
 
 ---
@@ -356,7 +363,7 @@ Failures surface immediately and do not partially apply.
 
 ## Relationship to Other Layers
 
-- **Manifest**: Calendar I/O reads from and writes to the Manifest but never mutates it
+- **Manifest**: Calendar I/O produces provider‑neutral records for storage and export. Persistence is handled by Manifest storage components; Calendar I/O does not modify existing Manifest state or apply semantic transformations.
 - **Resolution Layer**: Receives provider-neutral events
 - **Planner / Diff / Apply**: Never interact directly with calendar providers
 
