@@ -138,12 +138,57 @@ final class FPPSemantics
         return $value === 0;
     }
 
+
     /**
      * Determine if a repeat value represents a finite repeat count.
      */
     public static function isCountRepeat(int $value): bool
     {
         return $value > 1;
+    }
+
+    /* =====================================================================
+     * Repeat semantic mappings
+     * ===================================================================== */
+
+    /**
+     * Canonical mapping of FPP repeat values to semantic labels.
+     *
+     * These values are factual FPP scheduler semantics.
+     */
+    public const REPEAT_MAP = [
+        0  => 'none',
+        1  => 'immediate',
+        5  => '5min',
+        10 => '10min',
+        15 => '15min',
+        20 => '20min',
+        30 => '30min',
+        60 => '60min',
+    ];
+
+    /**
+     * Convert numeric repeat value to semantic string.
+     */
+    public static function repeatToSemantic(int $value): string
+    {
+        return self::REPEAT_MAP[$value] ?? 'none';
+    }
+
+    /**
+     * Convert semantic repeat value to numeric FPP value.
+     */
+    public static function semanticToRepeat(string $value): int
+    {
+        $value = strtolower(trim($value));
+
+        foreach (self::REPEAT_MAP as $numeric => $semantic) {
+            if ($semantic === $value) {
+                return $numeric;
+            }
+        }
+
+        return 0;
     }
 
     /* =====================================================================

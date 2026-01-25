@@ -251,13 +251,15 @@ final class IntentNormalizer
             'enabled'  => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled(
                 $yaml['enabled'] ?? $defaults['enabled']
             ),
-
             'stopType' => $yaml['stopType'] ?? 'graceful',
-
-            'repeat'   => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeRepeat(
-                $yaml['repeat'] ?? \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type)
-            ),
         ];
+
+        if (isset($yaml['repeat']) && is_string($yaml['repeat'])) {
+            $payload['repeat'] = strtolower(trim($yaml['repeat']));
+        } else {
+            $defaultNumeric = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
+            $payload['repeat'] = \GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic($defaultNumeric);
+        }
 
         $subEvents = [[
             'timing'  => [
