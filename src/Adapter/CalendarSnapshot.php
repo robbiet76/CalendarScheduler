@@ -18,6 +18,8 @@ use GoogleCalendarScheduler\Adapter\CalendarTranslator;
  */
 final class CalendarSnapshot
 {
+    private const SNAPSHOT_PATH =
+        '/home/fpp/media/config/calendar/calendar-snapshot.json';
     private CalendarTranslator $translator;
 
     public function __construct(
@@ -37,6 +39,43 @@ final class CalendarSnapshot
     public function snapshot(string $icsSource): void
     {
         $events = $this->translator->translateIcsSourceToCalendarEvents($icsSource);
-        $this->translator->writeSnapshot($events);
+        self::write($events);
+    }
+    /**
+     * Load the raw calendar snapshot from disk.
+     *
+     * @return array Raw calendar provider events
+     */
+    public static function load(): array
+    {
+        if (!file_exists(self::SNAPSHOT_PATH)) {
+            return [];
+        }
+
+        $json = file_get_contents(self::SNAPSHOT_PATH);
+        if ($json === false || $json === '') {
+            return [];
+        }
+
+        $data = json_decode($json, true);
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * Write raw calendar events to the snapshot on disk.
+     *
+     * @param array $events Raw calendar provider events
+     */
+    public static function write(array $events): void
+    {
+        $dir = dirname(self::SNAPSHOT_PATH);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
+
+        file_put_contents(
+            self::SNAPSHOT_PATH,
+            json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
     }
 }
