@@ -253,13 +253,8 @@ final class IntentNormalizer
                 }
             }
 
-            // Only set $endDateRaw from dtend if no RRULE is present
             if ($raw->dtend !== null) {
                 $endDt = new \DateTimeImmutable($raw->dtend);
-                // Only set $endDateRaw from dtend if RRULE is not present
-                if ($raw->rrule === null || !is_array($raw->rrule)) {
-                    $endDateRaw = $endDt->format('Y-m-d');
-                }
                 // Always set $endTimeRaw for non-all-day events (for per-instance duration)
                 if (!$isAllDay) {
                     $endTimeRaw = $endDt->format('H:i:s');
@@ -352,6 +347,11 @@ final class IntentNormalizer
                     $endDateRaw = $untilDt->format('Y-m-d');
                 }
             }
+        }
+
+        // If no RRULE:UNTIL was provided, calendar intent window is single-day
+        if ($endDateRaw === null) {
+            $endDateRaw = $startDateRaw;
         }
 
         $startTimeOffset = 0;
