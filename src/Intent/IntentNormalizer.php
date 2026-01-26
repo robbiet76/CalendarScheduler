@@ -248,17 +248,27 @@ final class IntentNormalizer
         $endTimeRaw   = null;
         $daysRaw      = null;
 
-        try {
-            if ($raw->dtstart !== null) {
-                $startDt = new \DateTimeImmutable($raw->dtstart);
-                $startDt = $startDt->setTimezone($tz);
+        if (is_string($raw->dtstart) && trim($raw->dtstart) !== '') {
+            $startDt = \DateTimeImmutable::createFromFormat(
+                'Y-m-d H:i:s',
+                $raw->dtstart,
+                $tz
+            ) ?: \DateTimeImmutable::createFromFormat(
+                'Y-m-d\TH:i:s',
+                $raw->dtstart,
+                $tz
+            ) ?: \DateTimeImmutable::createFromFormat(
+                'Y-m-d',
+                $raw->dtstart,
+                $tz
+            );
+
+            if ($startDt !== false) {
                 $startDateRaw = $startDt->format('Y-m-d');
-                if (!$isAllDay) {
+                if (!$isAllDay && strlen($raw->dtstart) > 10) {
                     $startTimeRaw = $startDt->format('H:i:s');
                 }
             }
-        } catch (\Throwable) {
-            // Leave fields null on parse failure
         }
 
         // RRULE rule-based timing semantics
@@ -331,12 +341,8 @@ final class IntentNormalizer
                         // UTC date-time
                         $untilDt = \DateTimeImmutable::createFromFormat('Ymd\THis\Z', $untilRaw, new \DateTimeZone('UTC'));
                     } else {
-                        // Try generic parse
-                        try {
-                            $untilDt = new \DateTimeImmutable($untilRaw);
-                        } catch (\Throwable) {
-                            $untilDt = null;
-                        }
+                        // Reject non‑RFC UNTIL values (do NOT default to now)
+                        $untilDt = null;
                     }
                 }
                 if ($untilDt instanceof \DateTimeInterface) {
