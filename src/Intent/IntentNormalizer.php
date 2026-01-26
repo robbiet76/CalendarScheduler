@@ -66,7 +66,7 @@ final class IntentNormalizer
         // This preserves the intent without coercing times to 23:59:59 or 24:00:00.
         // Date normalization happens here (IntentNormalizer) to ensure consistent interpretation,
         // rather than in earlier layers like CalendarTranslator.
-        $draftTiming = $this->draftTimingFromCalendar($raw);
+        $draftTiming = $this->draftTimingFromCalendar($raw, $context);
         $canonicalTiming = $this->normalizeTiming($draftTiming, $context);
 
 
@@ -234,9 +234,13 @@ final class IntentNormalizer
     // Shared normalization helpers
     // ===============================
 
-    private function draftTimingFromCalendar(CalendarRawEvent $raw): DraftTiming
+    private function draftTimingFromCalendar(
+        CalendarRawEvent $raw,
+        NormalizationContext $context
+    ): DraftTiming
     {
         $isAllDay = ($raw->isAllDay ?? false) === true;
+        $tz = $context->timezone;
 
         $startDateRaw = null;
         $endDateRaw   = null;
@@ -247,17 +251,10 @@ final class IntentNormalizer
         try {
             if ($raw->dtstart !== null) {
                 $startDt = new \DateTimeImmutable($raw->dtstart);
+                $startDt = $startDt->setTimezone($tz);
                 $startDateRaw = $startDt->format('Y-m-d');
                 if (!$isAllDay) {
                     $startTimeRaw = $startDt->format('H:i:s');
-                }
-            }
-
-            if ($raw->dtend !== null) {
-                $endDt = new \DateTimeImmutable($raw->dtend);
-                // Always set $endTimeRaw for non-all-day events (for per-instance duration)
-                if (!$isAllDay) {
-                    $endTimeRaw = $endDt->format('H:i:s');
                 }
             }
         } catch (\Throwable) {
@@ -343,7 +340,7 @@ final class IntentNormalizer
                     }
                 }
                 if ($untilDt instanceof \DateTimeInterface) {
-                    // Convert to local date string Y-m-d
+                    $untilDt = $untilDt->setTimezone($tz);
                     $endDateRaw = $untilDt->format('Y-m-d');
                 }
             }
