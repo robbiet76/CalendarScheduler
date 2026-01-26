@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Platform;
 
-use GoogleCalendarScheduler\Yaml\V2\YamlMetadata;
-
 /**
  * FppScheduleTranslator
  *
@@ -179,7 +177,7 @@ final class FppScheduleTranslator
     }
 
     /**
-     * Build base SubEvent from scheduler entry.
+     * Build base SubEvent from scheduler entry (canonical timing + execution payload).
      *
      * @param string $type
      * @param array<string,mixed> $e
@@ -189,16 +187,20 @@ final class FppScheduleTranslator
     {
         $subEvent = [
             'timing' => $this->buildCanonicalTiming($e),
-            'behavior' => [
-                'enabled'  => (int)($e['enabled'] ?? 0),
+            // Execution controls live in payload (shared shape across sources)
+            'payload' => [
+                'enabled'  => (bool)($e['enabled'] ?? false),
                 'repeat'   => (int)($e['repeat'] ?? 0),
                 'stopType' => (int)($e['stopType'] ?? 0),
             ],
         ];
 
-        // Command payload is opaque and preserved verbatim
+        // Command payload is opaque and preserved verbatim (excluding core scheduler fields)
         if ($type === 'command') {
-            $subEvent['payload'] = $this->extractCommandPayload($e);
+            $subEvent['payload'] = array_merge(
+                $subEvent['payload'],
+                $this->extractCommandPayload($e)
+            );
         }
 
         return $subEvent;
@@ -212,20 +214,40 @@ final class FppScheduleTranslator
      */
     private function extractCommandPayload(array $e): array
     {
-        $payload = [];
+        // Core scheduler fields that should NOT be treated as command options.
+        $core = [
+            'enabled',
+            'sequence',
+            'day',
+            'startTime',
+            'startTimeOffset',
+            'endTime',
+            'endTimeOffset',
+            'repeat',
+            'startDate',
+            'endDate',
+            'stopType',
+            'playlist',
+            'command',
+            'args',
+        ];
 
+        $command = [
+            'name' => (string)($e['command'] ?? ''),
+            'args' => $e['args'] ?? null,
+        ];
+
+        // Preserve any additional command-specific options verbatim (flattened).
         foreach ($e as $key => $value) {
-            if (in_array($key, [
-                'command',
-                'args',
-                'multisyncCommand',
-                'multisyncHosts',
-            ], true)) {
-                $payload[$key] = $value;
+            if (in_array($key, $core, true)) {
+                continue;
             }
+            $command[$key] = $value;
         }
 
-        return $payload;
+        return [
+            'command' => $command,
+        ];
     }
     /**
      * Build canonical timing object for identity and manifest use.

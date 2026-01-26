@@ -59,7 +59,30 @@ The Calendar I/O Layer **must not**:
 
 ---
 
+
 ## Inbound I/O (Calendar → System)
+
+## Canonical Calendar Input Location (FPP)
+
+All calendar-derived raw input MUST be written to a single, canonical location on FPP.
+
+This file represents the authoritative, source-shaped calendar input used for:
+- intent normalization
+- replay and debugging
+- hash comparison
+- reconciliation
+
+### Path
+
+/home/fpp/media/config/google-calendar/calendar-raw.json
+
+### Rules
+
+- This file contains raw calendar events only (no normalization).
+- IntentNormalizer MUST read calendar input exclusively from this file.
+- No production logic may depend on calendar fixtures stored under the plugin directory.
+- The file MUST be preserved across plugin upgrades.
+- Calendar I/O implementations MUST treat this file as the boundary artifact between ingestion and intent normalization.
 
 ### Purpose
 
