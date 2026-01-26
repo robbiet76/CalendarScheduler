@@ -232,7 +232,6 @@ final class IntentNormalizer
 
     // ===============================
     // Shared normalization helpers
-    // (stubs – not yet wired)
     // ===============================
 
     private function draftTimingFromCalendar(CalendarRawEvent $raw): DraftTiming
@@ -265,45 +264,91 @@ final class IntentNormalizer
             // Leave fields null on parse failure
         }
 
-        // Extract BYDAY from RRULE (calendar side only, no expansion)
-        if (is_array($raw->rrule) && isset($raw->rrule['BYDAY'])) {
-            $byday = $raw->rrule['BYDAY'];
-            if (is_string($byday)) {
-                $daysRaw = array_values(
-                    array_filter(
-                        array_map('trim', explode(',', $byday))
-                    )
-                );
-            } elseif (is_array($byday)) {
-                $daysRaw = array_values($byday);
+        // RRULE rule-based timing semantics
+        if (is_array($raw->rrule)) {
+            $rrule = $raw->rrule;
+            // Handle FREQ
+            if (isset($rrule['FREQ'])) {
+                $freq = strtoupper((string)$rrule['FREQ']);
+                if ($freq === 'DAILY') {
+                    // Explicitly set daysRaw to null for DAILY
+                    $daysRaw = null;
+                } elseif ($freq === 'WEEKLY') {
+                    // Require BYDAY
+                    if (!isset($rrule['BYDAY'])) {
+                        throw new \RuntimeException("RRULE:FREQ=WEEKLY requires BYDAY");
+                    }
+                } else {
+                    throw new \RuntimeException("Unsupported RRULE FREQ: {$freq}");
+                }
             }
-
-            // Validation guard: BYDAY must not be empty
-            if ($daysRaw === []) {
-                throw new \RuntimeException(
-                    'Calendar RRULE with BYDAY must specify at least one day'
-                );
-            }
-
-            // Validation guard: invalid BYDAY tokens
-            $validDays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
-            foreach ($daysRaw as $d) {
-                if (!in_array($d, $validDays, true)) {
-                    throw new \RuntimeException(
-                        "Invalid BYDAY token '{$d}' in calendar RRULE"
+            // Extract BYDAY from RRULE (calendar side only, no expansion)
+            if (isset($rrule['BYDAY'])) {
+                $byday = $rrule['BYDAY'];
+                if (is_string($byday)) {
+                    $daysRaw = array_values(
+                        array_filter(
+                            array_map('trim', explode(',', $byday))
+                        )
                     );
+                } elseif (is_array($byday)) {
+                    $daysRaw = array_values($byday);
+                }
+
+                // Validation guard: BYDAY must not be empty
+                if ($daysRaw === []) {
+                    throw new \RuntimeException(
+                        'Calendar RRULE with BYDAY must specify at least one day'
+                    );
+                }
+
+                // Validation guard: invalid BYDAY tokens
+                $validDays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+                foreach ($daysRaw as $d) {
+                    if (!in_array($d, $validDays, true)) {
+                        throw new \RuntimeException(
+                            "Invalid BYDAY token '{$d}' in calendar RRULE"
+                        );
+                    }
+                }
+            }
+
+            // Validation guard: BYDAY requires FREQ=WEEKLY (calendar semantics)
+            if ($daysRaw !== null) {
+                if (isset($rrule['FREQ']) && strtoupper((string) $rrule['FREQ']) !== 'WEEKLY') {
+                    throw new \RuntimeException(
+                        'Calendar RRULE with BYDAY must use FREQ=WEEKLY'
+                    );
+                }
+            }
+            // Handle UNTIL
+            if (isset($rrule['UNTIL'])) {
+                $untilRaw = $rrule['UNTIL'];
+                $untilDt = null;
+                // RFC 5545: UNTIL can be either YYYYMMDD or YYYYMMDDTHHMMSSZ
+                if (is_string($untilRaw)) {
+                    if (preg_match('/^\d{8}$/', $untilRaw)) {
+                        // Date only
+                        $untilDt = \DateTimeImmutable::createFromFormat('Ymd', $untilRaw);
+                    } elseif (preg_match('/^\d{8}T\d{6}Z$/', $untilRaw)) {
+                        // UTC date-time
+                        $untilDt = \DateTimeImmutable::createFromFormat('Ymd\THis\Z', $untilRaw, new \DateTimeZone('UTC'));
+                    } else {
+                        // Try generic parse
+                        try {
+                            $untilDt = new \DateTimeImmutable($untilRaw);
+                        } catch (\Throwable) {
+                            $untilDt = null;
+                        }
+                    }
+                }
+                if ($untilDt instanceof \DateTimeInterface) {
+                    // Convert to local date string Y-m-d
+                    $endDateRaw = $untilDt->format('Y-m-d');
                 }
             }
         }
 
-        // Validation guard: BYDAY requires FREQ=WEEKLY (calendar semantics)
-        if ($daysRaw !== null && is_array($raw->rrule)) {
-            if (isset($raw->rrule['FREQ']) && strtoupper((string) $raw->rrule['FREQ']) !== 'WEEKLY') {
-                throw new \RuntimeException(
-                    'Calendar RRULE with BYDAY must use FREQ=WEEKLY'
-                );
-            }
-        }
         $startTimeOffset = 0;
         $endTimeOffset = 0;
         $provenance = [];
