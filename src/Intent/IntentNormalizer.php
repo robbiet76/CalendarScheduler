@@ -363,6 +363,7 @@ final class IntentNormalizer
         $holidayResolver = new HolidayResolver($context->holidays ?? []);
 
         $timing = [
+            'all_day' => $draft->isAllDay === true,
             'start_date' => $this->normalizeDateField(
                 $draft->startDateRaw,
                 $holidayResolver
