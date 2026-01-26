@@ -24,23 +24,12 @@ final class NormalizationContext
     public function __construct(
         DateTimeZone $timezone,
         FPPSemantics $fpp,
+        HolidayResolver $holidayResolver,
         array $extras = []
     ) {
         $this->timezone = $timezone;
         $this->fpp      = $fpp;
-
-        $envPath = __DIR__ . '/../../runtime/fpp-env.json';
-        $holidays = [];
-
-        if (is_file($envPath)) {
-            $env = json_decode(file_get_contents($envPath), true);
-            if (isset($env['rawLocale']['holidays']) && is_array($env['rawLocale']['holidays'])) {
-                $holidays = $env['rawLocale']['holidays'];
-            }
-        }
-
-        $this->holidayResolver = new HolidayResolver($holidays);
-
+        $this->holidayResolver = $holidayResolver;
         $this->extras   = $extras;
     }
 }
