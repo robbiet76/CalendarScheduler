@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace GoogleCalendarScheduler\Adapter;
 
 use GoogleCalendarScheduler\Adapter\CalendarTranslator;
+use RuntimeException;
 
 /**
  * CalendarSnapshot
@@ -20,6 +21,13 @@ final class CalendarSnapshot
 {
     private const SNAPSHOT_PATH =
         '/home/fpp/media/config/calendar/calendar-snapshot.json';
+    /**
+     * Temporary hard-coded ICS source (until OAuth phase).
+     */
+    private const ICS_SOURCE =
+        'https://calendar.google.com/calendar/ical/' .
+        'f6f834eec6b7e004bdbc070dbd860c076c7fc3e4df36e8eb8da3e80f8e2f21c4%40group.calendar.google.com/' .
+        'private-4cb0555e63adf571c353d0eb7b3c4bd3/basic.ics';
     private CalendarTranslator $translator;
 
     public function __construct(
@@ -77,5 +85,19 @@ final class CalendarSnapshot
             self::SNAPSHOT_PATH,
             json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
+    }
+
+    /**
+     * Fetch calendar data from ICS source and write snapshot.
+     */
+    public static function refreshFromIcs(): void
+    {
+        $translator = new CalendarTranslator();
+
+        $events = $translator->translateIcsSourceToCalendarEvents(
+            self::ICS_SOURCE
+        );
+
+        self::write($events);
     }
 }
