@@ -324,15 +324,22 @@ final class IntentNormalizer
     {
         $d = $raw->data;
 
+        // Detect FPP all-day encoding: 00:00 → 24:00 with zero offsets
+        $isAllDay =
+            ($d['startTime'] ?? null) === '00:00:00'
+            && ($d['endTime'] ?? null) === '24:00:00'
+            && ((int)($d['startTimeOffset'] ?? 0)) === 0
+            && ((int)($d['endTimeOffset'] ?? 0)) === 0;
+
         return new DraftTiming(
             $d['startDate'] ?? null,
             $d['endDate'] ?? null,
-            $d['startTime'] ?? null,
-            $d['endTime'] ?? null,
+            $isAllDay ? null : ($d['startTime'] ?? null),
+            $isAllDay ? null : ($d['endTime'] ?? null),
             (int)($d['startTimeOffset'] ?? 0),
             (int)($d['endTimeOffset'] ?? 0),
             $d['day'] ?? null,
-            false,
+            $isAllDay,
             ['source' => 'fpp']
         );
     }
