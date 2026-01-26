@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Inbound;
+namespace GoogleCalendarScheduler\Adapter;
 
-use GoogleCalendarScheduler\Platform\CalendarTranslator;
+use GoogleCalendarScheduler\Adapter\CalendarTranslator;
 
 /**
  * CalendarSnapshot

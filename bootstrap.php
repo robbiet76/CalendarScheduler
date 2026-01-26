@@ -37,6 +37,14 @@ require_once __DIR__ . '/src/Core/ManifestStore.php';
 require_once __DIR__ . '/src/Core/FileManifestStore.php';
 
 // -----------------------------------------------------------------------------
+// Adapter
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Adapter/CalendarSnapshot.php';
+require_once __DIR__ . '/src/Adapter/CalendarTranslator.php';
+require_once __DIR__ . '/src/Adapter/FppScheduleTranslator.php';
+
+// -----------------------------------------------------------------------------
 // Intent — canonical, source-agnostic scheduling intent (Phase 3)
 // -----------------------------------------------------------------------------
 
@@ -75,14 +83,12 @@ require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 // TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
 // -----------------------------------------------------------------------------
 
-// require_once __DIR__ . '/src/Platform/FppScheduleTranslator.php';
 // require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
 require_once __DIR__ . '/src/Platform/HolidayResolver.php';
 require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
 require_once __DIR__ . '/src/Platform/FppSemantics.php';
 require_once __DIR__ . '/src/Platform/IcsFetcher.php';
 require_once __DIR__ . '/src/Platform/IcsParser.php';
-require_once __DIR__ . '/src/Platform/CalendarTranslator.php';
 require_once __DIR__ . '/src/Platform/YamlMetadata.php';
 
 // -----------------------------------------------------------------------------
@@ -102,7 +108,6 @@ require_once __DIR__ . '/src/Platform/YamlMetadata.php';
 // TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
 // -----------------------------------------------------------------------------
 // require_once __DIR__ . '/src/Inbound/FppAdoption.php';
-require_once __DIR__ . '/src/Inbound/CalendarSnapshot.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete

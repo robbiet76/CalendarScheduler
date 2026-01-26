@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Platform;
+namespace GoogleCalendarScheduler\Adapter;
 
 /**
  * FppScheduleTranslator
