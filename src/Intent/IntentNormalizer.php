@@ -371,6 +371,13 @@ final class IntentNormalizer
     {
         $d = $raw->data;
 
+        // Normalize guard dates in FPP start/end dates
+        $startDateRaw = $d['startDate'] ?? null;
+        $endDateRaw = $d['endDate'] ?? null;
+        if (is_string($endDateRaw) && \GoogleCalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate($endDateRaw, new \DateTimeImmutable('now'))) {
+            $endDateRaw = null;
+        }
+
         // Detect FPP all-day encoding: 00:00 → 24:00 with zero offsets
         $isAllDay =
             ($d['startTime'] ?? null) === '00:00:00'
@@ -379,8 +386,8 @@ final class IntentNormalizer
             && ((int)($d['endTimeOffset'] ?? 0)) === 0;
 
         return new DraftTiming(
-            $d['startDate'] ?? null,
-            $d['endDate'] ?? null,
+            $startDateRaw,
+            $endDateRaw,
             $isAllDay ? null : ($d['startTime'] ?? null),
             $isAllDay ? null : ($d['endTime'] ?? null),
             (int)($d['startTimeOffset'] ?? 0),
@@ -449,19 +456,6 @@ final class IntentNormalizer
 
         // ISO-8601 hard date (YYYY-MM-DD)
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
-            // Guard date detection (FPP semantics)
-            if (
-                \GoogleCalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate(
-                    $raw,
-                    new \DateTimeImmutable('now')
-                )
-            ) {
-                return [
-                    'hard'     => null,
-                    'symbolic' => null,
-                ];
-            }
-
             return [
                 'hard'     => $raw,
                 'symbolic' => null,
