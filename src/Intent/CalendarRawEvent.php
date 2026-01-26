@@ -115,4 +115,47 @@ final class CalendarRawEvent
         $this->description = $description;
         $this->provenance  = $provenance;
     }
+
+    public static function fromArray(array $raw): self
+    {
+        $summary = $raw['summary'] ?? '';
+        $dtstart = $raw['start']['dateTime'] ?? $raw['start']['date'] ?? '';
+        $dtend = $raw['end']['dateTime'] ?? $raw['end']['date'] ?? '';
+        $isAllDay = isset($raw['start']['date']);
+
+        $rrule = null;
+        if (!empty($raw['recurrence']) && is_array($raw['recurrence'])) {
+            foreach ($raw['recurrence'] as $recurrence) {
+                if (strpos($recurrence, 'RRULE:') === 0) {
+                    $ruleString = substr($recurrence, 6);
+                    $parts = explode(';', $ruleString);
+                    $rrule = [];
+                    foreach ($parts as $part) {
+                        $kv = explode('=', $part, 2);
+                        if (count($kv) === 2) {
+                            $rrule[$kv[0]] = $kv[1];
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        $description = $raw['description'] ?? null;
+
+        $provenance = [
+            'calendar_id' => $raw['id'] ?? null,
+            'raw' => $raw,
+        ];
+
+        return new self(
+            $summary,
+            $dtstart,
+            $dtend,
+            $isAllDay,
+            $rrule,
+            $description,
+            $provenance
+        );
+    }
 }
