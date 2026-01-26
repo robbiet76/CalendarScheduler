@@ -249,23 +249,37 @@ final class IntentNormalizer
         $daysRaw      = null;
 
         if (is_string($raw->dtstart) && trim($raw->dtstart) !== '') {
-            $startDt = \DateTimeImmutable::createFromFormat(
-                'Y-m-d H:i:s',
-                $raw->dtstart,
-                $tz
-            ) ?: \DateTimeImmutable::createFromFormat(
-                'Y-m-d\TH:i:s',
-                $raw->dtstart,
-                $tz
-            ) ?: \DateTimeImmutable::createFromFormat(
-                'Y-m-d',
-                $raw->dtstart,
-                $tz
-            );
+            $dtstart = trim($raw->dtstart);
+            $startDt = null;
 
-            if ($startDt !== false) {
+            // RFC 5545 / ISO variants — no fallback to "now"
+            $formats = [
+                'Y-m-d\TH:i:s\Z', // UTC
+                'Y-m-d\TH:i:s',   // local datetime
+                'Y-m-d H:i:s',    // space-separated
+                'Y-m-d',          // date-only
+            ];
+
+            foreach ($formats as $fmt) {
+                $candidate = \DateTimeImmutable::createFromFormat(
+                    $fmt,
+                    $dtstart,
+                    str_ends_with($fmt, '\Z')
+                        ? new \DateTimeZone('UTC')
+                        : $tz
+                );
+                if ($candidate !== false) {
+                    $startDt = $candidate;
+                    break;
+                }
+            }
+
+            if ($startDt instanceof \DateTimeImmutable) {
+                $startDt = $startDt->setTimezone($tz);
                 $startDateRaw = $startDt->format('Y-m-d');
-                if (!$isAllDay && strlen($raw->dtstart) > 10) {
+
+                // Only set time if DTSTART explicitly contained a time component
+                if (!$isAllDay && preg_match('/T\d{2}:\d{2}:\d{2}| \d{2}:\d{2}:\d{2}$/', $dtstart)) {
                     $startTimeRaw = $startDt->format('H:i:s');
                 }
             }
