@@ -120,8 +120,17 @@ final class CalendarRawEvent
     {
         $summary = $raw['summary'] ?? '';
         $dtstart = $raw['start']['dateTime'] ?? $raw['start']['date'] ?? '';
+        if ($dtstart === '') {
+            $dtstart = $raw['dtstart'] ?? '';
+        }
         $dtend = $raw['end']['dateTime'] ?? $raw['end']['date'] ?? '';
+        if ($dtend === '') {
+            $dtend = $raw['dtend'] ?? '';
+        }
         $isAllDay = isset($raw['start']['date']);
+        if (!$isAllDay && isset($raw['isAllDay'])) {
+            $isAllDay = (bool)$raw['isAllDay'];
+        }
 
         $rrule = null;
         if (!empty($raw['recurrence']) && is_array($raw['recurrence'])) {
@@ -139,6 +148,9 @@ final class CalendarRawEvent
                     break;
                 }
             }
+        }
+        if ($rrule === null && isset($raw['rrule']) && is_array($raw['rrule'])) {
+            $rrule = $raw['rrule'];
         }
 
         $description = $raw['description'] ?? null;
