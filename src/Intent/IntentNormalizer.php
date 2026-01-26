@@ -360,7 +360,13 @@ final class IntentNormalizer
                 }
                 if ($untilDt instanceof \DateTimeInterface) {
                     $untilDt = $untilDt->setTimezone($tz);
-                    $endDateRaw = $untilDt->format('Y-m-d');
+
+                    // Calendar RRULE UNTIL is inclusive of the last occurrence.
+                    // Intent windows are inclusive ranges, so we subtract one day
+                    // to avoid running one day too long.
+                    $endDateRaw = $untilDt
+                        ->modify('-1 day')
+                        ->format('Y-m-d');
                 }
             }
         }
