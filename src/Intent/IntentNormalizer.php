@@ -131,7 +131,6 @@ final class IntentNormalizer
         $d = $raw->data;
 
         // --- Holiday resolver (exact match only) ---
-        $tz = $context->timezone;
         $holidayResolver = new HolidayResolver($context->holidays ?? []);
 
         // --- Required fields validation (fail fast) ---
@@ -387,15 +386,23 @@ final class IntentNormalizer
         );
     }
 
-    private function draftTimingFromFpp(FppRawEvent $raw): DraftTiming
+    private function draftTimingFromFpp(FppRawEvent $raw, NormalizationContext $context = null): DraftTiming
     {
         $d = $raw->data;
 
         // Normalize guard dates in FPP start/end dates
         $startDateRaw = $d['startDate'] ?? null;
         $endDateRaw = $d['endDate'] ?? null;
-        if (is_string($endDateRaw) && \GoogleCalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate($endDateRaw, new \DateTimeImmutable('now'))) {
-            $endDateRaw = null;
+        if (is_string($endDateRaw)) {
+            $endDateObj = \DateTimeImmutable::createFromFormat('Y-m-d', $endDateRaw);
+            if ($endDateObj !== false
+                && \GoogleCalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate(
+                    $endDateObj->format('Y-m-d'),
+                    new \DateTimeImmutable('now', $context?->timezone)
+                )
+            ) {
+                $endDateRaw = null;
+            }
         }
 
         // Detect FPP all-day encoding: 00:00 → 24:00 with zero offsets
@@ -476,9 +483,14 @@ final class IntentNormalizer
 
         // ISO-8601 hard date (YYYY-MM-DD)
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
+            $dateObj = \DateTimeImmutable::createFromFormat('Y-m-d', $raw);
+            $symbolic = $dateObj
+                ? $resolver->reverseResolveExact($dateObj)
+                : null;
+
             return [
                 'hard'     => $raw,
-                'symbolic' => null,
+                'symbolic' => $symbolic,
             ];
         }
 
