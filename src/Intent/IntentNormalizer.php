@@ -386,7 +386,7 @@ final class IntentNormalizer
         );
     }
 
-    private function draftTimingFromFpp(FppRawEvent $raw, NormalizationContext $context = null): DraftTiming
+    private function draftTimingFromFpp(FppRawEvent $raw, ?NormalizationContext $context = null): DraftTiming
     {
         $d = $raw->data;
 
@@ -441,7 +441,7 @@ final class IntentNormalizer
                 'Invalid timing: 00:00–24:00 must be represented as all-day intent'
             );
         }
-        $holidayResolver = new HolidayResolver($context->holidays ?? []);
+        $holidayResolver = $context->holidayResolver;
 
         $timing = [
             'all_day' => $draft->isAllDay === true,
