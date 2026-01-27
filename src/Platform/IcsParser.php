@@ -106,7 +106,7 @@ final class IcsParser
                     $summary = trim($m[1]);
                 }
 
-                if (preg_match('/^DESCRIPTION:(.*)$/m', $raw, $m)) {
+                if (preg_match('/^DESCRIPTION:(.*?)(?=^\w|$)/ms', $raw, $m)) {
                     $description = str_replace('\n', "\n", trim($m[1]));
                 }
 
