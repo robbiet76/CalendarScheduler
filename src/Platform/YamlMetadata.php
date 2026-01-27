@@ -268,7 +268,8 @@ final class YamlMetadata
             if (is_array($value)) {
                 if (in_array($key, ['gcs', 'payload', 'settings'], true)) {
                     foreach ($value as $childKey => $childValue) {
-                        $out[$childKey] = self::normalizeValue($childValue);
+                        $trimmedChildKey = trim($childKey);
+                        $out[$trimmedChildKey] = self::normalizeValue($childValue);
                     }
                     continue;
                 } else {
