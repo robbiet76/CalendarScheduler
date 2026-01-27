@@ -98,15 +98,15 @@ final class IcsParser
                 $exDates      = [];
                 $recurrenceId = null;
 
-                if (preg_match('/UID:(.+)/', $raw, $m)) {
+                if (preg_match('/^UID:(.+)$/m', $raw, $m)) {
                     $uid = trim($m[1]);
                 }
 
-                if (preg_match('/SUMMARY:(.+)/', $raw, $m)) {
+                if (preg_match('/^SUMMARY:(.*)$/m', $raw, $m)) {
                     $summary = trim($m[1]);
                 }
 
-                if (preg_match('/DESCRIPTION:(.+)/s', $raw, $m)) {
+                if (preg_match('/^DESCRIPTION:(.*)$/m', $raw, $m)) {
                     $description = str_replace('\n', "\n", trim($m[1]));
                 }
 
@@ -119,7 +119,7 @@ final class IcsParser
                     $isAllDay = $isAllDay || $isAllDayEnd;
                 }
 
-                if (preg_match('/RRULE:(.+)/', $raw, $m)) {
+                if (preg_match('/^RRULE:(.+)$/m', $raw, $m)) {
                     $rrule = $this->parseRrule($m[1]);
                 }
 
