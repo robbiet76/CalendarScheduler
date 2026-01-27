@@ -92,7 +92,7 @@ final class HolidayResolver
      * @param DateTimeImmutable $date
      * @return string|null Holiday shortName if exactly matched
      */
-    public function resolveDate(DateTimeImmutable $date): ?string
+    public function holidayFromDate(DateTimeImmutable $date): ?string
     {
         $this->ensureDateCovered($date);
 
