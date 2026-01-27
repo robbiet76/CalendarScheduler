@@ -230,7 +230,18 @@ final class YamlMetadata
             }
         }
 
-        return $out;
+        $clean = [];
+        foreach ($out as $k => $v) {
+            if (!is_string($k)) {
+                continue;
+            }
+            $tk = trim($k);
+            if ($tk === '') {
+                continue;
+            }
+            $clean[$tk] = $v;
+        }
+        return $clean;
     }
 
     /**
