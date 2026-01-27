@@ -99,6 +99,33 @@ final class YamlMetadata
      */
     private static function extractYamlBlock(string $text): ?string
     {
+        $lines = preg_split('/\r?\n/', $text);
+        if (!$lines) {
+            return null;
+        }
+
+        // Handle leading YAML document marker '---'
+        $i = 0;
+        // Skip initial empty lines
+        while ($i < count($lines) && trim($lines[$i]) === '') {
+            $i++;
+        }
+        if ($i < count($lines) && trim($lines[$i]) === '---') {
+            $yamlLines = [];
+            for ($j = $i + 1; $j < count($lines); $j++) {
+                $line = $lines[$j];
+                // Stop if line matches iCalendar property pattern (all caps, digits, hyphens, then colon)
+                if (preg_match('/^[A-Z0-9-]+:/', $line)) {
+                    break;
+                }
+                $yamlLines[] = $line;
+            }
+            if (!empty($yamlLines)) {
+                return implode("\n", $yamlLines);
+            }
+            return null;
+        }
+
         // Case 1: fenced ```yaml block
         if (preg_match('/```yaml\s*(.*?)\s*```/is', $text, $m)) {
             $candidate = trim($m[1]);
@@ -106,11 +133,6 @@ final class YamlMetadata
         }
 
         // Case 2: raw YAML-like lines at top
-        $lines = preg_split('/\r?\n/', $text);
-        if (!$lines) {
-            return null;
-        }
-
         $yamlLines = [];
         foreach ($lines as $line) {
             $line = rtrim($line);
