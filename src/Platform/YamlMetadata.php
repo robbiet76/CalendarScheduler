@@ -58,6 +58,11 @@ final class YamlMetadata
         }
 
         $description = trim($description);
+        // Some ICS sources may preserve newlines as the two-character sequence "\\n".
+        // Normalize those into real line breaks so YAML extraction works deterministically.
+        if (str_contains($description, "\\n") && !str_contains($description, "\n")) {
+            $description = str_replace(["\\r\\n", "\\n", "\\r"], ["\n", "\n", "\n"], $description);
+        }
         if ($description === '') {
             return [];
         }
