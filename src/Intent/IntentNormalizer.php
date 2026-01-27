@@ -723,6 +723,13 @@ final class IntentNormalizer
             $context->holidayResolver
         );
 
+        // Only canonicalize command end_time if repeat is 'none'
+        if ($type === 'command' && ($payload['repeat'] ?? 'none') === 'none') {
+            if (isset($timingArr['start_time'], $timingArr['end_time'])) {
+                $timingArr['end_time'] = $timingArr['start_time'];
+            }
+        }
+
         $identity = [
             'type'   => $type,
             'target' => $target,
