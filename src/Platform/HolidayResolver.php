@@ -101,6 +101,35 @@ final class HolidayResolver
     }
 
     /**
+     * Resolve a symbolic holiday name to a concrete date for a given year.
+     *
+     * @param string $symbolic Holiday shortName
+     * @param int $year Target year
+     * @return DateTimeImmutable|null Concrete date if resolvable
+     */
+    public function dateFromHoliday(string $symbolic, int $year): ?DateTimeImmutable
+    {
+        if (!isset($this->holidayIndex[$symbolic])) {
+            return null;
+        }
+
+        // Ensure the year is built so dateMap is populated
+        if (!isset($this->builtYears[$year])) {
+            $this->buildYear($year);
+            $this->builtYears[$year] = true;
+        }
+
+        // Walk dateMap to find matching holiday in this year
+        foreach ($this->dateMap as $ymd => $shortName) {
+            if ($shortName === $symbolic && str_starts_with($ymd, (string)$year)) {
+                return new DateTimeImmutable($ymd);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Check whether a symbolic holiday identifier is known.
      *
      * @param string $symbolic
