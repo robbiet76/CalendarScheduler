@@ -256,7 +256,12 @@ final class YamlMetadata
         // Preserve all scalar keys verbatim, including `type`.
         // `type` is authoritative and must not be inferred or altered.
         foreach ($raw as $key => $value) {
-            if (!is_string($key) || $key === '') {
+            if (!is_string($key)) {
+                continue;
+            }
+
+            $key = trim($key);
+            if ($key === '') {
                 continue;
             }
 
