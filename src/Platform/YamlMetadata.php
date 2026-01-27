@@ -217,7 +217,7 @@ final class YamlMetadata
                     continue;
                 }
 
-                [$childKey, $childValue] = explode(':', ltrim($trimmed), 2);
+                [$childKey, $childValue] = explode(':', $trimmed, 2);
                 $childKey = trim($childKey);
                 $childValue = trim($childValue);
 
