@@ -723,9 +723,14 @@ final class IntentNormalizer
             $context->holidayResolver
         );
 
-        // Only canonicalize command end_time if repeat is 'none'
+        /**
+         * Command timing normalization:
+         * - Commands are point-in-time operations.
+         * - Calendar represents them as +1 minute, but Intent MUST NOT.
+         * - If repeat === 'none', end_time MUST equal start_time.
+         */
         if ($type === 'command' && ($payload['repeat'] ?? 'none') === 'none') {
-            if (isset($timingArr['start_time'], $timingArr['end_time'])) {
+            if (isset($timingArr['start_time'])) {
                 $timingArr['end_time'] = $timingArr['start_time'];
             }
         }
