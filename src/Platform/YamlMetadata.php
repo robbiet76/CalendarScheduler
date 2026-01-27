@@ -261,7 +261,7 @@ final class YamlMetadata
                 continue;
             }
 
-            $key = trim($key);
+            $key = trim($key);   // MUST happen first
             if ($key === '') {
                 continue;
             }
