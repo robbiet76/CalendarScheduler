@@ -108,12 +108,12 @@ final class IcsParser
 
                 $description = null;
                 if (preg_match('/^DESCRIPTION:(.*)$/m', $raw, $m, PREG_OFFSET_CAPTURE)) {
-                    $start = $m[0][1];
+                    $start = (int)$m[0][1];
                     $desc  = substr($raw, $start);
 
-                    // Stop at next ICS property (ALL CAPS + colon), excluding DESCRIPTION itself
-                    if (preg_match('/\n[A-Z\-]+:/', $desc, $stop, PREG_OFFSET_CAPTURE, 1)) {
-                        $desc = substr($desc, 0, $stop[0][1]);
+                    // Stop at next ICS property that starts at beginning of a line
+                    if (preg_match('/\n(?=[A-Z\-]+:)/', $desc, $stop, PREG_OFFSET_CAPTURE)) {
+                        $desc = substr($desc, 0, (int)$stop[0][1]);
                     }
 
                     // Remove leading "DESCRIPTION:" only
