@@ -746,7 +746,12 @@ final class IntentNormalizer
             'payload' => $payload,
         ]];
 
-        $identityHash = $this->computeIdentityHash($identity, $subEvents);
+        // Identity hash: canonicalize for hashing so symbolic dates are preferred.
+        $hashInput = $this->canonicalizeForHash($identity, $subEvents);
+        $identityHash = hash(
+            'sha256',
+            json_encode($hashInput, JSON_THROW_ON_ERROR)
+        );
 
         return new Intent(
             $identityHash,
@@ -768,6 +773,49 @@ final class IntentNormalizer
                 JSON_THROW_ON_ERROR
             )
         );
+    }
+
+    /**
+     * Canonicalize identity and subEvents for hashing: prefer symbolic dates over hard dates.
+     * Never include both in the hash. Used only for identity hashing.
+     */
+    private function canonicalizeForHash(array $identity, array $subEvents): array
+    {
+        $apply = function (array $timing): array {
+            foreach (['start_date', 'end_date'] as $k) {
+                if (!isset($timing[$k]) || !is_array($timing[$k])) {
+                    continue;
+                }
+                $hard = $timing[$k]['hard'] ?? null;
+                $sym  = $timing[$k]['symbolic'] ?? null;
+
+                if (is_string($sym) && $sym !== '') {
+                    $timing[$k] = ['symbolic' => $sym];
+                } elseif (is_string($hard) && $hard !== '') {
+                    $timing[$k] = ['hard' => $hard];
+                } else {
+                    $timing[$k] = ['hard' => null];
+                }
+            }
+            return $timing;
+        };
+
+        // identity timing
+        if (isset($identity['timing']) && is_array($identity['timing'])) {
+            $identity['timing'] = $apply($identity['timing']);
+        }
+
+        // subEvent timings
+        foreach ($subEvents as $i => $se) {
+            if (isset($se['timing']) && is_array($se['timing'])) {
+                $subEvents[$i]['timing'] = $apply($se['timing']);
+            }
+        }
+
+        return [
+            'identity'  => $identity,
+            'subEvents' => $subEvents,
+        ];
     }
 
     /**
