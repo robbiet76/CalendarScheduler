@@ -125,7 +125,8 @@ final class IntentNormalizer
             $canonicalTiming,
             $payload,
             $ownership,
-            $correlation
+            $correlation,
+            $context
         );
     }
 
@@ -141,9 +142,6 @@ final class IntentNormalizer
         NormalizationContext $context
     ): Intent {
         $d = $raw->data;
-
-        // --- Holiday resolver (exact match only) ---
-        $holidayResolver = new HolidayResolver($context->holidays ?? []);
 
         // --- Required fields validation (fail fast) ---
         foreach (['playlist', 'startDate', 'endDate', 'startTime', 'endTime'] as $k) {
@@ -237,7 +235,8 @@ final class IntentNormalizer
             $canonicalTiming,
             $payload,
             $ownership,
-            $correlation
+            $correlation,
+            $context
         );
     }
 
@@ -562,14 +561,9 @@ final class IntentNormalizer
 
         // ISO-8601 hard date (YYYY-MM-DD)
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
-            $dateObj = \DateTimeImmutable::createFromFormat('Y-m-d', $raw);
-            $symbolic = $dateObj
-                ? $resolver->holidayFromDate($dateObj)
-                : null;
-
             return [
                 'hard'     => $raw,
-                'symbolic' => $symbolic,
+                'symbolic' => null,
             ];
         }
 
@@ -721,16 +715,22 @@ final class IntentNormalizer
         CanonicalTiming $timing,
         array $payload,
         array $ownership,
-        array $correlation
+        array $correlation,
+        NormalizationContext $context
     ): Intent {
+        $timingArr = $this->applyHolidaySymbolics(
+            $timing->toArray(),
+            $context->holidayResolver
+        );
+
         $identity = [
             'type'   => $type,
             'target' => $target,
-            'timing' => $timing->toArray(),
+            'timing' => $timingArr,
         ];
 
         $subEvents = [[
-            'timing'  => $timing->toArray(),
+            'timing'  => $timingArr,
             'payload' => $payload,
         ]];
 
@@ -756,6 +756,37 @@ final class IntentNormalizer
                 JSON_THROW_ON_ERROR
             )
         );
+    }
+
+    /**
+     * Apply holiday symbolic resolution ONCE, in the shared flow, prior to hashing.
+     *
+     * Rule:
+     * - If hard date exists and symbolic is null, attempt to infer symbolic from FPP holiday map.
+     * - Never overwrite an explicitly-provided symbolic value.
+     */
+    private function applyHolidaySymbolics(array $timing, HolidayResolver $resolver): array
+    {
+        foreach (['start_date', 'end_date'] as $k) {
+            if (!isset($timing[$k]) || !is_array($timing[$k])) {
+                continue;
+            }
+
+            $hard = $timing[$k]['hard'] ?? null;
+            $sym  = $timing[$k]['symbolic'] ?? null;
+
+            if (is_string($hard) && $hard !== '' && ($sym === null || $sym === '')) {
+                $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $hard);
+                if ($dt instanceof \DateTimeImmutable) {
+                    $resolved = $resolver->holidayFromDate($dt);
+                    if (is_string($resolved) && $resolved !== '') {
+                        $timing[$k]['symbolic'] = $resolved;
+                    }
+                }
+            }
+        }
+
+        return $timing;
     }
 }
 
