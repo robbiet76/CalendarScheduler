@@ -191,8 +191,11 @@ final class IcsParser
                 return [null, false];
             }
 
-            $dt->setTimezone($this->fppTz);
-
+            /*
+             * Preserve event-local wall time.
+             * Do NOT force conversion to FPP / system timezone here.
+             * Downstream normalization is responsible for timezone alignment.
+             */
             if ($isAllDay) {
                 $dt->setTime(0, 0, 0);
             }
