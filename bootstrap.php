@@ -89,7 +89,7 @@ require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
 require_once __DIR__ . '/src/Platform/FppSemantics.php';
 require_once __DIR__ . '/src/Platform/IcsFetcher.php';
 require_once __DIR__ . '/src/Platform/IcsParser.php';
-require_once __DIR__ . '/src/Platform/YamlMetadata.php';
+require_once __DIR__ . '/src/Platform/IniMetadata.php';
 
 // -----------------------------------------------------------------------------
 // TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)

@@ -6,7 +6,7 @@ namespace GoogleCalendarScheduler\Intent;
 use GoogleCalendarScheduler\Intent\CalendarRawEvent;
 use GoogleCalendarScheduler\Intent\FppRawEvent;
 use GoogleCalendarScheduler\Intent\NormalizationContext;
-use GoogleCalendarScheduler\Platform\YamlMetadata;
+use GoogleCalendarScheduler\Platform\IniMetadata;
 use GoogleCalendarScheduler\Platform\HolidayResolver;
 
 /**
@@ -53,10 +53,18 @@ final class IntentNormalizer
         CalendarRawEvent $raw,
         NormalizationContext $context
     ): Intent {
-        // --- YAML-driven type resolution ---
-        $yaml = YamlMetadata::fromDescription($raw->description);
-        $type = $yaml['type'] ?? null;
+        // --- INI-driven type resolution ---
+        $meta = IniMetadata::fromDescription($raw->description);
+        $settings = $meta['settings'] ?? [];
+        $symbolicTime = $meta['symbolic_time'] ?? [];
+        $commandMeta  = $meta['command'] ?? [];
+        $type = $settings['type'] ?? null;
         $type = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeType($type);
+
+        // --- Metadata validation ---
+        $this->validateSettingsSection($settings);
+        $this->validateSymbolicTimeSection($symbolicTime);
+        $this->validateCommandSection($commandMeta, $type);
 
         // --- Identity (human intent) ---
         // All-day normalization is intentional and occurs ONLY at the Intent layer.
@@ -66,7 +74,7 @@ final class IntentNormalizer
         // This preserves the intent without coercing times to 23:59:59 or 24:00:00.
         // Date normalization happens here (IntentNormalizer) to ensure consistent interpretation,
         // rather than in earlier layers like CalendarTranslator.
-        $draftTiming = $this->draftTimingFromCalendar($raw, $context);
+        $draftTiming = $this->draftTimingFromCalendar($raw, $context, $symbolicTime);
         $canonicalTiming = $this->normalizeTiming($draftTiming, $context);
 
 
@@ -76,21 +84,25 @@ final class IntentNormalizer
         // All timing logic is now handled by CanonicalTiming.
 
         // --- Execution payload (FPP semantics) ---
-        // Calendar YAML may override, but defaults ALWAYS come from FPPSemantics.
+        // Calendar INI may override, but defaults ALWAYS come from FPPSemantics.
         $defaults = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultBehavior();
 
         $payload = [
             'enabled'  => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled(
-                $yaml['enabled'] ?? $defaults['enabled']
+                $settings['enabled'] ?? $defaults['enabled']
             ),
-            'stopType' => $yaml['stopType'] ?? 'graceful',
+            'stopType' => $settings['stopType'] ?? 'graceful',
         ];
 
-        if (isset($yaml['repeat']) && is_string($yaml['repeat'])) {
-            $payload['repeat'] = strtolower(trim($yaml['repeat']));
+        if (isset($settings['repeat']) && is_string($settings['repeat'])) {
+            $payload['repeat'] = strtolower(trim($settings['repeat']));
         } else {
             $defaultNumeric = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
             $payload['repeat'] = \GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic($defaultNumeric);
+        }
+
+        if ($type === 'command' && is_array($commandMeta) && $commandMeta !== []) {
+            $payload['command'] = $commandMeta;
         }
 
 
@@ -235,7 +247,8 @@ final class IntentNormalizer
 
     private function draftTimingFromCalendar(
         CalendarRawEvent $raw,
-        NormalizationContext $context
+        NormalizationContext $context,
+        array $symbolicTime = []
     ): DraftTiming
     {
         $isAllDay = ($raw->isAllDay ?? false) === true;
@@ -281,6 +294,21 @@ final class IntentNormalizer
                 if (!$isAllDay && preg_match('/T\d{2}:\d{2}:\d{2}| \d{2}:\d{2}:\d{2}$/', $dtstart)) {
                     $startTimeRaw = $startDt->format('H:i:s');
                 }
+            }
+        }
+
+        // Symbolic time overrides with user-controlled offsets
+        if (isset($symbolicTime['start']) && is_string($symbolicTime['start'])) {
+            $startTimeRaw = $symbolicTime['start'];
+            if (isset($symbolicTime['start_offset'])) {
+                $startTimeOffset = (int) $symbolicTime['start_offset'];
+            }
+        }
+
+        if (isset($symbolicTime['end']) && is_string($symbolicTime['end'])) {
+            $endTimeRaw = $symbolicTime['end'];
+            if (isset($symbolicTime['end_offset'])) {
+                $endTimeOffset = (int) $symbolicTime['end_offset'];
             }
         }
 
@@ -596,6 +624,50 @@ final class IntentNormalizer
         throw new \RuntimeException(
             'Invalid days value in normalizeDays'
         );
+    }
+    private function validateSettingsSection(array $settings): void
+    {
+        $allowedKeys = ['type', 'enabled', 'repeat', 'stopType'];
+        foreach ($settings as $k => $_) {
+            if (!in_array($k, $allowedKeys, true)) {
+                throw new \RuntimeException("Invalid key '{$k}' in [settings] section");
+            }
+        }
+    }
+
+    private function validateSymbolicTimeSection(array $symbolicTime): void
+    {
+        $allowedKeys = ['start', 'end', 'start_offset', 'end_offset'];
+        foreach ($symbolicTime as $k => $v) {
+            if (!in_array($k, $allowedKeys, true)) {
+                throw new \RuntimeException("Invalid key '{$k}' in [symbolic_time] section");
+            }
+            if (in_array($k, ['start', 'end'], true)) {
+                if (!is_string($v) || trim($v) === '') {
+                    throw new \RuntimeException("Symbolic time '{$k}' must be a non-empty string");
+                }
+            }
+            if (str_ends_with($k, '_offset') && !is_int($v) && !ctype_digit((string)$v)) {
+                throw new \RuntimeException("Symbolic time offset '{$k}' must be an integer");
+            }
+        }
+    }
+
+    private function validateCommandSection(array $commandMeta, string $type): void
+    {
+        if ($commandMeta === []) {
+            return;
+        }
+
+        if ($type !== 'command') {
+            throw new \RuntimeException("[command] section is only valid for type=command");
+        }
+
+        foreach ($commandMeta as $k => $v) {
+            if (!is_scalar($v) && !is_array($v)) {
+                throw new \RuntimeException("Invalid value for command field '{$k}'");
+            }
+        }
     }
 
     private function buildIntent(
