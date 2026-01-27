@@ -106,7 +106,7 @@ final class IcsParser
                     $summary = trim($m[1]);
                 }
 
-                if (preg_match('/^DESCRIPTION:\s*(---.*?)(?=^[A-Z-]+:|\z)/ms', $raw, $m)) {
+                if (preg_match('/^DESCRIPTION:(.*)$/ms', $raw, $m)) {
                     $description = trim($m[1]);
                 }
 
