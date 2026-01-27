@@ -90,7 +90,7 @@ final class CalendarSnapshot
     /**
      * Fetch calendar data from ICS source and write snapshot.
      */
-    public static function refreshFromIcs(): void
+    public static function refreshFromIcs(): array
     {
         $translator = new CalendarTranslator();
 
@@ -99,5 +99,7 @@ final class CalendarSnapshot
         );
 
         self::write($events);
+
+        return $events;
     }
 }
