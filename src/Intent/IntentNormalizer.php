@@ -564,7 +564,7 @@ final class IntentNormalizer
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
             $dateObj = \DateTimeImmutable::createFromFormat('Y-m-d', $raw);
             $symbolic = $dateObj
-                ? $resolver->reverseResolveExact($dateObj)
+                ? $resolver->resolveDate($dateObj)
                 : null;
 
             return [
@@ -574,7 +574,7 @@ final class IntentNormalizer
         }
 
         // Symbolic date (holiday or named marker)
-        if ($resolver->has($raw)) {
+        if ($resolver->isSymbolic($raw)) {
             return [
                 'hard'     => null,
                 'symbolic' => $raw,

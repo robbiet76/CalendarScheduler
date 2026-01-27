@@ -36,6 +36,20 @@ final class HolidayResolver
     private array $holidayIndex;
 
     /**
+     * Map of resolved holidays by date string (Y-m-d) => shortName
+     *
+     * @var array<string,string>
+     */
+    private array $dateMap = [];
+
+    /**
+     * Tracks which years have been built to avoid recomputation
+     *
+     * @var array<int,bool>
+     */
+    private array $builtYears = [];
+
+    /**
      * @param array<int,array<string,mixed>> $holidays Raw FPP holiday definitions
      */
     public function __construct(array $holidays)
@@ -54,52 +68,66 @@ final class HolidayResolver
     }
 
     /**
-     * Returns true if the given symbolic token matches a known holiday name/shortName.
-     * Intentionally a pure membership check (no date resolution).
+     * Ensure the given date is covered by the internal holiday map.
      */
-    public function has(string $token): bool
+    private function ensureDateCovered(DateTimeImmutable $date): void
     {
-        $token = trim($token);
-        if ($token === '') {
-            return false;
+        $year = (int)$date->format('Y');
+
+        if (!isset($this->builtYears[$year])) {
+            $this->buildYear($year);
+            $this->builtYears[$year] = true;
         }
+    }
 
-        foreach ($this->holidayIndex as $shortName => $def) {
-            if (strcasecmp($shortName, $token) === 0) {
-                return true;
-            }
+    /**
+     * Resolve a concrete date to a symbolic holiday name using exact match only.
+     *
+     * This is a strict reverse lookup:
+     * - Exact Y-m-d match only
+     * - No heuristics or proximity logic
+     *
+     * Does NOT auto-build ranges; caller must call ensureRange() first.
+     *
+     * @param DateTimeImmutable $date
+     * @return string|null Holiday shortName if exactly matched
+     */
+    public function resolveDate(DateTimeImmutable $date): ?string
+    {
+        $this->ensureDateCovered($date);
 
-            if (is_array($def)) {
-                $name = isset($def['name']) ? (string)$def['name'] : '';
-                if ($name !== '' && strcasecmp($name, $token) === 0) {
-                    return true;
-                }
-            }
-        }
+        $ymd = $date->format('Y-m-d');
+        return $this->dateMap[$ymd] ?? null;
+    }
 
-        return false;
+    /**
+     * Check whether a symbolic holiday identifier is known.
+     *
+     * @param string $symbolic
+     * @return bool
+     */
+    public function isSymbolic(string $symbolic): bool
+    {
+        return isset($this->holidayIndex[$symbolic]);
     }
 
     /* ============================================================
-     * Symbolic → Hard
+     * Internal helpers
      * ============================================================ */
 
-    /**
-     * Resolve a symbolic holiday name to a concrete date.
-     *
-     * @param string $symbolic Holiday shortName
-     * @param int    $year
-     *
-     * @return DateTimeImmutable|null
-     */
-    public function resolveSymbolic(string $symbolic, int $year): ?DateTimeImmutable
+    private function buildYear(int $year): void
     {
-        if (!isset($this->holidayIndex[$symbolic])) {
-            return null;
+        foreach ($this->holidayIndex as $shortName => $def) {
+            $resolved = $this->resolveDefinition($def, $year);
+            if ($resolved !== null) {
+                $ymd = $resolved->format('Y-m-d');
+                $this->dateMap[$ymd] = $shortName;
+            }
         }
+    }
 
-        $def = $this->holidayIndex[$symbolic];
-
+    private function resolveDefinition(array $def, int $year): ?DateTimeImmutable
+    {
         // Fixed-date holiday
         if (
             isset($def['month'], $def['day'])
@@ -113,132 +141,99 @@ final class HolidayResolver
 
         // Calculated holiday
         if (isset($def['calc']) && is_array($def['calc'])) {
-            return $this->resolveCalculatedHoliday($def['calc'], $year);
-        }
+            $calc = $def['calc'];
 
-        return null;
-    }
+            // Easter-based holiday
+            if (($calc['type'] ?? '') === 'easter') {
+                $base = $this->easterSunday($year);
 
-    /* ============================================================
-     * Hard → Symbolic
-     * ============================================================ */
-
-    /**
-     * Resolve a concrete date to a symbolic holiday name using exact match only.
-     *
-     * This is a strict reverse lookup:
-     * - Exact Y-m-d match only
-     * - No heuristics or proximity logic
-     *
-     * @param DateTimeImmutable $date
-     * @return string|null Holiday shortName if exactly matched
-     */
-    public function reverseResolveExact(DateTimeImmutable $date): ?string
-    {
-        $year = (int)$date->format('Y');
-        $ymd  = $date->format('Y-m-d');
-
-        foreach ($this->holidayIndex as $shortName => $_def) {
-            $resolved = $this->resolveSymbolic($shortName, $year);
-            if ($resolved && $resolved->format('Y-m-d') === $ymd) {
-                return $shortName;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Attempt to infer a symbolic holiday from a concrete date.
-     *
-     * NOTE:
-     * This method exists for backward compatibility.
-     * New code should prefer reverseResolveExact().
-     *
-     * @param DateTimeImmutable $date
-     * @return string|null Holiday shortName if matched
-     */
-    public function inferSymbolic(DateTimeImmutable $date): ?string
-    {
-        $year = (int)$date->format('Y');
-        $ymd  = $date->format('Y-m-d');
-
-        foreach ($this->holidayIndex as $shortName => $def) {
-            $resolved = $this->resolveSymbolic($shortName, $year);
-            if ($resolved && $resolved->format('Y-m-d') === $ymd) {
-                return $shortName;
-            }
-        }
-
-        return null;
-    }
-
-    /* ============================================================
-     * Internal helpers
-     * ============================================================ */
-
-    private function resolveCalculatedHoliday(array $calc, int $year): ?DateTimeImmutable
-    {
-        // Easter-based holiday
-        if (($calc['type'] ?? '') === 'easter') {
-            $base = (new DateTimeImmutable())
-                ->setTimestamp(easter_date($year))
-                ->setTime(0, 0, 0);
-
-            $offset = (int)($calc['offset'] ?? 0);
-            return $base->modify(($offset >= 0 ? '+' : '') . $offset . ' days');
-        }
-
-        // Weekday-based holiday (e.g. Thanksgiving)
-        if (
-            !isset($calc['month'], $calc['dow'], $calc['week'], $calc['type'])
-        ) {
-            return null;
-        }
-
-        $month    = (int)$calc['month'];
-        $fppDow   = (int)$calc['dow'];   // 0=Sunday .. 6=Saturday
-        $week     = (int)$calc['week'];
-        $origMonth = $month;
-
-        // Convert FPP weekday to ISO-8601 (1=Mon .. 7=Sun)
-        $isoDow = ($fppDow === 0) ? 7 : $fppDow;
-
-        // Tail-based (e.g. last Thursday)
-        if ($calc['type'] === 'tail') {
-            $d = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
-            $d = $d->modify('last day of this month');
-
-            while ((int)$d->format('N') !== $isoDow) {
-                $d = $d->modify('-1 day');
+                $offset = (int)($calc['offset'] ?? 0);
+                return $base->modify(($offset >= 0 ? '+' : '') . $offset . ' days');
             }
 
-            $d = $d->modify('-' . (($week - 1) * 7) . ' days');
-
-            if ((int)$d->format('n') !== $origMonth) {
+            // Weekday-based holiday (e.g. Thanksgiving)
+            if (
+                !isset($calc['month'], $calc['dow'], $calc['week'], $calc['type'])
+            ) {
                 return null;
             }
 
-            return $d;
-        }
+            $month     = (int)$calc['month'];
+            $fppDow    = (int)$calc['dow'];   // 0=Sunday .. 6=Saturday
+            $week      = (int)$calc['week'];
+            $origMonth = $month;
+            $offset    = (int)($calc['offset'] ?? 0);
 
-        // Head-based (e.g. 4th Thursday)
-        if ($calc['type'] === 'head') {
-            $first = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
-            $firstDow = (int)$first->format('N');
+            // Convert FPP weekday to ISO-8601 (1=Mon .. 7=Sun)
+            $isoDow = ($fppDow === 0) ? 7 : $fppDow;
 
-            $delta = ($isoDow - $firstDow + 7) % 7;
-            $day   = 1 + $delta + (($week - 1) * 7);
+            // Tail-based (e.g. last Thursday)
+            if ($calc['type'] === 'tail') {
+                $d = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+                $d = $d->modify('last day of this month');
 
-            if ($day < 1 || $day > (int)$first->format('t')) {
-                return null;
+                while ((int)$d->format('N') !== $isoDow) {
+                    $d = $d->modify('-1 day');
+                }
+
+                $d = $d->modify('-' . (($week - 1) * 7) . ' days');
+
+                $d = $d->modify(($offset >= 0 ? '+' : '') . $offset . ' days');
+
+                if ((int)$d->format('n') !== $origMonth) {
+                    return null;
+                }
+
+                return $d;
             }
 
-            return new DateTimeImmutable(
-                sprintf('%04d-%02d-%02d', $year, $month, $day)
-            );
+            // Head-based (e.g. 4th Thursday)
+            if ($calc['type'] === 'head') {
+                $first = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+                $firstDow = (int)$first->format('N');
+
+                $delta = ($isoDow - $firstDow + 7) % 7;
+                $day   = 1 + $delta + (($week - 1) * 7);
+
+                if ($day < 1 || $day > (int)$first->format('t')) {
+                    return null;
+                }
+
+                $d = new DateTimeImmutable(
+                    sprintf('%04d-%02d-%02d', $year, $month, $day)
+                );
+
+                $d = $d->modify(($offset >= 0 ? '+' : '') . $offset . ' days');
+
+                if ((int)$d->format('n') !== $origMonth) {
+                    return null;
+                }
+
+                return $d;
+            }
         }
 
         return null;
+    }
+
+    private function easterSunday(int $year): DateTimeImmutable
+    {
+        // Meeus/Jones/Butcher Gregorian algorithm
+        $a = $year % 19;
+        $b = intdiv($year, 100);
+        $c = $year % 100;
+        $d = intdiv($b, 4);
+        $e = $b % 4;
+        $f = intdiv($b + 8, 25);
+        $g = intdiv($b - $f + 1, 3);
+        $h = (19 * $a + $b - $d - $g + 15) % 30;
+        $i = intdiv($c, 4);
+        $k = $c % 4;
+        $l = (32 + 2 * $e + 2 * $i - $h - $k) % 7;
+        $m = intdiv($a + 11 * $h + 22 * $l, 451);
+        $month = intdiv($h + $l - 7 * $m + 114, 31);
+        $day = (($h + $l - 7 * $m + 114) % 31) + 1;
+
+        return new DateTimeImmutable(sprintf('%04d-%02d-%02d 00:00:00', $year, $month, $day));
     }
 }
