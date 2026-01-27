@@ -297,8 +297,11 @@ final class YamlMetadata
             if (is_array($value)) {
                 if (in_array($key, ['gcs', 'payload', 'settings'], true)) {
                     foreach ($value as $childKey => $childValue) {
-                        $childKey = is_string($childKey) ? trim($childKey) : null;
-                        if ($childKey === null || $childKey === '') {
+                        if (!is_string($childKey)) {
+                            continue;
+                        }
+                        $childKey = trim($childKey);
+                        if ($childKey === '') {
                             continue;
                         }
                         $out[$childKey] = self::normalizeValue($childValue);
