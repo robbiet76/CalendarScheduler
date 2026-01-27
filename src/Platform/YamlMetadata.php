@@ -73,7 +73,7 @@ final class YamlMetadata
         }
 
         try {
-            $parsed = self::parseYamlBlock($yamlText);
+            $parsed = self::normalizeKeys(self::parseYamlBlock($yamlText));
             if (empty($parsed)) {
                 return [];
             }
@@ -242,6 +242,34 @@ final class YamlMetadata
             $clean[$tk] = $v;
         }
         return $clean;
+    }
+
+    /**
+     * Recursively trim all array keys.
+     *
+     * @param array $in
+     * @return array
+     */
+    private static function normalizeKeys(array $in): array
+    {
+        $out = [];
+
+        foreach ($in as $k => $v) {
+            if (!is_string($k)) {
+                continue;
+            }
+
+            $tk = trim($k);
+            if ($tk === '') {
+                continue;
+            }
+
+            $out[$tk] = is_array($v)
+                ? self::normalizeKeys($v)
+                : $v;
+        }
+
+        return $out;
     }
 
     /**
