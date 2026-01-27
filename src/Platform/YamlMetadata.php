@@ -109,54 +109,44 @@ final class YamlMetadata
             return null;
         }
 
-        // Handle leading YAML document marker '---'
-        $i = 0;
-        // Skip initial empty lines
-        while ($i < count($lines) && trim($lines[$i]) === '') {
-            $i++;
+        $start = null;
+        $end = null;
+        $count = count($lines);
+
+        for ($i = 0; $i < $count; $i++) {
+            if (trim($lines[$i]) === '---') {
+                $start = $i;
+                break;
+            }
         }
-        if ($i < count($lines) && trim($lines[$i]) === '---') {
-            $yamlLines = [];
-            for ($j = $i + 1; $j < count($lines); $j++) {
-                $line = $lines[$j];
-                // Stop if line matches iCalendar property pattern (all caps, digits, hyphens, then colon)
-                if (preg_match('/^[A-Z0-9-]+:/', $line)) {
-                    break;
-                }
-                $yamlLines[] = $line;
-            }
-            if (!empty($yamlLines)) {
-                return implode("\n", $yamlLines);
-            }
+
+        if ($start === null) {
             return null;
         }
 
-        // Case 1: fenced ```yaml block
-        if (preg_match('/```yaml\s*(.*?)\s*```/is', $text, $m)) {
-            $candidate = trim($m[1]);
-            return $candidate !== '' ? $candidate : null;
-        }
-
-        // Case 2: raw YAML-like lines at top
-        $yamlLines = [];
-        foreach ($lines as $line) {
-            $line = rtrim($line);
-
-            if ($line === '') {
-                if (!empty($yamlLines)) {
-                    break;
-                }
-                continue;
-            }
-
-            if (!preg_match('/^[A-Za-z0-9_]+\s*:/', ltrim($line))) {
+        for ($j = $start + 1; $j < $count; $j++) {
+            if (trim($lines[$j]) === '---') {
+                $end = $j;
                 break;
             }
-
-            $yamlLines[] = $line;
         }
 
-        return empty($yamlLines) ? null : implode("\n", $yamlLines);
+        if ($end === null || $end <= $start + 1) {
+            return null;
+        }
+
+        $blockLines = array_slice($lines, $start + 1, $end - $start - 1);
+
+        // Trim trailing empty lines
+        while (!empty($blockLines) && trim(end($blockLines)) === '') {
+            array_pop($blockLines);
+        }
+
+        if (empty($blockLines)) {
+            return null;
+        }
+
+        return implode("\n", $blockLines);
     }
 
     /**
