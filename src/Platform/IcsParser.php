@@ -106,8 +106,8 @@ final class IcsParser
                     $summary = trim($m[1]);
                 }
 
-                if (preg_match('/^DESCRIPTION:(.*?)(?=^\w|$)/ms', $raw, $m)) {
-                    $description = str_replace('\n', "\n", trim($m[1]));
+                if (preg_match('/^DESCRIPTION:\s*(---\n.*?)(?=^[A-Z-]+:|\z)/ms', $raw, $m)) {
+                    $description = trim($m[1]);
                 }
 
                 if (preg_match('/DTSTART([^:]*):(.+)/', $raw, $m)) {
