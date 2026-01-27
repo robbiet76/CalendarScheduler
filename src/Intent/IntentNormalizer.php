@@ -297,6 +297,50 @@ final class IntentNormalizer
             }
         }
 
+        // Parse DTEND (calendar-provided end time/date)
+        if (is_string($raw->dtend) && trim($raw->dtend) !== '') {
+            $dtend = trim($raw->dtend);
+            $endDt = null;
+
+            $formats = [
+                'Y-m-d\TH:i:s\Z', // UTC
+                'Y-m-d\TH:i:s',   // local datetime
+                'Y-m-d H:i:s',    // space-separated
+                'Y-m-d',          // date-only
+            ];
+
+            foreach ($formats as $fmt) {
+                $candidate = \DateTimeImmutable::createFromFormat(
+                    $fmt,
+                    $dtend,
+                    str_ends_with($fmt, '\Z')
+                        ? new \DateTimeZone('UTC')
+                        : $tz
+                );
+                if ($candidate !== false) {
+                    $endDt = $candidate;
+                    break;
+                }
+            }
+
+            if ($endDt instanceof \DateTimeImmutable) {
+                $endDt = $endDt->setTimezone($tz);
+
+                // Only set end date here if RRULE:UNTIL did not already define it
+                if ($endDateRaw === null) {
+                    $endDateRaw = $endDt->format('Y-m-d');
+                }
+
+                // Only set time if DTEND explicitly includes a time component
+                if (
+                    !$isAllDay
+                    && preg_match('/T\d{2}:\d{2}:\d{2}| \d{2}:\d{2}:\d{2}$/', $dtend)
+                ) {
+                    $endTimeRaw = $endDt->format('H:i:s');
+                }
+            }
+        }
+
         // Symbolic time overrides with user-controlled offsets
         if (isset($symbolicTime['start']) && is_string($symbolicTime['start'])) {
             $startTimeRaw = $symbolicTime['start'];
