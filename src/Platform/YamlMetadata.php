@@ -191,6 +191,7 @@ final class YamlMetadata
             preg_match('/^(\s*)/', $line, $m);
             $indent = strlen($m[1]);
             $trimmed = ltrim($line);
+            $line = $trimmed;
 
             // Top-level key
             if ($indent === 0) {
