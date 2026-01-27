@@ -448,9 +448,10 @@ final class IntentNormalizer
             $endDateRaw = $startDateRaw;
         }
 
-        $startTimeOffset = 0;
-        $endTimeOffset = 0;
+        $startTimeOffset = $startTimeOffset ?? 0;
+        $endTimeOffset   = $endTimeOffset ?? 0;
         $provenance = [];
+
         return new DraftTiming(
             $startDateRaw,
             $endDateRaw,
