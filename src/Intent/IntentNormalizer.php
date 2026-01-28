@@ -772,6 +772,17 @@ final class IntentNormalizer
      *
      * This affects hashing only. Identity storage is untouched.
      */
+    /**
+     * Canonicalize identity and subEvents for hashing.
+     *
+     * RULE:
+     * - If symbolic date exists → hash symbolic ONLY
+     * - Else → hash hard ONLY
+     * - NEVER hash both
+     *
+     * This affects hashing only. Identity storage is untouched.
+     * Also applies to both identity timing and subEvent timing.
+     */
     private function canonicalizeForHash(array $identity, array $subEvents): array
     {
         $normalizeTiming = function (array $timing): array {
@@ -779,10 +790,8 @@ final class IntentNormalizer
                 if (!isset($timing[$k]) || !is_array($timing[$k])) {
                     continue;
                 }
-
                 $symbolic = $timing[$k]['symbolic'] ?? null;
                 $hard     = $timing[$k]['hard'] ?? null;
-
                 if (is_string($symbolic) && $symbolic !== '') {
                     $timing[$k] = ['symbolic' => $symbolic];
                 } elseif (is_string($hard) && $hard !== '') {
@@ -797,33 +806,15 @@ final class IntentNormalizer
         if (isset($identity['timing']) && is_array($identity['timing'])) {
             $identity['timing'] = $normalizeTiming($identity['timing']);
         }
-
         foreach ($subEvents as $i => $se) {
             if (isset($se['timing']) && is_array($se['timing'])) {
                 $subEvents[$i]['timing'] = $normalizeTiming($se['timing']);
             }
         }
-
         return [
             'identity'  => $identity,
             'subEvents' => $subEvents,
         ];
-    }
-
-    private function computeIdentityHash(
-        array $identity,
-        array $subEvents
-    ): string {
-        return hash(
-            'sha256',
-            json_encode(
-                $this->canonicalizeForHash(
-                    $identity,
-                    $subEvents
-                ),
-                JSON_THROW_ON_ERROR
-            )
-        );
     }
 
 
