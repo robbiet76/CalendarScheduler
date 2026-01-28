@@ -1,4 +1,4 @@
-<?php
+<file name=0 path=/Users/robterry/Projects/GoogleCalendarScheduler/src/Platform/FppSemantics.php><?php
 declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Platform;
@@ -262,6 +262,28 @@ final class FPPSemantics
      */
     public static function normalizeDays(mixed $value): ?array
     {
+        // Flatten legacy nested weekly array if present
+        if (is_array($value)
+            && count($value) === 2
+            && ($value[0] === 'weekly' || (isset($value['type']) && $value['type'] === 'weekly'))
+            && isset($value[1])
+        ) {
+            return [
+                'type'  => 'weekly',
+                'value' => $value[1],
+            ];
+        }
+        if (is_array($value)
+            && isset($value['type'])
+            && $value['type'] === 'weekly'
+            && isset($value['value'])
+        ) {
+            return [
+                'type'  => 'weekly',
+                'value' => $value['value'],
+            ];
+        }
+
         if (!is_int($value)) {
             return null;
         }
