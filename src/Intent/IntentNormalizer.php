@@ -751,17 +751,16 @@ final class IntentNormalizer
 
         $hashJson = json_encode($hashInput, JSON_THROW_ON_ERROR);
 
-        // TEMP DEBUG — capture exact hash preimage
-        if (($identity['target'] ?? null) === 'XMAS_Daytime') {
-            $source =
-                $ownership['controller']
-                ?? ($ownership['source'] ?? 'unknown');
+        // TEMP DEBUG — capture exact hash preimage (remove after hash parity is verified)
+        $source =
+            $ownership['controller']
+            ?? ($ownership['source'] ?? 'unknown');
 
-            file_put_contents(
-                '/tmp/gcs-hash-preimage-' . $source . '.json',
-                $hashJson . PHP_EOL
-            );
-        }
+        file_put_contents(
+            '/tmp/gcs-hash-preimage-' . $source . '.json',
+            $hashJson . PHP_EOL,
+            FILE_APPEND
+        );
 
         $identityHash = hash('sha256', $hashJson);
 
