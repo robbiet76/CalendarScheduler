@@ -420,28 +420,28 @@ final class IntentNormalizer
             if (isset($rrule['UNTIL'])) {
                 $untilRaw = $rrule['UNTIL'];
                 $untilDt = null;
+
                 // RFC 5545: UNTIL can be either YYYYMMDD or YYYYMMDDTHHMMSSZ
                 if (is_string($untilRaw)) {
                     if (preg_match('/^\d{8}$/', $untilRaw)) {
                         // Date only
-                        $untilDt = \DateTimeImmutable::createFromFormat('Ymd', $untilRaw);
+                        $untilDt = \DateTimeImmutable::createFromFormat('Ymd', $untilRaw, $tz);
                     } elseif (preg_match('/^\d{8}T\d{6}Z$/', $untilRaw)) {
                         // UTC date-time
-                        $untilDt = \DateTimeImmutable::createFromFormat('Ymd\THis\Z', $untilRaw, new \DateTimeZone('UTC'));
-                    } else {
-                        // Reject non‑RFC UNTIL values (do NOT default to now)
-                        $untilDt = null;
+                        $untilDt = \DateTimeImmutable::createFromFormat(
+                            'Ymd\THis\Z',
+                            $untilRaw,
+                            new \DateTimeZone('UTC')
+                        );
                     }
                 }
-                if ($untilDt instanceof \DateTimeInterface) {
+
+                if ($untilDt instanceof \DateTimeImmutable) {
                     $untilDt = $untilDt->setTimezone($tz);
 
-                    // Calendar RRULE UNTIL is inclusive of the last occurrence.
-                    // Intent windows are inclusive ranges, so we subtract one day
-                    // to avoid running one day too long.
-                    $endDateRaw = $untilDt
-                        ->modify('-1 day')
-                        ->format('Y-m-d');
+                    // RRULE UNTIL defines the intent window end explicitly.
+                    // Do NOT adjust by -1 day; DTSTART/DTEND never define intent window length.
+                    $endDateRaw = $untilDt->format('Y-m-d');
                 }
             }
         }
