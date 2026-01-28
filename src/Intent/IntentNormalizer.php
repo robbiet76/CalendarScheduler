@@ -621,18 +621,21 @@ final class IntentNormalizer
 
         $order = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
+        // Helper to unwrap ["weekly", [...]] shape
+        $unwrapWeekly = function(array $v): array {
+            if (
+                count($v) === 2
+                && $v[0] === 'weekly'
+                && is_array($v[1])
+            ) {
+                return $v[1];
+            }
+            return $v;
+        };
+
         // Calendar or FPP side: normalize array shapes
         if (is_array($raw)) {
-
-            // Unwrap leaked scheduler metadata: ["weekly", ["SU","MO",...]]
-            if (
-                count($raw) === 2
-                && $raw[0] === 'weekly'
-                && is_array($raw[1])
-            ) {
-                $raw = $raw[1];
-            }
-
+            $raw = $unwrapWeekly($raw);
             $days = array_values(array_unique($raw));
 
             // Full week or empty → every day
@@ -654,6 +657,7 @@ final class IntentNormalizer
         // FPP side: numeric day index / bitmask
         if (is_int($raw)) {
             $days = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays($raw);
+            $days = (is_array($days)) ? $unwrapWeekly($days) : $days;
 
             if ($days === null || $days === [] || count($days) === 7) {
                 return null;
