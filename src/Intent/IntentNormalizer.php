@@ -897,9 +897,15 @@ final class IntentNormalizer
             if ($time === null) {
                 return null;
             }
+
+            $symbolic = $time['symbolic'] ?? null;
+            if (is_string($symbolic)) {
+                $symbolic = strtolower(trim($symbolic));
+            }
+
             return [
                 'hard'     => $time['hard'] ?? null,
-                'symbolic' => $time['symbolic'] ?? null,
+                'symbolic' => $symbolic,
                 'offset'   => (int)($time['offset'] ?? 0),
             ];
         };
