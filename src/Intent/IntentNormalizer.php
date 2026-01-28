@@ -434,10 +434,15 @@ final class IntentNormalizer
                         ->format('Y-m-d');
                 }
             }
+            // If RRULE exists but no UNTIL is provided, the recurrence window is open-ended.
+            // DTSTART/DTEND define per-occurrence duration, NOT the intent window.
+            if (isset($rrule['FREQ']) && !isset($rrule['UNTIL'])) {
+                $endDateRaw = null;
+            }
         }
 
-        // If no RRULE exists and no end date was provided, treat as single-day event
-        if ($endDateRaw === null && !is_array($raw->rrule)) {
+        // If no RRULE exists at all and no end date was provided, treat as single-day event
+        if ($endDateRaw === null && $raw->rrule === null) {
             $endDateRaw = $startDateRaw;
         }
 
