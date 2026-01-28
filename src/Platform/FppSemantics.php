@@ -263,34 +263,36 @@ final class FPPSemantics
     public static function normalizeDays(mixed $value): ?array
     {
         if (is_array($value)) {
-            // Normalize any weekly representation into flat ['SU','MO',...]
-            // Accepted inputs:
-            //   ['weekly', ['SU','MO',...]]
-            //   ['type'=>'weekly','value'=>['weekly',[...]]]
-            //   ['type'=>'weekly','value'=>['SU','MO',...]]
-            //   Any variant with extra keys
-
-            // Extract candidate value
+            // Extract candidate payload
             if (isset($value['type'], $value['value']) && $value['type'] === 'weekly') {
                 $candidate = $value['value'];
             } else {
                 $candidate = $value;
             }
 
-            // Unwrap ['weekly', [...]] regardless of key shape
-            if (is_array($candidate)) {
-                $vals = array_values($candidate);
-                if (count($vals) >= 2 && $vals[0] === 'weekly' && is_array($vals[1])) {
-                    $candidate = $vals[1];
-                }
+            // Fully unwrap any ['weekly', [...]] nesting
+            while (
+                is_array($candidate)
+                && count($candidate) === 2
+                && $candidate[0] === 'weekly'
+                && is_array($candidate[1])
+            ) {
+                $candidate = $candidate[1];
             }
 
-            if (is_array($candidate)) {
+            // Final guard: only accept flat day lists
+            if (
+                is_array($candidate)
+                && $candidate !== []
+                && !in_array('weekly', $candidate, true)
+            ) {
                 return [
                     'type'  => 'weekly',
                     'value' => array_values($candidate),
                 ];
             }
+
+            return null;
         }
 
         if (!is_int($value)) {
