@@ -615,6 +615,16 @@ final class IntentNormalizer
         array|int|null $raw,
         string $source
     ): ?array {
+        file_put_contents(
+            '/tmp/gcs-days-debug.log',
+            json_encode([
+                'stage' => 'input',
+                'source' => $source,
+                'type' => gettype($raw),
+                'raw' => $raw,
+            ], JSON_THROW_ON_ERROR) . PHP_EOL,
+            FILE_APPEND
+        );
         if ($raw === null) {
             return null;
         }
@@ -654,6 +664,15 @@ final class IntentNormalizer
 
             // Full week or empty → every day
             if ($days === [] || count($days) === 7) {
+                file_put_contents(
+                    '/tmp/gcs-days-debug.log',
+                    json_encode([
+                        'stage' => 'output',
+                        'source' => $source,
+                        'normalized' => null,
+                    ], JSON_THROW_ON_ERROR) . PHP_EOL,
+                    FILE_APPEND
+                );
                 return null;
             }
 
@@ -662,6 +681,18 @@ final class IntentNormalizer
                 array_search($a, $order, true) <=> array_search($b, $order, true)
             );
 
+            file_put_contents(
+                '/tmp/gcs-days-debug.log',
+                json_encode([
+                    'stage' => 'output',
+                    'source' => $source,
+                    'normalized' => [
+                        'type' => 'weekly',
+                        'value' => $days,
+                    ],
+                ], JSON_THROW_ON_ERROR) . PHP_EOL,
+                FILE_APPEND
+            );
             return [
                 'type'  => 'weekly',
                 'value' => $days,
@@ -676,6 +707,15 @@ final class IntentNormalizer
             }
 
             if ($days === null || $days === [] || count($days) === 7) {
+                file_put_contents(
+                    '/tmp/gcs-days-debug.log',
+                    json_encode([
+                        'stage' => 'output',
+                        'source' => $source,
+                        'normalized' => null,
+                    ], JSON_THROW_ON_ERROR) . PHP_EOL,
+                    FILE_APPEND
+                );
                 return null;
             }
 
@@ -684,6 +724,18 @@ final class IntentNormalizer
                 array_search($a, $order, true) <=> array_search($b, $order, true)
             );
 
+            file_put_contents(
+                '/tmp/gcs-days-debug.log',
+                json_encode([
+                    'stage' => 'output',
+                    'source' => $source,
+                    'normalized' => [
+                        'type' => 'weekly',
+                        'value' => $days,
+                    ],
+                ], JSON_THROW_ON_ERROR) . PHP_EOL,
+                FILE_APPEND
+            );
             return [
                 'type'  => 'weekly',
                 'value' => $days,
