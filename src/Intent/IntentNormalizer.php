@@ -762,35 +762,29 @@ final class IntentNormalizer
         );
     }
 
-    private function computeIdentityHash(
-        array $identity,
-        array $subEvents
-    ): string {
-        return hash(
-            'sha256',
-            json_encode(
-                ['identity' => $identity, 'subEvents' => $subEvents],
-                JSON_THROW_ON_ERROR
-            )
-        );
-    }
-
     /**
-     * Canonicalize identity and subEvents for hashing: prefer symbolic dates over hard dates.
-     * Never include both in the hash. Used only for identity hashing.
+     * Canonicalize identity and subEvents for hashing.
+     *
+     * RULE:
+     * - If symbolic date exists → hash symbolic ONLY
+     * - Else → hash hard ONLY
+     * - NEVER hash both
+     *
+     * This affects hashing only. Identity storage is untouched.
      */
     private function canonicalizeForHash(array $identity, array $subEvents): array
     {
-        $apply = function (array $timing): array {
+        $normalizeTiming = function (array $timing): array {
             foreach (['start_date', 'end_date'] as $k) {
                 if (!isset($timing[$k]) || !is_array($timing[$k])) {
                     continue;
                 }
-                $hard = $timing[$k]['hard'] ?? null;
-                $sym  = $timing[$k]['symbolic'] ?? null;
 
-                if (is_string($sym) && $sym !== '') {
-                    $timing[$k] = ['symbolic' => $sym];
+                $symbolic = $timing[$k]['symbolic'] ?? null;
+                $hard     = $timing[$k]['hard'] ?? null;
+
+                if (is_string($symbolic) && $symbolic !== '') {
+                    $timing[$k] = ['symbolic' => $symbolic];
                 } elseif (is_string($hard) && $hard !== '') {
                     $timing[$k] = ['hard' => $hard];
                 } else {
@@ -800,15 +794,13 @@ final class IntentNormalizer
             return $timing;
         };
 
-        // identity timing
         if (isset($identity['timing']) && is_array($identity['timing'])) {
-            $identity['timing'] = $apply($identity['timing']);
+            $identity['timing'] = $normalizeTiming($identity['timing']);
         }
 
-        // subEvent timings
         foreach ($subEvents as $i => $se) {
             if (isset($se['timing']) && is_array($se['timing'])) {
-                $subEvents[$i]['timing'] = $apply($se['timing']);
+                $subEvents[$i]['timing'] = $normalizeTiming($se['timing']);
             }
         }
 
@@ -817,6 +809,23 @@ final class IntentNormalizer
             'subEvents' => $subEvents,
         ];
     }
+
+    private function computeIdentityHash(
+        array $identity,
+        array $subEvents
+    ): string {
+        return hash(
+            'sha256',
+            json_encode(
+                $this->canonicalizeForHash(
+                    $identity,
+                    $subEvents
+                ),
+                JSON_THROW_ON_ERROR
+            )
+        );
+    }
+
 
     /**
      * Apply holiday symbolic resolution ONCE, in the shared flow, prior to hashing.
