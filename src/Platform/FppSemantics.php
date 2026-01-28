@@ -1,4 +1,4 @@
-<file name=0 path=/Users/robterry/Projects/GoogleCalendarScheduler/src/Platform/FppSemantics.php><?php
+<?php
 declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Platform;
