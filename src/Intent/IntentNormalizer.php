@@ -637,7 +637,20 @@ final class IntentNormalizer
         // Calendar or FPP side: normalize array shapes
         if (is_array($raw)) {
             $raw = $unwrapWeekly($raw);
-            $days = array_values(array_unique($raw));
+            // Also unwrap if associative array with type/value keys and possible nested weekly
+            if (isset($raw['type'], $raw['value']) && $raw['type'] === 'weekly' && is_array($raw['value'])) {
+                $raw['value'] = $unwrapWeekly($raw['value']);
+            }
+
+            // Replace logic for days array construction
+            if (array_is_list($raw)) {
+                $days = array_values(array_unique($raw));
+            } elseif (isset($raw['type'], $raw['value']) && $raw['type'] === 'weekly' && is_array($raw['value'])) {
+                $v = $unwrapWeekly($raw['value']);
+                $days = array_values(array_unique($v));
+            } else {
+                throw new \RuntimeException('Invalid days array shape in normalizeDays');
+            }
 
             // Full week or empty → every day
             if ($days === [] || count($days) === 7) {
