@@ -784,49 +784,67 @@ final class IntentNormalizer
      * This affects hashing only. Identity storage is untouched.
      */
     /**
-     * Canonicalize identity and subEvents for hashing.
+     * Build explicit, minimal hash preimage.
      *
-     * RULE:
-     * - If symbolic date exists → hash symbolic ONLY
-     * - Else → hash hard ONLY
-     * - NEVER hash both
-     *
-     * This affects hashing only. Identity storage is untouched.
-     * Also applies to both identity timing and subEvent timing.
+     * RULES:
+     * - Only identity + timing + payload semantics that define intent identity
+     * - Prefer symbolic dates if present, otherwise hard
+     * - Never include both symbolic and hard
+     * - Exclude ownership, correlation, provenance, raw payload noise
      */
     private function canonicalizeForHash(array $identity, array $subEvents): array
     {
-        $normalizeTiming = function (array $timing): array {
-            foreach (['start_date', 'end_date'] as $k) {
-                if (!isset($timing[$k]) || !is_array($timing[$k])) {
-                    continue;
-                }
-
-                $symbolic = $timing[$k]['symbolic'] ?? null;
-                $hard     = $timing[$k]['hard'] ?? null;
-
-                if (is_string($symbolic) && $symbolic !== '') {
-                    $timing[$k] = ['symbolic' => $symbolic];
-                } elseif (is_string($hard) && $hard !== '') {
-                    $timing[$k] = ['hard' => $hard];
-                } else {
-                    unset($timing[$k]);
-                }
+        $pickDate = function (?array $date): ?array {
+            if ($date === null) {
+                return null;
             }
-            return $timing;
+            if (!empty($date['symbolic'])) {
+                return ['symbolic' => $date['symbolic']];
+            }
+            if (!empty($date['hard'])) {
+                return ['hard' => $date['hard']];
+            }
+            return null;
         };
 
-        if (isset($identity['timing']) && is_array($identity['timing'])) {
-            $identity['timing'] = $normalizeTiming($identity['timing']);
-        }
-        foreach ($subEvents as $i => $se) {
-            if (isset($se['timing']) && is_array($se['timing'])) {
-                $subEvents[$i]['timing'] = $normalizeTiming($se['timing']);
+        $pickTime = function (?array $time): ?array {
+            if ($time === null) {
+                return null;
             }
-        }
+            return [
+                'hard'     => $time['hard'] ?? null,
+                'symbolic' => $time['symbolic'] ?? null,
+                'offset'   => (int)($time['offset'] ?? 0),
+            ];
+        };
+
+        $timing = $identity['timing'];
+
+        $canonicalTiming = [
+            'all_day'    => (bool)$timing['all_day'],
+            'start_date' => $pickDate($timing['start_date'] ?? null),
+            'end_date'   => $pickDate($timing['end_date'] ?? null),
+            'start_time' => $pickTime($timing['start_time'] ?? null),
+            'end_time'   => $pickTime($timing['end_time'] ?? null),
+            'days'       => $timing['days'] ?? null,
+        ];
+
+        $canonicalSubEvent = $subEvents[0];
+
         return [
-            'identity'  => $identity,
-            'subEvents' => $subEvents,
+            'identity' => [
+                'type'   => $identity['type'],
+                'target' => $identity['target'],
+                'timing' => $canonicalTiming,
+            ],
+            'subEvents' => [[
+                'timing'  => $canonicalTiming,
+                'payload' => [
+                    'enabled'  => (bool)$canonicalSubEvent['payload']['enabled'],
+                    'repeat'   => (string)$canonicalSubEvent['payload']['repeat'],
+                    'stopType' => (string)$canonicalSubEvent['payload']['stopType'],
+                ],
+            ]],
         ];
     }
 
