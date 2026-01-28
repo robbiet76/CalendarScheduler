@@ -334,6 +334,16 @@ final class IntentNormalizer
             }
         }
 
+        // Calendar DATE-only DTEND represents per-occurrence span, not intent window.
+        // For all-day events with RRULE, DATE DTEND must NOT define end_date.
+        if (
+            $isAllDay === true
+            && is_array($raw->rrule)
+            && isset($raw->rrule['FREQ'])
+        ) {
+            $endDateRaw = null;
+        }
+
         // Symbolic time overrides with user-controlled offsets
         if (isset($symbolicTime['start']) && is_string($symbolicTime['start'])) {
             $startTimeRaw = $symbolicTime['start'];
@@ -433,11 +443,6 @@ final class IntentNormalizer
                         ->modify('-1 day')
                         ->format('Y-m-d');
                 }
-            }
-            // If RRULE exists but no UNTIL is provided, the recurrence window is open-ended.
-            // DTSTART/DTEND define per-occurrence duration, NOT the intent window.
-            if (isset($rrule['FREQ']) && !isset($rrule['UNTIL'])) {
-                $endDateRaw = null;
             }
         }
 
