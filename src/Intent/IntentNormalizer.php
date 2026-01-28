@@ -748,10 +748,22 @@ final class IntentNormalizer
 
         // Identity hash: canonicalize for hashing so symbolic dates are preferred.
         $hashInput = $this->canonicalizeForHash($identity, $subEvents);
-        $identityHash = hash(
-            'sha256',
-            json_encode($hashInput, JSON_THROW_ON_ERROR)
-        );
+
+        $hashJson = json_encode($hashInput, JSON_THROW_ON_ERROR);
+
+        // TEMP DEBUG — capture exact hash preimage
+        if (($identity['target'] ?? null) === 'XMAS_Daytime') {
+            $source =
+                $ownership['controller']
+                ?? ($ownership['source'] ?? 'unknown');
+
+            file_put_contents(
+                '/tmp/gcs-hash-preimage-' . $source . '.json',
+                $hashJson . PHP_EOL
+            );
+        }
+
+        $identityHash = hash('sha256', $hashJson);
 
         return new Intent(
             $identityHash,
