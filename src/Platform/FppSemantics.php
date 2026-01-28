@@ -262,38 +262,33 @@ final class FPPSemantics
      */
     public static function normalizeDays(mixed $value): ?array
     {
-        // Canonicalize all weekly representations to ['SU','MO',...]
         if (is_array($value)) {
-            // Case: ['weekly', ['SU','MO',...]]
-            if (
-                count($value) === 2
-                && $value[0] === 'weekly'
-                && is_array($value[1])
-            ) {
-                return [
-                    'type'  => 'weekly',
-                    'value' => array_values($value[1]),
-                ];
+            // Normalize any weekly representation into flat ['SU','MO',...]
+            // Accepted inputs:
+            //   ['weekly', ['SU','MO',...]]
+            //   ['type'=>'weekly','value'=>['weekly',[...]]]
+            //   ['type'=>'weekly','value'=>['SU','MO',...]]
+            //   Any variant with extra keys
+
+            // Extract candidate value
+            if (isset($value['type'], $value['value']) && $value['type'] === 'weekly') {
+                $candidate = $value['value'];
+            } else {
+                $candidate = $value;
             }
 
-            // Case: ['type'=>'weekly','value'=>['weekly',[...]]] OR ['type'=>'weekly','value'=>[...]]
-            if (
-                isset($value['type'], $value['value'])
-                && $value['type'] === 'weekly'
-                && is_array($value['value'])
-            ) {
-                $v = $value['value'];
-
-                if (count($v) === 2 && $v[0] === 'weekly' && is_array($v[1])) {
-                    return [
-                        'type'  => 'weekly',
-                        'value' => array_values($v[1]),
-                    ];
+            // Unwrap ['weekly', [...]] regardless of key shape
+            if (is_array($candidate)) {
+                $vals = array_values($candidate);
+                if (count($vals) >= 2 && $vals[0] === 'weekly' && is_array($vals[1])) {
+                    $candidate = $vals[1];
                 }
+            }
 
+            if (is_array($candidate)) {
                 return [
                     'type'  => 'weekly',
-                    'value' => array_values($v),
+                    'value' => array_values($candidate),
                 ];
             }
         }
