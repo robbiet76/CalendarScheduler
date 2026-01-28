@@ -621,8 +621,18 @@ final class IntentNormalizer
 
         $order = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
-        // Calendar side: already normalized (RRULE BYDAY, etc)
+        // Calendar or FPP side: normalize array shapes
         if (is_array($raw)) {
+
+            // Unwrap leaked scheduler metadata: ["weekly", ["SU","MO",...]]
+            if (
+                count($raw) === 2
+                && $raw[0] === 'weekly'
+                && is_array($raw[1])
+            ) {
+                $raw = $raw[1];
+            }
+
             $days = array_values(array_unique($raw));
 
             // Full week or empty → every day
