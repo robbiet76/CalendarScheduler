@@ -262,26 +262,40 @@ final class FPPSemantics
      */
     public static function normalizeDays(mixed $value): ?array
     {
-        // Flatten legacy nested weekly array if present
-        if (is_array($value)
-            && count($value) === 2
-            && ($value[0] === 'weekly' || (isset($value['type']) && $value['type'] === 'weekly'))
-            && isset($value[1])
-        ) {
-            return [
-                'type'  => 'weekly',
-                'value' => $value[1],
-            ];
-        }
-        if (is_array($value)
-            && isset($value['type'])
-            && $value['type'] === 'weekly'
-            && isset($value['value'])
-        ) {
-            return [
-                'type'  => 'weekly',
-                'value' => $value['value'],
-            ];
+        // Canonicalize all weekly representations to ['SU','MO',...]
+        if (is_array($value)) {
+            // Case: ['weekly', ['SU','MO',...]]
+            if (
+                count($value) === 2
+                && $value[0] === 'weekly'
+                && is_array($value[1])
+            ) {
+                return [
+                    'type'  => 'weekly',
+                    'value' => array_values($value[1]),
+                ];
+            }
+
+            // Case: ['type'=>'weekly','value'=>['weekly',[...]]] OR ['type'=>'weekly','value'=>[...]]
+            if (
+                isset($value['type'], $value['value'])
+                && $value['type'] === 'weekly'
+                && is_array($value['value'])
+            ) {
+                $v = $value['value'];
+
+                if (count($v) === 2 && $v[0] === 'weekly' && is_array($v[1])) {
+                    return [
+                        'type'  => 'weekly',
+                        'value' => array_values($v[1]),
+                    ];
+                }
+
+                return [
+                    'type'  => 'weekly',
+                    'value' => array_values($v),
+                ];
+            }
         }
 
         if (!is_int($value)) {
