@@ -106,7 +106,18 @@ final class FPPSemantics
      */
     public static function normalizeRepeat(mixed $value): int
     {
-        return is_numeric($value) ? (int)$value : 0;
+        if (!is_numeric($value)) {
+            return 0;
+        }
+
+        $repeat = (int) $value;
+
+        return match (true) {
+            $repeat === 0  => 0,
+            $repeat === 1  => 1,
+            $repeat >= 100 => (int) ($repeat / 100),
+            default        => 0,
+        };
     }
 
     /**
@@ -172,6 +183,10 @@ final class FPPSemantics
      */
     public static function repeatToSemantic(int $value): string
     {
+        if ($value >= 1 && !isset(self::REPEAT_MAP[$value])) {
+            return $value . 'min';
+        }
+
         return self::REPEAT_MAP[$value] ?? 'none';
     }
 
@@ -181,6 +196,10 @@ final class FPPSemantics
     public static function semanticToRepeat(string $value): int
     {
         $value = strtolower(trim($value));
+
+        if (preg_match('/^(\\d+)min$/', $value, $m)) {
+            return ((int) $m[1]) * 100;
+        }
 
         foreach (self::REPEAT_MAP as $numeric => $semantic) {
             if ($semantic === $value) {
