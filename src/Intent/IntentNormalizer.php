@@ -142,6 +142,13 @@ final class IntentNormalizer
         NormalizationContext $context
     ): Intent {
         $d = $raw->data;
+        // FPP all-day is explicitly encoded as 00:00 → 24:00 with zero offsets.
+        // Detect it ONCE here and propagate via DraftTiming.
+        $isAllDay =
+            ($d['startTime'] ?? null) === '00:00:00'
+            && ($d['endTime'] ?? null) === '24:00:00'
+            && ((int)($d['startTimeOffset'] ?? 0)) === 0
+            && ((int)($d['endTimeOffset'] ?? 0)) === 0;
 
         // --- Required fields validation (fail fast) ---
         foreach (['playlist', 'startDate', 'endDate', 'startTime', 'endTime'] as $k) {
@@ -166,7 +173,32 @@ final class IntentNormalizer
             $target = preg_replace('/\.fseq$/i', '', $target);
         }
 
-        $draftTiming     = $this->draftTimingFromFpp($raw);
+        // Normalize guard dates in FPP start/end dates
+        $startDateRaw = $d['startDate'] ?? null;
+        $endDateRaw   = $d['endDate'] ?? null;
+        if (is_string($endDateRaw)) {
+            $endDateObj = \DateTimeImmutable::createFromFormat('Y-m-d', $endDateRaw);
+            if ($endDateObj !== false
+                && \GoogleCalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate(
+                    $endDateObj->format('Y-m-d'),
+                    new \DateTimeImmutable('now', $context->timezone)
+                )
+            ) {
+                $endDateRaw = null;
+            }
+        }
+
+        $draftTiming = new DraftTiming(
+            $startDateRaw,
+            $endDateRaw,
+            $isAllDay ? null : ($d['startTime'] ?? null),
+            $isAllDay ? null : ($d['endTime'] ?? null),
+            (int)($d['startTimeOffset'] ?? 0),
+            (int)($d['endTimeOffset'] ?? 0),
+            $d['day'] ?? null,
+            $isAllDay,
+            ['source' => 'fpp']
+        );
         $canonicalTiming = $this->normalizeTiming($draftTiming, $context);
 
 
@@ -468,44 +500,6 @@ final class IntentNormalizer
         );
     }
 
-    private function draftTimingFromFpp(FppRawEvent $raw, ?NormalizationContext $context = null): DraftTiming
-    {
-        $d = $raw->data;
-
-        // Normalize guard dates in FPP start/end dates
-        $startDateRaw = $d['startDate'] ?? null;
-        $endDateRaw = $d['endDate'] ?? null;
-        if (is_string($endDateRaw)) {
-            $endDateObj = \DateTimeImmutable::createFromFormat('Y-m-d', $endDateRaw);
-            if ($endDateObj !== false
-                && \GoogleCalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate(
-                    $endDateObj->format('Y-m-d'),
-                    new \DateTimeImmutable('now', $context?->timezone)
-                )
-            ) {
-                $endDateRaw = null;
-            }
-        }
-
-        // Detect FPP all-day encoding: 00:00 → 24:00 with zero offsets
-        $isAllDay =
-            ($d['startTime'] ?? null) === '00:00:00'
-            && ($d['endTime'] ?? null) === '24:00:00'
-            && ((int)($d['startTimeOffset'] ?? 0)) === 0
-            && ((int)($d['endTimeOffset'] ?? 0)) === 0;
-
-        return new DraftTiming(
-            $startDateRaw,
-            $endDateRaw,
-            $isAllDay ? null : ($d['startTime'] ?? null),
-            $isAllDay ? null : ($d['endTime'] ?? null),
-            (int)($d['startTimeOffset'] ?? 0),
-            (int)($d['endTimeOffset'] ?? 0),
-            $d['day'] ?? null,
-            $isAllDay,
-            ['source' => 'fpp']
-        );
-    }
 
     private function normalizeTiming(
         DraftTiming $draft,
