@@ -621,15 +621,15 @@ final class IntentNormalizer
 
         $order = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
-        // Helper to unwrap ["weekly", [...]] shape
+        // Helper to unwrap leaked scheduler metadata: ["weekly", [...]] (idempotent)
         $unwrapWeekly = function(array $v): array {
-            if (
+            while (
                 array_is_list($v)
                 && count($v) === 2
                 && $v[0] === 'weekly'
                 && is_array($v[1])
             ) {
-                return $v[1];
+                $v = $v[1];
             }
             return $v;
         };
