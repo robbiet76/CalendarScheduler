@@ -790,14 +790,16 @@ final class IntentNormalizer
                 if (!isset($timing[$k]) || !is_array($timing[$k])) {
                     continue;
                 }
+
                 $symbolic = $timing[$k]['symbolic'] ?? null;
                 $hard     = $timing[$k]['hard'] ?? null;
+
                 if (is_string($symbolic) && $symbolic !== '') {
                     $timing[$k] = ['symbolic' => $symbolic];
                 } elseif (is_string($hard) && $hard !== '') {
                     $timing[$k] = ['hard' => $hard];
                 } else {
-                    $timing[$k] = ['hard' => null];
+                    unset($timing[$k]);
                 }
             }
             return $timing;
