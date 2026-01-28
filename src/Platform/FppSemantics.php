@@ -251,14 +251,15 @@ final class FPPSemantics
     ];
 
     /**
-     * Normalize FPP day encoding into Intent timing.days structure.
+     * Normalize FPP day encoding into a canonical list of weekday tokens.
+     *
+     * IMPORTANT: Platform semantics must return raw primitives only.
+     * IntentNormalizer is responsible for wrapping these into Intent timing.days
+     * structures (e.g. ['type' => 'weekly', 'value' => ...]).
      *
      * Returns:
-     * - null
-     * - ['type' => 'weekly', 'value' => [...]]
-     * - ['type' => 'date_parity', 'value' => 'odd' | 'even']
-     *
-     * Throws if encoding is unsupported or ambiguous.
+     * - null (meaning "every day" / no restriction)
+     * - ['SU','MO','TU','WE','TH','FR','SA'] (subset)
      */
     public static function normalizeDays(mixed $value): ?array
     {
@@ -286,10 +287,7 @@ final class FPPSemantics
                 && $candidate !== []
                 && !in_array('weekly', $candidate, true)
             ) {
-                return [
-                    'type'  => 'weekly',
-                    'value' => array_values($candidate),
-                ];
+                return array_values($candidate);
             }
 
             return null;
@@ -303,17 +301,11 @@ final class FPPSemantics
         if ($value < self::DAY_MASK_FLAG) {
             return match ($value) {
                 self::DAY_EVERYDAY => null,
-
-                self::DAY_ODD => [
-                    'type'  => 'date_parity',
-                    'value' => 'odd',
-                ],
-
-                self::DAY_EVEN => [
-                    'type'  => 'date_parity',
-                    'value' => 'even',
-                ],
-
+                // Parity-based scheduling is not represented as weekly day tokens.
+                // Keep Platform semantics primitive-only; higher layers can add a
+                // dedicated Intent representation later if needed.
+                self::DAY_ODD,
+                self::DAY_EVEN => null,
                 default => self::presetIndexToWeekly($value),
             };
         }
@@ -334,10 +326,7 @@ final class FPPSemantics
 
             sort($days);
 
-            return [
-                'type'  => 'weekly',
-                'value' => $days,
-            ];
+            return $days;
         }
 
         throw new \RuntimeException("Unsupported FPP day encoding: {$value}");
@@ -456,11 +445,6 @@ final class FPPSemantics
             default             => null,
         };
 
-        return $value === null
-            ? null
-            : [
-                'type'  => 'weekly',
-                'value' => $value,
-            ];
+        return $value === null ? null : $value;
     }
 }
