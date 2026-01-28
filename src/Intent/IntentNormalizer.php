@@ -324,12 +324,6 @@ final class IntentNormalizer
 
             if ($endDt instanceof \DateTimeImmutable) {
                 $endDt = $endDt->setTimezone($tz);
-
-                // Only set end date here if RRULE:UNTIL did not already define it
-                if ($endDateRaw === null) {
-                    $endDateRaw = $endDt->format('Y-m-d');
-                }
-
                 // Only set time if DTEND explicitly includes a time component
                 if (
                     !$isAllDay
@@ -442,8 +436,8 @@ final class IntentNormalizer
             }
         }
 
-        // If no RRULE:UNTIL was provided, calendar intent window is single-day
-        if ($endDateRaw === null) {
+        // If no RRULE exists and no end date was provided, treat as single-day event
+        if ($endDateRaw === null && !is_array($raw->rrule)) {
             $endDateRaw = $startDateRaw;
         }
 
