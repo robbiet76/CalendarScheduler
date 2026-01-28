@@ -624,7 +624,8 @@ final class IntentNormalizer
         // Helper to unwrap ["weekly", [...]] shape
         $unwrapWeekly = function(array $v): array {
             if (
-                count($v) === 2
+                array_is_list($v)
+                && count($v) === 2
                 && $v[0] === 'weekly'
                 && is_array($v[1])
             ) {
@@ -657,7 +658,9 @@ final class IntentNormalizer
         // FPP side: numeric day index / bitmask
         if (is_int($raw)) {
             $days = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays($raw);
-            $days = (is_array($days)) ? $unwrapWeekly($days) : $days;
+            if (is_array($days)) {
+                $days = $unwrapWeekly($days);
+            }
 
             if ($days === null || $days === [] || count($days) === 7) {
                 return null;
