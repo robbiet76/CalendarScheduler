@@ -552,7 +552,8 @@ final class IntentNormalizer
         // If this is a WEEKLY rule with BYDAY, snap the candidate end date backwards to the nearest matching day.
         // IMPORTANT: BYDAY snapping MUST NOT override an UNTIL-exclusive rollback.
         if (
-            is_array($daysRaw)
+            $isDateOnly === true
+            && is_array($daysRaw)
             && $daysRaw !== []
             && !in_array('date_only_exclusive', $debug['rules'], true)
         ) {
