@@ -450,31 +450,14 @@ final class IntentNormalizer
             }
             // Handle UNTIL
             if (isset($rrule['UNTIL'])) {
-                $untilRaw = $rrule['UNTIL'];
-                $untilDt = null;
-
-                // RFC 5545: UNTIL can be either YYYYMMDD or YYYYMMDDTHHMMSSZ
-                if (is_string($untilRaw)) {
-                    if (preg_match('/^\d{8}$/', $untilRaw)) {
-                        // Date only
-                        $untilDt = \DateTimeImmutable::createFromFormat('Ymd', $untilRaw, $tz);
-                    } elseif (preg_match('/^\d{8}T\d{6}Z$/', $untilRaw)) {
-                        // UTC date-time
-                        $untilDt = \DateTimeImmutable::createFromFormat(
-                            'Ymd\THis\Z',
-                            $untilRaw,
-                            new \DateTimeZone('UTC')
-                        );
-                    }
-                }
-
-                if ($untilDt instanceof \DateTimeImmutable) {
-                    $untilDt = $untilDt->setTimezone($tz);
-
-                    // RRULE UNTIL defines the intent window end explicitly.
-                    // Do NOT adjust by -1 day; DTSTART/DTEND never define intent window length.
-                    $endDateRaw = $untilDt->format('Y-m-d');
-                }
+                $endDateRaw = $this->computeIntentEndDateFromRRuleUntil(
+                    $rrule['UNTIL'],
+                    $startDt instanceof \DateTimeImmutable ? $startDt : null,
+                    $startTimeRaw,
+                    $isAllDay,
+                    $daysRaw,
+                    $tz
+                );
             }
         }
 
@@ -498,6 +481,96 @@ final class IntentNormalizer
             $isAllDay,
             $provenance
         );
+    }
+
+    /**
+     * Compute the inclusive intent end date (Y-m-d) from an RRULE UNTIL value.
+     *
+     * ICS note:
+     * - DTEND is per-occurrence and exclusive.
+     * - UNTIL bounds the set of DTSTART instants (last DTSTART must be <= UNTIL).
+     *
+     * For identity intent windows, we want the DATE of the last occurrence DTSTART.
+     */
+    private function computeIntentEndDateFromRRuleUntil(
+        mixed $untilRaw,
+        ?\DateTimeImmutable $dtstart,
+        ?string $startTimeRaw,
+        bool $isAllDay,
+        ?array $daysRaw,
+        \DateTimeZone $tz
+    ): ?string {
+        $parsed = $this->parseRRuleUntil($untilRaw, $tz);
+        if ($parsed === null) {
+            return null;
+        }
+
+        [$untilDt, $isDateOnly] = $parsed;
+        $untilDt = $untilDt->setTimezone($tz);
+
+        // DATE-only UNTIL already represents the last allowed DTSTART date.
+        $candidateDate = $untilDt->format('Y-m-d');
+
+        // For date-time UNTIL, ensure the last DTSTART instant (time-of-day) is <= UNTIL.
+        // If the UNTIL time-of-day is earlier than the event start time-of-day, the last DTSTART date is the previous day.
+        if ($isDateOnly === false && $isAllDay === false && is_string($startTimeRaw) && $startTimeRaw !== '') {
+            $startTime = \DateTimeImmutable::createFromFormat('H:i:s', $startTimeRaw, $tz)
+                ?: \DateTimeImmutable::createFromFormat('H:i', $startTimeRaw, $tz);
+            if ($startTime instanceof \DateTimeImmutable) {
+                $untilSeconds = ((int)$untilDt->format('H')) * 3600 + ((int)$untilDt->format('i')) * 60 + (int)$untilDt->format('s');
+                $startSeconds = ((int)$startTime->format('H')) * 3600 + ((int)$startTime->format('i')) * 60 + (int)$startTime->format('s');
+                if ($untilSeconds < $startSeconds) {
+                    $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
+                }
+            }
+        }
+
+        // If this is a WEEKLY rule with BYDAY, snap the candidate end date backwards to the nearest matching day.
+        if (is_array($daysRaw) && $daysRaw !== []) {
+            $validDays = ['SU','MO','TU','WE','TH','FR','SA'];
+            $allowed = array_values(array_filter($daysRaw, fn($d) => in_array($d, $validDays, true)));
+            if ($allowed !== []) {
+                $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $candidateDate, $tz);
+                if ($dt instanceof \DateTimeImmutable) {
+                    // Walk back up to 14 days (covers weekly schedules safely) to find a matching BYDAY.
+                    for ($i = 0; $i < 14; $i++) {
+                        $token = strtoupper($dt->format('D'));
+                        $map = ['SUN'=>'SU','MON'=>'MO','TUE'=>'TU','WED'=>'WE','THU'=>'TH','FRI'=>'FR','SAT'=>'SA'];
+                        $byday = $map[$token] ?? null;
+                        if ($byday !== null && in_array($byday, $allowed, true)) {
+                            return $dt->format('Y-m-d');
+                        }
+                        $dt = $dt->modify('-1 day');
+                    }
+                }
+            }
+        }
+
+        return $candidateDate;
+    }
+
+    /**
+     * Parse RFC 5545 UNTIL values.
+     * Returns [DateTimeImmutable, bool $isDateOnly] or null.
+     */
+    private function parseRRuleUntil(mixed $untilRaw, \DateTimeZone $tz): ?array
+    {
+        if (!is_string($untilRaw) || $untilRaw === '') {
+            return null;
+        }
+
+        // RFC 5545: UNTIL can be either YYYYMMDD (date) or YYYYMMDDTHHMMSSZ (UTC date-time)
+        if (preg_match('/^\d{8}$/', $untilRaw)) {
+            $dt = \DateTimeImmutable::createFromFormat('Ymd', $untilRaw, $tz);
+            return ($dt instanceof \DateTimeImmutable) ? [$dt, true] : null;
+        }
+
+        if (preg_match('/^\d{8}T\d{6}Z$/', $untilRaw)) {
+            $dt = \DateTimeImmutable::createFromFormat('Ymd\THis\Z', $untilRaw, new \DateTimeZone('UTC'));
+            return ($dt instanceof \DateTimeImmutable) ? [$dt, false] : null;
+        }
+
+        return null;
     }
 
 
