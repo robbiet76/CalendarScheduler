@@ -465,6 +465,7 @@ final class IntentNormalizer
                 );
                 // Record provenance of end_date source as 'rrule'
                 $provenance['end_date_source'] = 'rrule';
+                $provenance['end_date_final']  = true;
             }
         }
 
@@ -668,7 +669,9 @@ final class IntentNormalizer
         ];
 
         // Consolidated calendar end-date policy resolver.
-        $timing = $this->resolveCalendarEndDate($draft, $timing);
+        if (($draft->provenance['end_date_final'] ?? false) !== true) {
+            $timing = $this->resolveCalendarEndDate($draft, $timing);
+        }
 
         // IMPORTANT (RFC 5545):
         // Calendar intent end_date MUST already be inclusive by this stage.
