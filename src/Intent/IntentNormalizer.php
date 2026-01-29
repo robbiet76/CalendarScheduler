@@ -547,12 +547,43 @@ final class IntentNormalizer
         // Base candidate is UNTIL date
         $candidateDate = $untilDt->format('Y-m-d');
 
-        // Google Calendar semantic:
-        // For ALL timed (non-all-day) recurring events,
-        // UNTIL is an exclusive upper bound on DTSTART.
-        if ($isAllDay === false) {
-            $debug['rules'][] = 'timed_until_exclusive';
-            $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
+        // RFC 5545 semantics (timezone-safe):
+        // UNTIL is an exclusive upper bound on valid DTSTART instants.
+        // The final occurrence date is the DATE of the last DTSTART such that:
+        //
+        //   DTSTART (converted to local timezone) <= UNTIL (converted to local timezone)
+        //
+        // This comparison MUST be done in local time and MUST NOT rely on hardcoded
+        // cutoff clock values, as FPP users span all time zones (including DST and
+        // non-hour offsets).
+        //
+        // Practically:
+        // - If the event is timed (not all-day)
+        // - And the normal DTSTART time-of-day would occur *after* the UNTIL instant
+        //   on the UNTIL calendar date
+        // - Then no occurrence can exist on that date, and the intent end date must
+        //   be the previous calendar day.
+        //
+        // All-day events are date-bounded and do not apply this rule.
+        if ($isAllDay === false && $dtstart instanceof \DateTimeImmutable) {
+            // RFC 5545: UNTIL is an exclusive upper bound on valid DTSTART instants.
+            // Compare the local DTSTART time-of-day against the UNTIL instant.
+            $debug['rules'][] = 'timed_until_exclusive_check';
+
+            // Construct a candidate DTSTART on the UNTIL calendar date
+            $candidateStart = $dtstart
+                ->setDate(
+                    (int)$untilDt->format('Y'),
+                    (int)$untilDt->format('m'),
+                    (int)$untilDt->format('d')
+                );
+
+            // If that DTSTART would occur AFTER the UNTIL instant,
+            // then no occurrence exists on the UNTIL date.
+            if ($candidateStart > $untilDt) {
+                $debug['rules'][] = 'timed_until_exclusive_rollback';
+                $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
+            }
         }
 
         // IMPORTANT:
