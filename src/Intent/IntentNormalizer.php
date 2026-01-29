@@ -521,6 +521,9 @@ final class IntentNormalizer
         if ($parsed === null) {
             $debug['correlation'] = [
                 'uid' => $calendarUid,
+                // DEBUG (temporary): end-date calculation tracing for calendar UNTIL semantics.
+                // Remove once behavior is proven stable across time zones.
+                // -------------------------------------------------------------------------
                 'summary' => $calendarSummary,
                 'start_date_raw' => $dtstart?->format('Y-m-d'),
                 'start_time_raw' => $startTimeRaw,
@@ -530,6 +533,9 @@ final class IntentNormalizer
                 '/tmp/gcs-enddate-debug.log',
                 json_encode($debug, JSON_THROW_ON_ERROR) . PHP_EOL,
                 FILE_APPEND
+                // DEBUG (temporary): append is intentional for trace correlation.
+                // This log should be removed once confidence is established.
+                // -------------------------------------------------------------------------
             );
             return null;
         }
@@ -593,6 +599,9 @@ final class IntentNormalizer
         $debug['final_candidate'] = $candidateDate;
         $debug['correlation'] = [
             'uid' => $calendarUid,
+            // DEBUG (temporary): end-date calculation tracing for calendar UNTIL semantics.
+            // Remove once behavior is proven stable across time zones.
+            // -------------------------------------------------------------------------
             'summary' => $calendarSummary,
             'start_date_raw' => $dtstart?->format('Y-m-d'),
             'start_time_raw' => $startTimeRaw,
@@ -602,6 +611,9 @@ final class IntentNormalizer
             '/tmp/gcs-enddate-debug.log',
             json_encode($debug, JSON_THROW_ON_ERROR) . PHP_EOL,
             FILE_APPEND
+            // DEBUG (temporary): append is intentional for trace correlation.
+            // This log should be removed once confidence is established.
+            // -------------------------------------------------------------------------
         );
         return $candidateDate;
     }
@@ -634,6 +646,11 @@ final class IntentNormalizer
     private function normalizeTiming(
         DraftTiming $draft,
         NormalizationContext $context
+        /**
+         * INVARIANT:
+         * All cross-source timing semantics MUST converge here.
+         * No calendar-specific or FPP-specific date logic is allowed below this point.
+         */
     ): CanonicalTiming {
         // Guard: prevent 00:00–24:00 time window from leaking (all-day must be normalized)
         if (
@@ -1007,13 +1024,25 @@ final class IntentNormalizer
 
         $hashJson = json_encode($hashInput, JSON_THROW_ON_ERROR);
 
-        // TEMP DEBUG — capture exact hash preimage (remove after hash parity is verified)
+        /**
+         * DEBUG (temporary):
+         * Capture exact hash preimage for calendar/FPP parity verification.
+         * MUST be removed once hash parity is proven stable.
+         */
         $source =
             $ownership['controller']
             ?? ($ownership['source'] ?? 'unknown');
 
+        $preimagePath = '/tmp/gcs-hash-preimage-' . $source . '.json';
+
+        // DEBUG (temporary): keep only the most recent hash preimage
+        // Prevent unbounded file growth during repeated sync runs.
+        if (file_exists($preimagePath)) {
+            unlink($preimagePath);
+        }
+
         file_put_contents(
-            '/tmp/gcs-hash-preimage-' . $source . '.json',
+            $preimagePath,
             $hashJson . PHP_EOL,
             FILE_APPEND
         );
