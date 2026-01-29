@@ -544,14 +544,14 @@ final class IntentNormalizer
         $debug['days_raw'] = $daysRaw;
         $debug['rules'] = [];
 
-        // DATE-only UNTIL already represents the last allowed DTSTART date.
+        // Base candidate is UNTIL date
         $candidateDate = $untilDt->format('Y-m-d');
 
         // Google Calendar semantic:
-        // For TIMED (non-all-day) recurring events, a DATE-only UNTIL is an
-        // exclusive upper bound. The last visible occurrence is the previous day.
-        if ($isDateOnly === true && $isAllDay === false) {
-            $debug['rules'][] = 'date_only_exclusive';
+        // For ALL timed (non-all-day) recurring events,
+        // UNTIL is an exclusive upper bound on DTSTART.
+        if ($isAllDay === false) {
+            $debug['rules'][] = 'timed_until_exclusive';
             $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
         }
 
