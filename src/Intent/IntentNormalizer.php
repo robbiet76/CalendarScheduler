@@ -549,7 +549,12 @@ final class IntentNormalizer
         // The calendar date of a DATE-TIME UNTIL is ALWAYS inclusive.
 
         // If this is a WEEKLY rule with BYDAY, snap the candidate end date backwards to the nearest matching day.
-        if (is_array($daysRaw) && $daysRaw !== []) {
+        // IMPORTANT: BYDAY snapping MUST NOT override an UNTIL-exclusive rollback.
+        if (
+            is_array($daysRaw)
+            && $daysRaw !== []
+            && !in_array('date_only_exclusive', $debug['rules'], true)
+        ) {
             $debug['rules'][] = 'byday_snap';
             $validDays = ['SU','MO','TU','WE','TH','FR','SA'];
             $allowed = array_values(array_filter($daysRaw, fn($d) => in_array($d, $validDays, true)));
@@ -559,7 +564,7 @@ final class IntentNormalizer
                     // Walk back up to 14 days (covers weekly schedules safely) to find a matching BYDAY.
                     for ($i = 0; $i < 14; $i++) {
                         $token = strtoupper($dt->format('D'));
-                        $map = ['SUN'=>'SU','MON'=>'MO','TUE'=>'TU','WED'=>'WE','THU'=>'TH','FRI'=>'FR','SAT'=>'SA'];
+                        $map = ['SUN'=>'SU','MON'=>'MO','TUE'=>'TU','WED'=>'WE','THU'=>'TH','FR'=>'FR','SAT'=>'SA'];
                         $byday = $map[$token] ?? null;
                         if ($byday !== null && in_array($byday, $allowed, true)) {
                             $debug['final_candidate'] = $dt->format('Y-m-d');
