@@ -616,6 +616,22 @@ final class IntentNormalizer
             ),
         ];
 
+        // Canonicalize midnight end-time to previous day for timed intents.
+        // For non-all-day intents, an end_time of 00:00:00 represents the start of the next day
+        // and must not extend the inclusive intent window.
+        if (
+            $timing['all_day'] === false
+            && isset($timing['end_time']['hard'])
+            && $timing['end_time']['hard'] === '00:00:00'
+            && isset($timing['end_date']['hard'])
+            && is_string($timing['end_date']['hard'])
+        ) {
+            $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $timing['end_date']['hard']);
+            if ($dt instanceof \DateTimeImmutable) {
+                $timing['end_date']['hard'] = $dt->modify('-1 day')->format('Y-m-d');
+            }
+        }
+
         return new CanonicalTiming($timing);
     }
 
