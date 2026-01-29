@@ -68,6 +68,10 @@ A Manifest Event contains:
 A **SubEvent** is a deterministic, executable component derived from a Manifest Event.
 
 SubEvents are introduced only after calendar import and resolution.  
+SubEvents receive fully normalized timing boundaries.  
+They do not interpret, expand, or modify recurrence rules or  
+provider-specific date semantics.
+
 During FPP adoption and calendar export, no SubEvent decomposition  
 occurs beyond the single base SubEvent derived directly from a  
 scheduler entry.
@@ -111,6 +115,9 @@ Characteristics:
 - Always present
 - Represents the dominant schedule
 - Ordered last *within* the Manifest Event
+
+All date arithmetic and recurrence resolution has already been completed
+before the base SubEvent is created.
 
 The base SubEvent is the exclusive source of Manifest Event identity; exception SubEvents never influence identity construction.
 
@@ -261,6 +268,12 @@ Non-daily recurrence rules remain unsupported unless explicitly mapped.
 Intent-level dates are stored in a provider-neutral structure that preserves both:
 - **Hard** date patterns (explicit, user-authored or provider-authored)
 - **Symbolic** dates (named holidays / locale-defined symbols originating from FPP)
+
+Calendar recurrence semantics (including `DTSTART`, `RRULE`, and `UNTIL`)
+MUST be fully resolved prior to Manifest Event construction.
+
+No date arithmetic, inclusivity/exclusivity adjustment, or provider-specific
+recurrence interpretation occurs at the Manifest Event or SubEvent layer.
 
 Each SubEvent contains:
 

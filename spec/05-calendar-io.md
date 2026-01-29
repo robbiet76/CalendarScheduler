@@ -99,7 +99,7 @@ The inbound Calendar I/O layer expects CalendarTranslator implementations to emi
     "calendar_id": "primary"
   },
   "summary": "Meeting with Team",
-  "description": "Raw description text including embedded YAML metadata",
+  "description": "Raw description text including embedded INI-style metadata",
   "dtstart": "2024-06-01T09:00:00-07:00",
   "dtend": "2024-06-01T10:00:00-07:00",
   "rrule": {
@@ -117,7 +117,7 @@ Where:
 
 - `source`: identifies the calendar provider and optionally the calendar ID within that provider.
 - `summary`: the event title or summary.
-- `description`: raw event description text, which may include embedded YAML metadata (opaque at this stage).
+- `description`: raw event description text, which may include embedded INI-style metadata (opaque at this stage).
 - `dtstart` and `dtend`: ISO 8601 timestamps with timezone information, representing the event start and end.
 - `rrule`: an unexpanded recurrence rule object representing recurrence patterns.
 - `provenance`: metadata including the original event UID and the import timestamp.
@@ -141,33 +141,33 @@ Where:
 - CalendarTranslator **MUST NOT** emit Manifest-like timing, identity, type, or SubEvent structures.
 - No hard or symbolic resolution (e.g., of symbolic times, holidays) occurs in Calendar I/O; these remain unresolved.
 
-### Description YAML Metadata Note
+### Description Metadata Note
 
-YAML extracted from the `description` field is treated as opaque metadata at this stage and **MUST NOT** influence timing, type, or any scheduling semantics during Calendar I/O processing.
+INI-style metadata extracted from the `description` field is treated as opaque metadata at this stage and **MUST NOT** influence timing, type, or any scheduling semantics during Calendar I/O processing.
 
 ---
 
-## Calendar Description YAML
+## Calendar Description Metadata (INI)
 
-Calendar event descriptions may contain an embedded YAML block that expresses
+Calendar event descriptions may contain an embedded INI-style metadata block that expresses
 **user-authored execution intent** for downstream scheduling systems.
 
-This YAML represents an explicit, editable control surface for users managing
+This metadata represents an explicit, editable control surface for users managing
 their schedules directly from the calendar.
 
 ### Scope and Authority
 
-- The YAML is **authoritative user input**
+- The metadata is **authoritative user input**
 - It is owned and edited by the user
 - The system MUST preserve it losslessly
 - The Calendar I/O layer MUST NOT interpret its semantics
 
-The Calendar I/O layer treats description YAML as **opaque content**.
+The Calendar I/O layer treats description metadata as **opaque content**.
 All semantic interpretation occurs downstream during Intent normalization.
 
 ### Purpose
 
-Calendar Description YAML exists to express **execution behavior** that cannot
+Calendar Description Metadata exists to express **execution behavior** that cannot
 be reliably represented in calendar UI constructs alone.
 
 Examples include:
@@ -179,7 +179,7 @@ Examples include:
 
 ### Allowed Content (Non-Exhaustive)
 
-The following categories of fields MAY appear in description YAML:
+The following categories of fields MAY appear in description metadata:
 
 - Execution identity (e.g. `type`)
 - Execution control (e.g. `enabled`, `stopType`, `repeat`)
@@ -188,7 +188,7 @@ The following categories of fields MAY appear in description YAML:
 
 ### Forbidden Content
 
-Description YAML MUST NOT contain:
+Description metadata MUST NOT contain:
 
 - Hard dates
 - Hard times
@@ -199,14 +199,14 @@ Description YAML MUST NOT contain:
 - Provider-specific runtime fields
 
 Calendar timing is defined exclusively by the calendar event itself.
-Embedding timing data in YAML creates ambiguity and drift and is forbidden.
+Embedding timing data in the metadata creates ambiguity and drift and is forbidden.
 
 ### Processing Rules
 
-- Calendar I/O MUST preserve description YAML exactly as received
-- Calendar I/O MUST NOT validate or normalize YAML content
-- Missing or malformed YAML MUST NOT cause Calendar I/O failure
-- YAML interpretation is deferred entirely to Intent normalization
+- Calendar I/O MUST preserve description metadata exactly as received
+- Calendar I/O MUST NOT validate or normalize metadata content
+- Missing or malformed metadata MUST NOT cause Calendar I/O failure
+- Metadata interpretation is deferred entirely to Intent normalization
 
 ---
 
@@ -218,8 +218,25 @@ Embedding timing data in YAML creates ambiguity and drift and is forbidden.
 - Provider quirks are isolated here
 - No Manifest Events or SubEvents are created in this layer
 - No identity derivation or normalization is permitted
+- Calendar I/O MUST NOT derive or infer an intent end date; RRULE interpretation and end-date materialization occur only during intent normalization.
 - Provider-neutral records must remain structurally ungrouped
 - No identity inference, matching, or reconstruction is permitted
+
+---
+
+### VEVENT Recurrence Boundary Semantics (RRULE UNTIL)
+
+The Calendar I/O layer preserves recurrence rules exactly as received and does not interpret them.
+However, downstream intent normalization relies on the following **authoritative recurrence semantics**:
+
+- `DTSTART` is the anchor for all recurrence interpretation.
+- For **timed events** (non–all-day):
+  - A timed `UNTIL` value represents an **exclusive upper bound**.
+  - The final intent `end_date.hard` is the **local calendar date immediately preceding** the `UNTIL` boundary when converted into the `DTSTART` timezone.
+- For **all-day events** (`VALUE=DATE`), `UNTIL` semantics are inclusive.
+- `BYDAY` masks restrict occurrence generation but **MUST NOT** influence derivation of the intent end date.
+
+These rules ensure provider-independent, timezone-correct end-date materialization.
 
 ---
 
@@ -371,6 +388,7 @@ Failures surface immediately and do not partially apply.
 
 - Semantic interpretation
 - Scheduler-specific logic
+- Inferring concrete end dates from RRULE `UNTIL` values
 - Identity reconciliation
 - Backwards compatibility with malformed calendars
 
@@ -380,6 +398,7 @@ Failures surface immediately and do not partially apply.
 
 - Calendar I/O is reversible at the provider-neutral record level where supported
 - Manifest intent is never silently altered
+- Derived intent end dates are timezone-correct, recurrence-boundary faithful, and independent of provider UI rendering quirks.
 - Provider-specific behavior is fully isolated
 
 ---
@@ -387,7 +406,7 @@ Failures surface immediately and do not partially apply.
 ## Relationship to Other Layers
 
 - **Manifest**: Calendar I/O produces provider‑neutral records for storage and export. Persistence is handled by Manifest storage components; Calendar I/O does not modify existing Manifest state or apply semantic transformations.
-- **Resolution Layer**: Receives provider-neutral events
+- **Resolution Layer**: Receives provider-neutral events. Recurrence expansion, BYDAY filtering, and exception handling occur only after intent end-date normalization.
 - **Planner / Diff / Apply**: Never interact directly with calendar providers
 
 ---
@@ -396,37 +415,36 @@ Failures surface immediately and do not partially apply.
 
 ---
 
-## Appendix A — Calendar Description YAML Templates
+## Appendix A — Calendar Description Metadata (INI) Templates
 
-This appendix provides **recommended, user-editable YAML templates** that may be embedded
+This appendix provides **recommended, user-editable INI-style templates** that may be embedded
 inside a calendar event’s description field.
 
 These templates are **documentation only**.  
 They define *what users are allowed and encouraged to write*, not what the Calendar I/O
 layer interprets.
 
-The Calendar I/O layer MUST treat all YAML content as opaque text.
+The Calendar I/O layer MUST treat all metadata content as opaque text.
 
 ---
 
 ### General Rules
 
-- YAML expresses **execution behavior**, not calendar timing
-- Users are encouraged to edit YAML directly in the calendar UI
+- The metadata expresses **execution behavior**, not calendar timing
+- Users are encouraged to edit the metadata directly in the calendar UI
 - All fields are optional unless otherwise stated
 - Omitted fields imply downstream defaults
-- YAML MUST remain valid after calendar edits
+- The metadata MUST remain valid after calendar edits
 
 ---
 
 ### Common Execution Fields
 
-```yaml
-type: playlist | sequence | command
-enabled: true | false
-stopType: graceful | hard | graceful_loop
-repeat: none | immediate | <integer>
-```
+[settings]
+type = playlist    ; or sequence, or command
+enabled = true     ; or false
+stopType = graceful    ; or hard, graceful_loop
+repeat = none      ; or immediate, or an integer
 
 Notes:
 - These values describe **how FPP executes**, not *when*
@@ -439,68 +457,56 @@ Notes:
 
 Symbolic time may be used when calendar UI cannot express the desired behavior.
 
-```yaml
-symbolicTime:
-  start: Dawn | Dusk | SunRise | SunSet
-  offsetMinutes: 0
-```
+[symbolic_time]
+start = dawn       ; or dusk, sunrise, sunset
+start_offset = -60
 
 Rules:
 - Symbolic time applies only to execution start
 - Hard times and symbolic times MUST NOT be mixed
-- If symbolicTime is present, calendar start time is treated as a placeholder
+- If [symbolic_time] is present, calendar start time is treated as a placeholder
 
 ---
 
 ### Playlist / Sequence Example
 
-```yaml
-type: sequence
-enabled: true
-stopType: hard
-repeat: immediate
-```
+[settings]
+type = sequence
+enabled = true
+stopType = hard
+repeat = immediate
 
 ---
 
 ### Command Example (with Payload)
 
-```yaml
-type: command
-enabled: true
-repeat: none
+[settings]
+type = command
+enabled = true
+repeat = none
 
-command:
-  name: RestartFPP
-  args:
-    delaySeconds: 30
-```
-
----
-
-### Fully Loaded Example (Command + Symbolic Time)
-
-```yaml
-type: command
-enabled: true
-stopType: graceful
-repeat: none
-
-symbolicTime:
-  start: Dusk
-  offsetMinutes: -15
-
-command:
-  name: StartPlaylist
-  args:
-    playlist: EveningShow
-```
+[command]
+args[] = 80
+multisync = true
+hosts = 192.168.10.100
 
 ---
 
-### Forbidden YAML Content
+### Symbolic Time Example
 
-Description YAML MUST NOT include:
+[settings]
+stopType = graceful
+repeat = immediate
+
+[symbolic_time]
+start = dusk
+start_offset = -60
+
+---
+
+### Forbidden Metadata Content
+
+Description metadata MUST NOT include:
 
 - Dates or date ranges
 - Times or timezones
@@ -510,17 +516,17 @@ Description YAML MUST NOT include:
 - Manifest identity fields
 
 Calendar timing is defined exclusively by the calendar event itself.
-Embedding timing data in YAML creates ambiguity and drift and is forbidden.
+Embedding timing data in the metadata creates ambiguity and drift and is forbidden.
 
 ---
 
 ### Design Intent
 
-Calendar Description YAML is a **first-class user interface**, not an internal escape hatch.
+Calendar Description Metadata (INI) is a **first-class user interface**, not an internal escape hatch.
 
 Users are expected to:
 - Read it
 - Edit it
 - Rely on it
 
-If a value cannot be safely edited by a user, it does not belong in YAML.
+If a value cannot be safely edited by a user, it does not belong in the metadata.

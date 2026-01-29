@@ -126,13 +126,18 @@ Each subEvent MUST include:
 Resolution is the final authority for structural normalization required for comparison, including:
 
 - Recurrence expansion
-- YAML semantic application
-- Timing normalization
-- Identity construction
 - SubEvent construction
 
-Resolution MAY perform structural normalization (ordering, grouping, recurrence expansion).  
-Resolution MUST NOT perform semantic interpretation, symbolic date resolution, time inference, or identity derivation.
+Resolution MAY perform **structural normalization only** (ordering, grouping, subEvent shaping).
+
+Resolution MUST NOT perform:
+- Semantic interpretation
+- Symbolic date resolution
+- Timezone math
+- DTSTART / RRULE / UNTIL evaluation
+- Identity derivation or mutation
+
+All cross-source timing semantics, recurrence interpretation, and identity construction MUST converge upstream during Intent Normalization.
 
 Upstream components (CalendarSnapshot, FPP ingestion, parsers):
 - MAY extract raw data and provenance

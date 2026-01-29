@@ -52,7 +52,17 @@ Timing participates in Manifest Identity subject to the following rules:
 - `start_date` and `end_date` (if present) must define at least one of: `hard` (YYYY-MM-DD) or `symbolic` (holiday/alias).
 - Resolution is **not** permitted during identity hashing: symbolic dates must not be converted into hard dates for the purpose of identity.
 
+
 Date fields are structurally validated as part of identity equivalence and hashing.
+
+**Identity Boundary**
+
+Manifest Identity explicitly excludes provider-specific recurrence semantics such as:
+- inclusive vs exclusive `UNTIL` handling
+- timezone-based cutoff rollbacks
+- first/last occurrence derivation
+
+Identity observes only normalized DatePatterns and TimePatterns, never recurrence boundary behavior. These semantics are resolved upstream during timing normalization.
 
 All timing canonicalization occurs during Intent normalization; resolution and diffing operate only on fully normalized timing structures.
 
@@ -69,7 +79,10 @@ These fields may differ while still representing the **same normalized scheduler
 
 #### Dates and Normalization
 
+
 Dates *do* participate in Manifest Identity, but only as normalized DatePatterns (hard and/or symbolic), never as implicitly resolved values. This supports identity stability across years while still preventing accidental collisions between intents that can be eligible at different times.
+
+The presence of a `hard` end date does not imply that the final execution occurs on that date; it represents an intent boundary, not an execution guarantee.
 
 Date normalization rules:
 - Calendar-derived events may populate both `hard` and `symbolic` when a hard date matches a known symbolic holiday.
@@ -78,4 +91,6 @@ Date normalization rules:
 
 #### Summary Rule
 
+
 > Two SubEvents share the same Manifest Identity if and only if their execution type, execution target, and fully normalized timing are equivalent. Timing equivalence includes weekly day selection (or null meaning "Everyday"), start/end times, and DatePatterns (when present), where DatePatterns match if either hard or symbolic components match.
+> Differences in recurrence realization (such as inclusive/exclusive end handling or timezone-based date shifts) must not affect Manifest Identity.
