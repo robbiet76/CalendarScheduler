@@ -622,22 +622,8 @@ final class IntentNormalizer
             ),
         ];
 
-        // Canonicalize exclusive calendar DTEND instants to inclusive intent end dates.
-        // IMPORTANT:
-        // - This adjustment applies ONLY when an explicit DTEND was present.
-        // - RRULE-derived end dates MUST NOT be shifted here.
-        if (
-            $draft->provenance['source'] === 'calendar'
-            && $draft->endTimeRaw === '00:00:00'
-            && $draft->endDateRaw !== null
-            && $draft->isAllDay === false
-            && $draft->provenance['end_date_source'] === 'dtend'
-        ) {
-            $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $timing['end_date']['hard']);
-            if ($dt instanceof \DateTimeImmutable) {
-                $timing['end_date']['hard'] = $dt->modify('-1 day')->format('Y-m-d');
-            }
-        }
+        // Consolidated calendar end-date policy resolver.
+        $timing = $this->resolveCalendarEndDate($draft, $timing);
 
         // IMPORTANT (RFC 5545):
         // Calendar intent end_date MUST already be inclusive by this stage.
@@ -646,6 +632,41 @@ final class IntentNormalizer
         // normalizeTiming() must never shift calendar end dates.
 
         return new CanonicalTiming($timing);
+    }
+
+    /**
+     * Resolve the final inclusive intent end date for calendar events.
+     *
+     * RULES:
+     * - RRULE-derived end dates are already inclusive and MUST NOT be shifted.
+     * - DTEND-derived end dates are per-occurrence and exclusive at midnight.
+     * - No other layer may adjust end dates.
+     */
+    private function resolveCalendarEndDate(
+        DraftTiming $draft,
+        array $timing
+    ): array {
+        // Only calendar-sourced timings participate
+        if (($draft->provenance['source'] ?? null) !== 'calendar') {
+            return $timing;
+        }
+
+        // Only DTEND-derived end dates may be shifted
+        if (
+            ($draft->provenance['end_date_source'] ?? null) !== 'dtend'
+            || $draft->isAllDay === true
+            || $draft->endTimeRaw !== '00:00:00'
+            || empty($timing['end_date']['hard'])
+        ) {
+            return $timing;
+        }
+
+        $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $timing['end_date']['hard']);
+        if ($dt instanceof \DateTimeImmutable) {
+            $timing['end_date']['hard'] = $dt->modify('-1 day')->format('Y-m-d');
+        }
+
+        return $timing;
     }
 
     private function normalizeDateField(
