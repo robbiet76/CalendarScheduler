@@ -507,12 +507,30 @@ final class IntentNormalizer
         \DateTimeZone $tz
     ): ?string {
         $parsed = $this->parseRRuleUntil($untilRaw, $tz);
+        // --- DEBUG: initialize debug record ---
+        $debug = [
+            'stage' => 'enter',
+            'until_raw' => $untilRaw,
+            'parsed' => $parsed !== null,
+        ];
         if ($parsed === null) {
+            file_put_contents(
+                '/tmp/gcs-enddate-debug.log',
+                json_encode($debug, JSON_THROW_ON_ERROR) . PHP_EOL,
+                FILE_APPEND
+            );
             return null;
         }
 
         [$untilDt, $isDateOnly] = $parsed;
         $untilDt = $untilDt->setTimezone($tz);
+        $debug['is_date_only'] = $isDateOnly;
+        $debug['until_date'] = $untilDt->format('Y-m-d');
+        $debug['until_time'] = $untilDt->format('H:i:s');
+        $debug['is_all_day'] = $isAllDay;
+        $debug['start_time_raw'] = $startTimeRaw;
+        $debug['days_raw'] = $daysRaw;
+        $debug['rules'] = [];
 
         // DATE-only UNTIL already represents the last allowed DTSTART date.
         $candidateDate = $untilDt->format('Y-m-d');
@@ -521,6 +539,7 @@ final class IntentNormalizer
         // For TIMED (non-all-day) recurring events, a DATE-only UNTIL is an
         // exclusive upper bound. The last visible occurrence is the previous day.
         if ($isDateOnly === true && $isAllDay === false) {
+            $debug['rules'][] = 'date_only_exclusive';
             $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
         }
 
@@ -533,6 +552,7 @@ final class IntentNormalizer
                 $untilSeconds = ((int)$untilDt->format('H')) * 3600 + ((int)$untilDt->format('i')) * 60 + (int)$untilDt->format('s');
                 $startSeconds = ((int)$startTime->format('H')) * 3600 + ((int)$startTime->format('i')) * 60 + (int)$startTime->format('s');
                 if ($untilSeconds < $startSeconds) {
+                    $debug['rules'][] = 'time_of_day_rollback';
                     $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
                 }
             }
@@ -540,6 +560,7 @@ final class IntentNormalizer
 
         // If this is a WEEKLY rule with BYDAY, snap the candidate end date backwards to the nearest matching day.
         if (is_array($daysRaw) && $daysRaw !== []) {
+            $debug['rules'][] = 'byday_snap';
             $validDays = ['SU','MO','TU','WE','TH','FR','SA'];
             $allowed = array_values(array_filter($daysRaw, fn($d) => in_array($d, $validDays, true)));
             if ($allowed !== []) {
@@ -551,6 +572,17 @@ final class IntentNormalizer
                         $map = ['SUN'=>'SU','MON'=>'MO','TUE'=>'TU','WED'=>'WE','THU'=>'TH','FRI'=>'FR','SAT'=>'SA'];
                         $byday = $map[$token] ?? null;
                         if ($byday !== null && in_array($byday, $allowed, true)) {
+                            $debug['final_candidate'] = $dt->format('Y-m-d');
+                            $debug['correlation'] = [
+                                'start_date_raw' => $dtstart?->format('Y-m-d'),
+                                'start_time_raw' => $startTimeRaw,
+                                'source' => 'calendar'
+                            ];
+                            file_put_contents(
+                                '/tmp/gcs-enddate-debug.log',
+                                json_encode($debug, JSON_THROW_ON_ERROR) . PHP_EOL,
+                                FILE_APPEND
+                            );
                             return $dt->format('Y-m-d');
                         }
                         $dt = $dt->modify('-1 day');
@@ -559,6 +591,17 @@ final class IntentNormalizer
             }
         }
 
+        $debug['final_candidate'] = $candidateDate;
+        $debug['correlation'] = [
+            'start_date_raw' => $dtstart?->format('Y-m-d'),
+            'start_time_raw' => $startTimeRaw,
+            'source' => 'calendar'
+        ];
+        file_put_contents(
+            '/tmp/gcs-enddate-debug.log',
+            json_encode($debug, JSON_THROW_ON_ERROR) . PHP_EOL,
+            FILE_APPEND
+        );
         return $candidateDate;
     }
 
