@@ -55,7 +55,7 @@ require_once __DIR__ . '/src/Intent/FppRawEvent.php';
 require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 
 // -----------------------------------------------------------------------------
-// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
+// Planner  - TEMPORARILY DISABLED (will be re-enabled later)
 // -----------------------------------------------------------------------------
 // require_once __DIR__ . '/src/Planner/OrderingKey.php';
 // require_once __DIR__ . '/src/Planner/PlannedEntry.php';
@@ -63,24 +63,13 @@ require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 // require_once __DIR__ . '/src/Planner/Planner.php';
 
 // -----------------------------------------------------------------------------
-// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
+// Diff - TEMPORARILY DISABLED (will be re-enabled later)
 // -----------------------------------------------------------------------------
 // require_once __DIR__ . '/src/Diff/DiffResult.php';
 // require_once __DIR__ . '/src/Diff/Diff.php';
 
 // -----------------------------------------------------------------------------
-// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
-// -----------------------------------------------------------------------------
-// require_once __DIR__ . '/src/Resolution/ResolvableEvent.php';
-// require_once __DIR__ . '/src/Resolution/ResolutionOperation.php';
-// require_once __DIR__ . '/src/Resolution/ResolutionResult.php';
-// require_once __DIR__ . '/src/Resolution/ResolutionPolicy.php';
-// require_once __DIR__ . '/src/Resolution/ResolutionInputs.php';
-// require_once __DIR__ . '/src/Resolution/EventResolver.php';
-// require_once __DIR__ . '/src/Resolution/CalendarManifestResolver.php';
-
-// -----------------------------------------------------------------------------
-// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
+// Platform
 // -----------------------------------------------------------------------------
 
 // require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
@@ -92,22 +81,13 @@ require_once __DIR__ . '/src/Platform/IcsParser.php';
 require_once __DIR__ . '/src/Platform/IniMetadata.php';
 
 // -----------------------------------------------------------------------------
-// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
+// Apply - TEMPORARILY DISABLED (will be re-enabled later)
 // -----------------------------------------------------------------------------
-// require_once __DIR__ . '/src/Outbound/ApplyEngine.php';
-// require_once __DIR__ . '/src/Outbound/ApplyResult.php';
-// require_once __DIR__ . '/src/Outbound/SchedulerRunOptions.php';
-// require_once __DIR__ . '/src/Outbound/SchedulerRunResult.php';
-// require_once __DIR__ . '/src/Outbound/SchedulerRunner.php';
-
-// -----------------------------------------------------------------------------
-// Inbound — external systems -> manifest (draft snapshot)
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-// TEMPORARILY DISABLED — Intent-first architecture (will be re-enabled later)
-// -----------------------------------------------------------------------------
-// require_once __DIR__ . '/src/Inbound/FppAdoption.php';
+// require_once __DIR__ . '/src/Apply/ApplyEngine.php';
+// require_once __DIR__ . '/src/Apply/ApplyResult.php';
+// require_once __DIR__ . '/src/Apply/SchedulerRunOptions.php';
+// require_once __DIR__ . '/src/Apply/SchedulerRunResult.php';
+// require_once __DIR__ . '/src/Apply/SchedulerRunner.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete

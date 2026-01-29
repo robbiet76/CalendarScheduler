@@ -17,6 +17,7 @@ This section describes the high-level architecture of the scheduler system, its 
 - **Deterministic, testable behavior**
 - **Strong observability** through structured logging and diagnostics
 - **No backward-compatibility constraints** (unreleased plugin)
+- **Calendars, FPP UI, and future tools are treated as *peer intent interfaces*, not authorities**
 
 ---
 
@@ -24,9 +25,11 @@ This section describes the high-level architecture of the scheduler system, its 
 
 **Principle:** The system models *human scheduling intent*, not external system state.
 
-The Manifest is the single, authoritative representation of intent. All external systems
-(calendars, FPP scheduler, configuration files) are treated strictly as sources of facts.
+The Manifest is the single, authoritative representation of intent. All external systems  
+(calendars, FPP scheduler, configuration files) are treated strictly as sources of facts.  
 No source is compared directly to another source.
+
+Both calendars and the FPP scheduler UI serve as user-facing intent editors. Neither is authoritative. The Manifest remains the only authority over scheduling intent.
 
 ### Core Rule
 
@@ -34,7 +37,7 @@ No source is compared directly to another source.
 > **Resolution compares intent to intent.**  
 > **Sources never compare directly to each other.**
 
-Any design that violates this rule is considered architecturally incorrect, even if it
+Any design that violates this rule is considered architecturally incorrect, even if it  
 appears to function.
 
 ### Architectural Implications
@@ -50,7 +53,7 @@ This principle enforces a strict, ordered flow:
 
 3. **Intent Normalization**  
    The **IntentNormalizer** semantic boundary converts raw events into canonical Intent.  
-   Facts are interpreted into human scheduling intent: recurrence meaning, YAML semantics, symbolic values, identity, and subEvents.  
+   Facts are interpreted into human scheduling intent: recurrence meaning, description-embedded metadata (INI-style), symbolic values, identity, and subEvents.  
    The Planner consumes normalized Intent objects rather than raw calendar data.
 
 4. **Manifest Canonicalization**  
@@ -79,6 +82,10 @@ This intent-first approach ensures:
 - Auditable decisions
 - Clean separation of responsibilities
 - Safe evolution toward additional calendar providers or schedulers
+
+### Interfaces vs Intent
+
+Interfaces shape how intent is expressed and edited by users. However, intent itself is normalized and stored independently of any particular interface shape or format. Multiple scheduler rows or entries may be required internally to represent a single, unified intent concept. This separation enables consistent resolution and application regardless of the interface used to create or modify intent.
 
 ### Canonical Intent Schema
 
@@ -276,6 +283,8 @@ They contain no intent or identity and are never compared or diffed directly.
   - Unsupported day masks
   - Future overrides and layering
 
+Bundles exist to express execution constraints such as ordering and overrides, not user intent.
+
 (See **04 — Bundles & Ordering**)
 
 ---
@@ -356,6 +365,8 @@ Violations of these boundaries are architectural defects.
 - In-place mutation of legacy scheduler data
 - Provider-specific logic leaking into core layers
 - UI-driven scheduling behavior
+- Perfect symmetry between interfaces
+- Implicit auto-sync without user confirmation
 
 ---
 

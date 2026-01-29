@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -16,14 +16,12 @@ If any future implementation conflicts with this document, the implementation is
 
 ## System Purpose
 
-The Scheduler exists to:
+The Scheduler exists to provide a unified, authoritative representation of *human scheduling intent* that may be expressed through multiple interfaces (such as calendars, FPP UI, or future tools), and to deterministically translate that intent into executable FPP scheduler configuration.
 
-> **Maintain a deterministic, auditable, and intentional synchronization between *human scheduling intent* and the FPP scheduler.**
+Calendars, FPP runtime state, and configuration files are treated strictly as *interfaces and fact sources*, never as authorities.  
+Only normalized Intent may influence Scheduler execution.
 
-Calendars, FPP runtime state, and configuration files are treated strictly as **sources of facts**, never as authorities.  
-Only normalized intent may influence scheduler execution.
-
-The system translates **human scheduling intent**, typically expressed via calendar events, into **precise, executable scheduler entries** in FPP — without ambiguity, drift, guessing, or hidden state.
+The system translates **human scheduling intent**, typically expressed via calendar events, into **precise, executable Scheduler entries** in FPP — without ambiguity, drift, guessing, or hidden state.
 
 The system must allow users to:
 - Express scheduling intent in a familiar calendar interface
@@ -31,8 +29,8 @@ The system must allow users to:
 - Preview changes safely before applying them
 - Revert, audit, and reason about changes after the fact
 
-Calendars do **not** define scheduler configuration.  
-They express *intent only*. All calendar data is interpreted, normalized, and validated before it may influence execution.
+Calendars do **not** define Scheduler configuration.  
+They express *Intent only*. All calendar data is interpreted, normalized, and validated before it may influence execution.
 
 ---
 
@@ -53,12 +51,12 @@ This system solves the following fundamental problems:
    Ordering must be computed intentionally — never accidentally.
 
 4. **Safe Reconciliation**  
-   Existing scheduler state must be reconciled without destroying unmanaged entries or guessing user intent.
+   Existing Scheduler state must be reconciled without destroying unmanaged entries or guessing user intent.
 
 5. **Auditability**  
-   Every scheduler entry created by the system must be explainable in terms of:
+   Every Scheduler entry created by the system must be explainable in terms of:
    - Where it came from
-   - What intent it represents
+   - What Intent it represents
    - Why it exists in its current form
 
 ---
@@ -69,7 +67,7 @@ The system **intentionally does NOT** attempt to:
 
 - Be a general-purpose calendar editor
 - Be a replacement for the FPP UI
-- Infer intent from incomplete or ambiguous data
+- Infer Intent from incomplete or ambiguous data
 - Automatically “fix” invalid schedules
 - Synchronize external systems directly with each other
 - Support backward compatibility during development
@@ -85,13 +83,13 @@ Correctness, clarity, and safety take priority over convenience.
 
 The system enforces a strict hierarchy of truth:
 
-1. **Manifest** — authoritative representation of normalized scheduling intent
-2. **Planner Output** — authoritative desired execution state
-3. **FPP Scheduler** — current execution state only
+1. Manifest — authoritative, source-agnostic representation of normalized scheduling Intent  
+2. Planner Output — authoritative desired execution plan derived from Intent  
+3. FPP Scheduler — current execution state only
 
 `schedule.json` is **never authoritative**.
 
-External systems (calendars, FPP runtime state) may influence the Manifest **only by producing normalized Intent**.  
+External systems (calendars, FPP runtime state, or future interfaces) may influence the Manifest only by producing normalized Intent.  
 No component is allowed to invent, infer, or persist state outside this model.
 
 ---
@@ -116,7 +114,7 @@ All implementations must respect the following constraints:
   Calendar providers and FPP semantics are isolated behind explicit interfaces.
 
 - **Mandatory Intent Normalization**  
-  All external facts (calendar data, FPP scheduler data, configuration metadata)  
+  All external facts (calendar data, FPP Scheduler data, configuration metadata)  
   MUST be normalized into the canonical Intent schema before comparison, diffing, or resolution.  
   Comparing unnormalized inputs is forbidden.
 
@@ -126,10 +124,12 @@ All implementations must respect the following constraints:
 
 ### 1. Manifest-Centric Design
 
-All intent, identity, and ownership flows through the Manifest.
+All Intent, identity, and ownership flows through the Manifest.
 
 Nothing bypasses it.  
 Nothing mutates it implicitly.
+
+The Manifest represents user Intent independently of how or where that Intent was expressed.
 
 ---
 
@@ -140,8 +140,8 @@ Nothing mutates it implicitly.
 
 These concerns must never be mixed.
 
-Calendars express intent.  
-FPP executes intent.  
+Calendars express Intent.  
+FPP executes Intent.  
 Neither defines the other.
 
 ---
@@ -159,16 +159,16 @@ The system prefers:
 
 ### 4. Atomicity of Meaning
 
-A single calendar event represents a **single unit of human intent**, even if it expands into multiple executable entries.
+A single calendar event represents a **single unit of human Intent**, even if it expands into multiple executable entries.
 
-That intent must remain cohesive across all transformations.
+That Intent must remain cohesive across all transformations.
 
 ---
 
 ### 5. Reversibility and Auditability
 
-Every managed scheduler entry must be:
-- Traceable back to normalized intent
+Every managed Scheduler entry must be:
+- Traceable back to normalized Intent
 - Reproducible from the Manifest
 - Safe to remove, rebuild, or revert
 
@@ -176,22 +176,20 @@ Every managed scheduler entry must be:
 
 ## Directionality of Data Flow
 
-All data flow is **intent-centric and directional**:
+All data flow is **Intent-centric and directional**:
 
-- Calendars → Raw Facts → Intent
-- FPP Scheduler → Raw Facts → Intent (for adoption and comparison)
-- Intent → Manifest
-- Manifest → Planner → Diff → Apply → FPP
+- Interfaces (Calendars, FPP UI, future tools) → Raw Facts → Intent Normalization  
+- Intent → Manifest  
+- Manifest → Planner → Diff → Apply → FPP Scheduler
 
-External systems are **never compared directly**.
-
-Any design that compares calendar data directly to FPP runtime state is architecturally incorrect.
+All synchronization flows through the Manifest; external systems are never reconciled directly.
 
 ---
 
 ## Summary
 
-This system exists to provide **trustworthy scheduling**.
+This system exists to let users manage complex show schedules through familiar interfaces while preserving deterministic, auditable, and reversible execution behavior in FPP.  
+The Manifest is the single source of truth; all interfaces are peers that express Intent, not authority.
 
 It values:
 - Correctness over cleverness

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace GoogleCalendarScheduler\Inbound;
 
-use GoogleCalendarScheduler\Platform\FppScheduleTranslator;
+use GoogleCalendarScheduler\Adapter\FppScheduleTranslator;
 use GoogleCalendarScheduler\Core\FileManifestStore;
 use GoogleCalendarScheduler\Core\IdentityBuilder;
 use RuntimeException;
