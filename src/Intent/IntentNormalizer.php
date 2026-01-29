@@ -461,7 +461,9 @@ final class IntentNormalizer
                     $startTimeRaw,
                     $isAllDay,
                     $daysRaw,
-                    $tz
+                    $tz,
+                    $raw->provenance['uid'] ?? null,
+                    $raw->summary ?? null
                 );
                 // Record provenance of end_date source as 'rrule'
                 $provenance['end_date_source'] = 'rrule';
@@ -505,7 +507,9 @@ final class IntentNormalizer
         ?string $startTimeRaw,
         bool $isAllDay,
         ?array $daysRaw,
-        \DateTimeZone $tz
+        \DateTimeZone $tz,
+        ?string $calendarUid = null,
+        ?string $calendarSummary = null
     ): ?string {
         $parsed = $this->parseRRuleUntil($untilRaw, $tz);
         // --- DEBUG: initialize debug record ---
@@ -515,6 +519,13 @@ final class IntentNormalizer
             'parsed' => $parsed !== null,
         ];
         if ($parsed === null) {
+            $debug['correlation'] = [
+                'uid' => $calendarUid,
+                'summary' => $calendarSummary,
+                'start_date_raw' => $dtstart?->format('Y-m-d'),
+                'start_time_raw' => $startTimeRaw,
+                'source' => 'calendar'
+            ];
             file_put_contents(
                 '/tmp/gcs-enddate-debug.log',
                 json_encode($debug, JSON_THROW_ON_ERROR) . PHP_EOL,
@@ -544,52 +555,14 @@ final class IntentNormalizer
             $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
         }
 
-        // IMPORTANT (Google Calendar semantics):
-        // DATE-TIME UNTIL values already encode the final allowable DTSTART instant in UTC.
-        // We MUST NOT compare UNTIL clock time to DTSTART clock time.
-        // The calendar date of a DATE-TIME UNTIL is ALWAYS inclusive.
-
-        // If this is a WEEKLY rule with BYDAY, snap the candidate end date backwards to the nearest matching day.
-        // IMPORTANT: BYDAY snapping MUST NOT override an UNTIL-exclusive rollback.
-        if (
-            $isDateOnly === true
-            && is_array($daysRaw)
-            && $daysRaw !== []
-            && !in_array('date_only_exclusive', $debug['rules'], true)
-        ) {
-            $debug['rules'][] = 'byday_snap';
-            $validDays = ['SU','MO','TU','WE','TH','FR','SA'];
-            $allowed = array_values(array_filter($daysRaw, fn($d) => in_array($d, $validDays, true)));
-            if ($allowed !== []) {
-                $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $candidateDate, $tz);
-                if ($dt instanceof \DateTimeImmutable) {
-                    // Walk back up to 14 days (covers weekly schedules safely) to find a matching BYDAY.
-                    for ($i = 0; $i < 14; $i++) {
-                        $token = strtoupper($dt->format('D'));
-                        $map = ['SUN'=>'SU','MON'=>'MO','TUE'=>'TU','WED'=>'WE','THU'=>'TH','FR'=>'FR','SAT'=>'SA'];
-                        $byday = $map[$token] ?? null;
-                        if ($byday !== null && in_array($byday, $allowed, true)) {
-                            $debug['final_candidate'] = $dt->format('Y-m-d');
-                            $debug['correlation'] = [
-                                'start_date_raw' => $dtstart?->format('Y-m-d'),
-                                'start_time_raw' => $startTimeRaw,
-                                'source' => 'calendar'
-                            ];
-                            file_put_contents(
-                                '/tmp/gcs-enddate-debug.log',
-                                json_encode($debug, JSON_THROW_ON_ERROR) . PHP_EOL,
-                                FILE_APPEND
-                            );
-                            return $dt->format('Y-m-d');
-                        }
-                        $dt = $dt->modify('-1 day');
-                    }
-                }
-            }
-        }
+        // IMPORTANT:
+        // For intent windows we preserve the calendar's UNTIL date intent.
+        // We do NOT snap back to the last matching BYDAY occurrence date.
 
         $debug['final_candidate'] = $candidateDate;
         $debug['correlation'] = [
+            'uid' => $calendarUid,
+            'summary' => $calendarSummary,
             'start_date_raw' => $dtstart?->format('Y-m-d'),
             'start_time_raw' => $startTimeRaw,
             'source' => 'calendar'
