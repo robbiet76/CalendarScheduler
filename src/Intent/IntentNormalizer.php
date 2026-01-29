@@ -517,6 +517,13 @@ final class IntentNormalizer
         // DATE-only UNTIL already represents the last allowed DTSTART date.
         $candidateDate = $untilDt->format('Y-m-d');
 
+        // Google Calendar semantic:
+        // For TIMED (non-all-day) recurring events, a DATE-only UNTIL is an
+        // exclusive upper bound. The last visible occurrence is the previous day.
+        if ($isDateOnly === true && $isAllDay === false) {
+            $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
+        }
+
         // For date-time UNTIL, ensure the last DTSTART instant (time-of-day) is <= UNTIL.
         // If the UNTIL time-of-day is earlier than the event start time-of-day, the last DTSTART date is the previous day.
         if ($isDateOnly === false && $isAllDay === false && is_string($startTimeRaw) && $startTimeRaw !== '') {
