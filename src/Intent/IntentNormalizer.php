@@ -632,6 +632,20 @@ final class IntentNormalizer
             }
         }
 
+        // Calendar recurrence semantics: calendar-derived end_date represents the first inactive day.
+        // Convert to inclusive intent end date for recurring, timed calendar intents.
+        if (
+            $timing['all_day'] === false
+            && ($draft->provenance['source'] ?? 'calendar') === 'calendar'
+            && isset($timing['end_date']['hard'])
+            && is_string($timing['end_date']['hard'])
+        ) {
+            $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $timing['end_date']['hard']);
+            if ($dt instanceof \DateTimeImmutable) {
+                $timing['end_date']['hard'] = $dt->modify('-1 day')->format('Y-m-d');
+            }
+        }
+
         return new CanonicalTiming($timing);
     }
 
