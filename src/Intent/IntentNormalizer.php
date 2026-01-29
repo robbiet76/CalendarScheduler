@@ -511,21 +511,6 @@ final class IntentNormalizer
         // DATE-only UNTIL already represents the last allowed DTSTART date.
         $candidateDate = $untilDt->format('Y-m-d');
 
-        // IMPORTANT:
-        // RFC 5545 UNTIL is an exclusive upper bound on DTSTART instants.
-        // If UNTIL is a date-time exactly at 00:00:00, it represents the *start*
-        // of that day and therefore excludes that calendar date.
-        // In this case, the last valid DTSTART date is the PREVIOUS day.
-        if ($isDateOnly === false) {
-            $h = (int)$untilDt->format('H');
-            $m = (int)$untilDt->format('i');
-            $s = (int)$untilDt->format('s');
-
-            if ($h === 0 && $m === 0 && $s === 0) {
-                $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
-            }
-        }
-
         // For date-time UNTIL, ensure the last DTSTART instant (time-of-day) is <= UNTIL.
         // If the UNTIL time-of-day is earlier than the event start time-of-day, the last DTSTART date is the previous day.
         if ($isDateOnly === false && $isAllDay === false && is_string($startTimeRaw) && $startTimeRaw !== '') {
