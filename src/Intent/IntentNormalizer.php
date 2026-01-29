@@ -364,6 +364,8 @@ final class IntentNormalizer
                     $endTimeRaw = $endDt->format('H:i:s');
                 }
             }
+            // Record provenance of end_date source as 'dtend'
+            $provenance['end_date_source'] = 'dtend';
         }
 
         // Calendar DATE-only DTEND represents per-occurrence span, not intent window.
@@ -458,6 +460,8 @@ final class IntentNormalizer
                     $daysRaw,
                     $tz
                 );
+                // Record provenance of end_date source as 'rrule'
+                $provenance['end_date_source'] = 'rrule';
             }
         }
 
@@ -616,21 +620,20 @@ final class IntentNormalizer
             ),
         ];
 
-        // Canonicalize exclusive calendar end instants to inclusive intent end dates.
-        // RFC 5545: DTEND is exclusive.
-        // Any end_time at or before the start of the day excludes that day.
+        // Canonicalize exclusive calendar DTEND instants to inclusive intent end dates.
+        // IMPORTANT:
+        // - This adjustment applies ONLY when an explicit DTEND was present.
+        // - RRULE-derived end dates MUST NOT be shifted here.
         if (
-            $timing['all_day'] === false
-            && isset($timing['end_date']['hard'])
-            && is_string($timing['end_date']['hard'])
+            $draft->provenance['source'] === 'calendar'
+            && $draft->endTimeRaw === '00:00:00'
+            && $draft->endDateRaw !== null
+            && $draft->isAllDay === false
+            && $draft->provenance['end_date_source'] === 'dtend'
         ) {
-            $endTime = $timing['end_time']['hard'] ?? null;
-
-            if ($endTime === '00:00:00') {
-                $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $timing['end_date']['hard']);
-                if ($dt instanceof \DateTimeImmutable) {
-                    $timing['end_date']['hard'] = $dt->modify('-1 day')->format('Y-m-d');
-                }
+            $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $timing['end_date']['hard']);
+            if ($dt instanceof \DateTimeImmutable) {
+                $timing['end_date']['hard'] = $dt->modify('-1 day')->format('Y-m-d');
             }
         }
 
