@@ -282,6 +282,9 @@ final class IntentNormalizer
         array $symbolicTime = []
     ): DraftTiming
     {
+        $provenance = [
+            'source' => 'calendar',
+        ];
         $isAllDay = ($raw->isAllDay ?? false) === true;
         $tz = $context->timezone;
 
@@ -472,7 +475,6 @@ final class IntentNormalizer
 
         $startTimeOffset = $startTimeOffset ?? 0;
         $endTimeOffset   = $endTimeOffset ?? 0;
-        $provenance = [];
 
         return new DraftTiming(
             $startDateRaw,
