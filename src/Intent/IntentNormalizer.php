@@ -552,6 +552,19 @@ final class IntentNormalizer
             }
         }
 
+        // FINAL calendar semantic correction:
+        // If the event is timed (not all-day) and ends at midnight, the intent does NOT include that day.
+        // Google Calendar treats midnight as exclusive for the last occurrence.
+        if (
+            $isAllDay === false
+            && is_string($startTimeRaw)
+            && $startTimeRaw !== ''
+        ) {
+            $dtMidnight = \DateTimeImmutable::createFromFormat('Y-m-d', $candidateDate, $tz);
+            if ($dtMidnight instanceof \DateTimeImmutable) {
+                $candidateDate = $dtMidnight->modify('-1 day')->format('Y-m-d');
+            }
+        }
         return $candidateDate;
     }
 
