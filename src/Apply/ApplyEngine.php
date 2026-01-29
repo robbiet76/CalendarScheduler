@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Outbound;
+namespace GoogleCalendarScheduler\Apply;
 
 use GoogleCalendarScheduler\Diff\DiffResult;
 use GoogleCalendarScheduler\Platform\FppScheduleEntryAdapter;
