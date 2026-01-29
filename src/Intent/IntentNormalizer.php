@@ -543,20 +543,10 @@ final class IntentNormalizer
             $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
         }
 
-        // For date-time UNTIL, ensure the last DTSTART instant (time-of-day) is <= UNTIL.
-        // If the UNTIL time-of-day is earlier than the event start time-of-day, the last DTSTART date is the previous day.
-        if ($isDateOnly === false && $isAllDay === false && is_string($startTimeRaw) && $startTimeRaw !== '') {
-            $startTime = \DateTimeImmutable::createFromFormat('H:i:s', $startTimeRaw, $tz)
-                ?: \DateTimeImmutable::createFromFormat('H:i', $startTimeRaw, $tz);
-            if ($startTime instanceof \DateTimeImmutable) {
-                $untilSeconds = ((int)$untilDt->format('H')) * 3600 + ((int)$untilDt->format('i')) * 60 + (int)$untilDt->format('s');
-                $startSeconds = ((int)$startTime->format('H')) * 3600 + ((int)$startTime->format('i')) * 60 + (int)$startTime->format('s');
-                if ($untilSeconds < $startSeconds) {
-                    $debug['rules'][] = 'time_of_day_rollback';
-                    $candidateDate = $untilDt->modify('-1 day')->format('Y-m-d');
-                }
-            }
-        }
+        // IMPORTANT (Google Calendar semantics):
+        // DATE-TIME UNTIL values already encode the final allowable DTSTART instant in UTC.
+        // We MUST NOT compare UNTIL clock time to DTSTART clock time.
+        // The calendar date of a DATE-TIME UNTIL is ALWAYS inclusive.
 
         // If this is a WEEKLY rule with BYDAY, snap the candidate end date backwards to the nearest matching day.
         if (is_array($daysRaw) && $daysRaw !== []) {
