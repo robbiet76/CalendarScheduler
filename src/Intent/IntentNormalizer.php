@@ -1014,39 +1014,71 @@ final class IntentNormalizer
             'timing' => $timingArr,
         ];
 
-        $subEvents = [[
-            'timing'  => $timingArr,
-            'payload' => $payload,
-        ]];
+        // Base SubEvent (1:1 with an FPP scheduler entry)
+        $subEvent = [
+            'type'     => $type,
+            'target'   => $target,
+            'timing'   => $timingArr,
+            // NOTE: payload contains execution settings (enabled/repeat/stopType) and optional command metadata.
+            'payload'  => $payload,
+        ];
 
-        // Identity hash: canonicalize for hashing so symbolic dates are preferred.
-        $hashInput = $this->canonicalizeForIdentityHash($identity);
-        $hashJson = json_encode($hashInput, JSON_THROW_ON_ERROR);
+        // Identity hash: canonicalize for hashing so symbolic values are stable.
+        $identityHashInput = $this->canonicalizeForIdentityHash($identity);
+        $identityHashJson  = json_encode($identityHashInput, JSON_THROW_ON_ERROR);
 
         /**
          * DEBUG (temporary):
-         * Capture exact hash preimage for calendar/FPP parity verification.
+         * Capture exact identity hash preimage for calendar/FPP parity verification.
          * MUST be removed once hash parity is proven stable.
          */
         $source =
             $ownership['controller']
             ?? ($ownership['source'] ?? 'unknown');
 
-        $preimagePath = '/tmp/gcs-hash-preimage-' . $source . '.json';
+        $identityPreimagePath = '/tmp/gcs-hash-preimage-' . $source . '.json';
 
         // DEBUG (temporary): keep only the most recent hash preimage
         // Prevent unbounded file growth during repeated sync runs.
-        if (file_exists($preimagePath)) {
-            unlink($preimagePath);
+        if (file_exists($identityPreimagePath)) {
+            unlink($identityPreimagePath);
         }
 
         file_put_contents(
-            $preimagePath,
-            $hashJson . PHP_EOL,
+            $identityPreimagePath,
+            $identityHashJson . PHP_EOL,
             FILE_APPEND
         );
 
-        $identityHash = hash('sha256', $hashJson);
+        $identityHash = hash('sha256', $identityHashJson);
+
+        // State hash (SubEvent-level): canonicalize the full executable state to detect updates.
+        // This is provider-agnostic and MUST remain stable across calendar/FPP sources.
+        $stateHashInput = $this->canonicalizeForStateHash($subEvent);
+        $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
+
+        /**
+         * DEBUG (temporary):
+         * Capture exact state hash preimage for calendar/FPP parity verification.
+         * MUST be removed once state parity is proven stable.
+         */
+        $statePreimagePath = '/tmp/gcs-state-preimage-' . $source . '.json';
+
+        // DEBUG (temporary): keep only the most recent state hash preimage
+        // Prevent unbounded file growth during repeated sync runs.
+        if (file_exists($statePreimagePath)) {
+            unlink($statePreimagePath);
+        }
+
+        file_put_contents(
+            $statePreimagePath,
+            $stateHashJson . PHP_EOL,
+            FILE_APPEND
+        );
+
+        $subEvent['stateHash'] = hash('sha256', $stateHashJson);
+
+        $subEvents = [$subEvent];
 
         return new Intent(
             $identityHash,
@@ -1106,12 +1138,110 @@ final class IntentNormalizer
      * Canonicalize SubEvent execution state for future stateHash computation.
      *
      * NOTE:
-     * - Introduced in Phase 1 but not yet used.
-     * - Will be activated in Phase 2.
+     * - Activated in Phase 2.
      */
     private function canonicalizeForStateHash(array $subEvent): array
     {
-        return $subEvent;
+        $timing = is_array($subEvent['timing'] ?? null) ? $subEvent['timing'] : [];
+        $payload = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
+
+        $lowerOrNull = function ($v): ?string {
+            if (!is_string($v)) {
+                return null;
+            }
+            $v = trim($v);
+            return $v === '' ? null : strtolower($v);
+        };
+
+        $canonDate = function ($v): array {
+            if (!is_array($v)) {
+                return ['hard' => null, 'symbolic' => null];
+            }
+            return [
+                'hard'     => $v['hard'] ?? null,
+                'symbolic' => isset($v['symbolic']) && is_string($v['symbolic'])
+                    ? trim((string)$v['symbolic'])
+                    : ($v['symbolic'] ?? null),
+            ];
+        };
+
+        $canonTime = function ($v) use ($lowerOrNull): ?array {
+            if ($v === null) {
+                return null;
+            }
+            if (!is_array($v)) {
+                return [
+                    'hard'     => null,
+                    'symbolic' => null,
+                    'offset'   => 0,
+                ];
+            }
+
+            // Normalize symbolic times to lowercase for stable hashing.
+            $symbolic = $v['symbolic'] ?? null;
+            $symbolic = $lowerOrNull($symbolic);
+
+            return [
+                'hard'     => $v['hard'] ?? null,
+                'symbolic' => $symbolic,
+                'offset'   => (int)($v['offset'] ?? 0),
+            ];
+        };
+
+        $canonDays = function ($v): ?array {
+            if ($v === null) {
+                return null;
+            }
+            if (!is_array($v)) {
+                return null;
+            }
+            if (($v['type'] ?? null) !== 'weekly' || !is_array($v['value'] ?? null)) {
+                return null;
+            }
+            return [
+                'type'  => 'weekly',
+                'value' => array_values($v['value']),
+            ];
+        };
+
+        // Execution behavior fields must be stable across sources.
+        $enabled = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled($payload['enabled'] ?? true);
+        $repeat  = isset($payload['repeat']) && is_string($payload['repeat'])
+            ? strtolower(trim($payload['repeat']))
+            : (\GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic(
+                \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType((string)($subEvent['type'] ?? 'playlist'))
+            ));
+
+        $stopType = isset($payload['stopType']) && is_string($payload['stopType'])
+            ? strtolower(trim($payload['stopType']))
+            : 'graceful';
+
+        // Preserve command metadata (if present) as part of state.
+        $command = null;
+        if (isset($payload['command']) && is_array($payload['command'])) {
+            $command = $payload['command'];
+        }
+
+        return [
+            'type'   => (string)($subEvent['type'] ?? ''),
+            'target' => (string)($subEvent['target'] ?? ''),
+            'timing' => [
+                'all_day'    => (bool)($timing['all_day'] ?? false),
+                'start_date' => $canonDate($timing['start_date'] ?? null),
+                'end_date'   => $canonDate($timing['end_date'] ?? null),
+                'start_time' => $canonTime($timing['start_time'] ?? null),
+                'end_time'   => $canonTime($timing['end_time'] ?? null),
+                'days'       => $canonDays($timing['days'] ?? null),
+            ],
+            'behavior' => [
+                'enabled'  => (bool)$enabled,
+                'repeat'   => (string)$repeat,
+                'stopType' => (string)$stopType,
+            ],
+            'payload' => [
+                'command' => $command,
+            ],
+        ];
     }
 
 
