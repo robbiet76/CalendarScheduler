@@ -22,19 +22,9 @@ declare(strict_types=1);
 define('GCS_VERSION', '2.0-dev');
 
 // -----------------------------------------------------------------------------
-// Core — identity, manifest, invariants
+// Core — unused currently
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Core/IdentityInvariantViolation.php';
-require_once __DIR__ . '/src/Core/ManifestInvariantViolation.php';
-
-require_once __DIR__ . '/src/Core/IdentityCanonicalizer.php';
-require_once __DIR__ . '/src/Core/IdentityHasher.php';
-require_once __DIR__ . '/src/Core/Sha256IdentityHasher.php';
-require_once __DIR__ . '/src/Core/IdentityBuilder.php';
-
-require_once __DIR__ . '/src/Core/ManifestStore.php';
-require_once __DIR__ . '/src/Core/FileManifestStore.php';
 
 // -----------------------------------------------------------------------------
 // Adapter
