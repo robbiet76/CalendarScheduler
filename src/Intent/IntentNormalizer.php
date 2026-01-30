@@ -9,6 +9,7 @@ use GoogleCalendarScheduler\Intent\NormalizationContext;
 use GoogleCalendarScheduler\Platform\IniMetadata;
 use GoogleCalendarScheduler\Platform\HolidayResolver;
 
+// TODO(v3): Remove debug hash preimage logging once diff parity is proven
 /**
  * IntentNormalizer
  *
@@ -1149,10 +1150,18 @@ final class IntentNormalizer
     }
 
     /**
-     * Canonicalize SubEvent execution state for future stateHash computation.
+     * STATE HASH CONTRACT
      *
-     * NOTE:
-     * - Activated in Phase 2.
+     * The stateHash represents the full executable state of a single SubEvent.
+     *
+     * Rules:
+     * - Provider-agnostic
+     * - Deterministic across calendar and FPP sources
+     * - Includes timing, behavior, and execution payload
+     * - Excludes identity-only semantics
+     *
+     * stateHash is used exclusively to detect UPDATE conditions during Diff.
+     * Any change to this canonicalization MUST be paired with a spec update.
      */
     private function canonicalizeForStateHash(array $subEvent): array
     {
