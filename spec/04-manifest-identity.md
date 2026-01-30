@@ -38,8 +38,9 @@ Identity includes only the structural fields:
 - **Execution type** (`playlist`, `command`, `sequence`)
 - **Execution target** (playlist name, command name, etc.)
 - **Weekly day selection** (`days`), which may be null meaning "Everyday"
+- **Start time** (`start_time`), including symbolic or hard value and offset
 
-Identity explicitly excludes timing details such as start_time, end_time, start_date, end_date, and DatePatterns, as well as any execution behavior, enablement, or payload.
+Identity explicitly excludes timing details such as end_time, start_date, end_date, and DatePatterns, as well as any execution behavior, enablement, or payload.
 
 SubEvents inherit the Manifest Identity of their parent Event. Timing, date patterns, execution behavior, enablement, and payload differences are captured in the SubEvent-level StateHash.
 
@@ -59,7 +60,7 @@ StateHash encompasses all normalized timing details, including start_time, end_t
 
 The following fields affect *when* an entry is active or *how* it executes, but do **not** define logical identity and are therefore excluded from identity hashing:
 
-- Timing details (`start_time`, `end_time`, `start_date`, `end_date`, DatePatterns)
+- Timing details excluding start_time (`end_time`, `start_date`, `end_date`, DatePatterns)
 - Enablement state (`enabled`)
 - Playback behavior (`repeat`, `stopType`)
 - Execution payload or command arguments
@@ -75,4 +76,4 @@ Date normalization rules and timing canonicalization apply during Intent normali
 
 #### Summary Rule
 
-> Two Manifest Events share the same identity if and only if their execution type, execution target, and weekly day selection are equivalent. All other differences are state differences evaluated via SubEvent StateHash.
+> Two Manifest Events share the same identity if and only if their execution type, execution target, start time, and weekly day selection are equivalent. All other differences are state differences evaluated via SubEvent StateHash.

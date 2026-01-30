@@ -6,9 +6,9 @@
 
 ## Purpose
 
-The **Manifest** is the central, authoritative semantic model for the system.
+The **Manifest** is the central, authoritative semantic model and intent translation layer for the system.
 
-It represents the *truth* about:
+It represents the authoritative interpretation of user intent, including:
 
 - What exists in the scheduler
 - Why it exists
@@ -44,6 +44,9 @@ Backwards compatibility is **explicitly not a goal**. The Manifest is free to ev
 
 7. **Explicit distinction between identity and state**  \
    The system explicitly distinguishes *identity* (creation and deletion of Manifest Events) from *state* (updates to existing events). Updates are detected via comparison of SubEvent execution state, not Manifest Event identity.
+
+8. **Explicit separation of scheduling and execution semantics**  \
+   Scheduling recurrence (dates, days, patterns) and execution behavior (looping, repetition during runtime) are treated as distinct concerns and are never conflated.
 
 ---
 
@@ -125,17 +128,18 @@ It answers:
 > **“Are these two Manifest Events the same logical scheduler entry?”**
 
 Identity is:
-
 - Deterministic
 - Provider-agnostic
 - Stable across time
-- Independent of concrete dates and times
+- Independent of concrete dates and execution behavior; identity includes start-time semantics to prevent unintended event collapse
 
 ```ts
 IdentityObject {
   type: "playlist" | "command" | "sequence",
   target: string,
-  days: { type: "weekly", value: string[] } | null
+  days: { type: "weekly", value: string[] } | null,
+  start_time: { symbolic: string|null, hard: string|null, offset: number } | null,
+  is_all_day: boolean
 }
 ```
 
@@ -146,9 +150,11 @@ IdentityObject {
   - `type`
   - `target`
   - `days`
+  - `start_time`
+  - `is_all_day`
 - Identity explicitly **excludes**:
+  - end times
   - start and end dates
-  - start and end times
   - symbolic vs hard date representations
   - execution behavior (repeat, stopType, enabled)
 - Identity fields MUST be derived from the base SubEvent geometry.
@@ -188,6 +194,10 @@ SubEvent {
     is_all_day: boolean
   },
 
+  **Execution vs Scheduling Terminology Guardrail**  
+  The `behavior.repeat` field refers exclusively to execution-time looping behavior within FPP (e.g., replaying a playlist or repeating a command during a run).  
+  It MUST NOT be used to represent scheduling recurrence, which is expressed only through SubEvent timing fields (`start_date`, `end_date`, `days`, and DatePatterns).
+
   behavior: {
     enabled: scalar,
     repeat: scalar,
@@ -217,7 +227,7 @@ Rules:
 
 - Every Manifest Event has **one or more SubEvents**
 - SubEvents have **no independent identity**
-- Identity is defined at the Manifest Event level and is derived from the base execution geometry (type/target/timing.days/timing.start_time/timing.end_time/timing.is_all_day)
+- Identity is defined at the Manifest Event level and is derived from the base execution geometry (type, target, timing.days, timing.start_time, timing.is_all_day)
 - Payload exists only for command-type SubEvents
 - All-day SubEvents carry `null` times for `start_time` and `end_time` and never contain hard-coded full-day times (e.g., no 23:59:59 or 24:00:00).
 
@@ -399,14 +409,9 @@ Rules:
       "identity": {
         "type": "playlist | command | sequence",
         "target": "string",
-        "timing": {
-          "start_date": { "symbolic": null, "hard": "2025-11-15" },
-          "end_date": { "symbolic": null, "hard": "2025-11-26" },
-          "days": null,
-          "start_time": { "symbolic": null, "hard": "08:00:00", "offset": 0 },
-          "end_time": { "symbolic": null, "hard": "10:00:00", "offset": 0 },
-          "is_all_day": false
-        }
+        "days": null,
+        "start_time": null,
+        "is_all_day": false
       },
 
       "ownership": {

@@ -1020,8 +1020,7 @@ final class IntentNormalizer
         ]];
 
         // Identity hash: canonicalize for hashing so symbolic dates are preferred.
-        $hashInput = $this->canonicalizeForHash($identity, $subEvents);
-
+        $hashInput = $this->canonicalizeForIdentityHash($identity);
         $hashJson = json_encode($hashInput, JSON_THROW_ON_ERROR);
 
         /**
@@ -1059,38 +1058,21 @@ final class IntentNormalizer
     }
 
     /**
-     * Canonicalize identity and subEvents for hashing.
+     * Canonicalize Manifest Event identity for identityHash computation.
      *
-     * RULE:
-     * - If symbolic date exists → hash symbolic ONLY
-     * - Else → hash hard ONLY
-     * - NEVER hash both
-     *
-     * This affects hashing only. Identity storage is untouched.
-     */
-    /**
-     * Build explicit, minimal hash preimage.
+     * Identity answers: “Does this intent already exist?”
      *
      * RULES:
-     * - Only identity + timing + payload semantics that define intent identity
-     * - Prefer symbolic dates if present, otherwise hard
-     * - Never include both symbolic and hard
-     * - Exclude ownership, correlation, provenance, raw payload noise
+     * - Identity is stable across time
+     * - Identity excludes dates (start/end date)
+     * - Identity excludes execution state (repeat, stopType, enabled)
+     * - Identity includes start_time to prevent collapsing distinct daily intents
+     *
+     * Changing identity implies create/delete, never update.
      */
-    private function canonicalizeForHash(array $identity, array $subEvents): array
+    private function canonicalizeForIdentityHash(array $identity): array
     {
-        $pickDate = function (?array $date): ?array {
-            if ($date === null) {
-                return null;
-            }
-            if (!empty($date['symbolic'])) {
-                return ['symbolic' => $date['symbolic']];
-            }
-            if (!empty($date['hard'])) {
-                return ['hard' => $date['hard']];
-            }
-            return null;
-        };
+        $timing = $identity['timing'];
 
         $pickTime = function (?array $time): ?array {
             if ($time === null) {
@@ -1109,34 +1091,27 @@ final class IntentNormalizer
             ];
         };
 
-        $timing = $identity['timing'];
-
-        $canonicalTiming = [
-            'all_day'    => (bool)$timing['all_day'],
-            'start_date' => $pickDate($timing['start_date'] ?? null),
-            'end_date'   => $pickDate($timing['end_date'] ?? null),
-            'start_time' => $pickTime($timing['start_time'] ?? null),
-            'end_time'   => $pickTime($timing['end_time'] ?? null),
-            'days'       => $timing['days'] ?? null,
-        ];
-
-        $canonicalSubEvent = $subEvents[0];
-
         return [
-            'identity' => [
-                'type'   => $identity['type'],
-                'target' => $identity['target'],
-                'timing' => $canonicalTiming,
+            'type'   => $identity['type'],
+            'target' => $identity['target'],
+            'timing' => [
+                'all_day'    => (bool)$timing['all_day'],
+                'start_time' => $pickTime($timing['start_time'] ?? null),
+                'days'       => $timing['days'] ?? null,
             ],
-            'subEvents' => [[
-                'timing'  => $canonicalTiming,
-                'payload' => [
-                    'enabled'  => (bool)$canonicalSubEvent['payload']['enabled'],
-                    'repeat'   => (string)$canonicalSubEvent['payload']['repeat'],
-                    'stopType' => (string)$canonicalSubEvent['payload']['stopType'],
-                ],
-            ]],
         ];
+    }
+
+    /**
+     * Canonicalize SubEvent execution state for future stateHash computation.
+     *
+     * NOTE:
+     * - Introduced in Phase 1 but not yet used.
+     * - Will be activated in Phase 2.
+     */
+    private function canonicalizeForStateHash(array $subEvent): array
+    {
+        return $subEvent;
     }
 
 
