@@ -52,12 +52,9 @@ Identity matching is performed at the Manifest Event level. Individual scheduler
 
 ### Symbolic Timing Considerations
 
-Symbolic timing fields (e.g. holidays, seasonal markers):
+Symbolic timing fields that participate in Manifest Identity (e.g. symbolic dates or symbolic time markers) are first-class identity-stable inputs.
 
-- Are first-class identity-stable inputs
-- Must not be resolved to concrete dates during Diff
-- Must be compared symbolically
-- Must not influence identity matching
+- Must not be resolved to concrete dates or times during Diff and must be compared symbolically when participating in identity
 
 Resolved dates are an execution concern and are out of scope for Diff.
 
@@ -93,8 +90,8 @@ An entry is classified as **create** when:
 
 An entry is classified as **update** when:
 
-- Identity matches an existing scheduler entry
-- One or more non-identity fields differ
+- Its Manifest Event identity matches an existing scheduler entry
+- One or more associated SubEvent `stateHash` values differ
 
 Rules:
 
@@ -105,9 +102,9 @@ If two entries are otherwise identical, a change in scheduler index or position 
 
 - No partial updates are allowed
 
-Updates are atomic at the Manifest Event level. If any SubEvent realization differs, the entire event is classified as an update; partial SubEvent updates are forbidden.
+Updates are atomic at the Manifest Event level. If any SubEvent `stateHash` differs, the entire Manifest Event is classified as an update; partial SubEvent updates are forbidden.
 
-Comparison is performed against the canonical Manifest representation.
+Comparison is performed exclusively via deterministic `stateHash` values produced during normalization. Field-level comparison is explicitly forbidden during Diff.
 
 Rules:
 - Structural equivalence is evaluated, not textual representation
@@ -115,6 +112,8 @@ Rules:
 - Defaulted values are normalized prior to comparison
 - Symbolic timing fields are compared symbolically, not by resolved hard dates
 - Hard date fields may be null by design and do not imply difference
+
+The Diff phase has no knowledge of timing semantics, execution behavior, or payload structure beyond identity and `stateHash` equality.
 
 ---
 

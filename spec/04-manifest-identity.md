@@ -2,9 +2,15 @@
 
 > Manifest Identity defines **which scheduler intent the plugin considers equivalent**, not how the FPP scheduler internally enumerates entries.
 
-Manifest Identity is derived from fully normalized Intent.
-The Manifest never computes identity directly from raw calendar data or raw FPP scheduler entries.
+Manifest Identity is derived from fully normalized Intent at the Event level.  
+The Manifest never computes identity directly from raw calendar data or raw FPP scheduler entries.  
 All identity equivalence decisions are made only after Intent normalization.
+
+#### Manifest State Semantics
+
+In addition to Manifest Identity, the Manifest defines **StateHash**, which represents the fully normalized configuration of a scheduler intent, including all execution parameters, timing details, enablement state, and payload. StateHash is used primarily for update detection during diff operations, allowing the system to recognize changes that do not affect identity but modify execution behavior, timing, or metadata. StateHash is computed at the SubEvent level.
+
+In contrast, Manifest Identity defines structural equivalence of scheduler intents at the Event level and is used to determine create or delete operations.
 
 #### Platform Reality (FPP)
 
@@ -23,74 +29,50 @@ This normalization is performed during Intent normalization and never during res
 
 #### What Defines Manifest Identity
 
-Manifest Identity is derived from the subset of execution geometry that defines a **logical execution slot** as perceived by the user.
+Manifest Identity is derived from the subset of execution geometry that defines a **logical execution slot** as perceived by the user at the Event level.
 
-Identity includes:
+Identity answers the question **"What is this scheduled thing?"**, not **"How or when does it execute?"**
+
+Identity includes only the structural fields:
 
 - **Execution type** (`playlist`, `command`, `sequence`)
 - **Execution target** (playlist name, command name, etc.)
-- **Timing window** (canonicalized), including normalized date patterns:
-  - ``timing`` must be a structured object
-  - ``days`` may be null (meaning "Everyday") or a structured weekly selector
-  - ``start_time`` is required (hard or symbolic)
-  - ``end_time`` is required (hard or symbolic)
-  - ``start_date`` and ``end_date`` participate as normalized **DatePatterns** when present
+- **Weekly day selection** (`days`), which may be null meaning "Everyday"
 
-These fields determine whether two scheduler entries could ever be eligible at the same moment during a daily FPP scan. If two entries differ in any of these dimensions, they represent distinct scheduler intents and must not share identity.
+Identity explicitly excludes timing details such as start_time, end_time, start_date, end_date, and DatePatterns, as well as any execution behavior, enablement, or payload.
 
-#### Timing Canonicalization Rules
+SubEvents inherit the Manifest Identity of their parent Event. Timing, date patterns, execution behavior, enablement, and payload differences are captured in the SubEvent-level StateHash.
 
-Timing participates in Manifest Identity subject to the following rules:
+#### Identity vs State Boundary
 
-- `timing` must be a structured object
-- `days` may be null (meaning "Everyday") or a structured weekly selector
-- `start_time` and `end_time` are required
-- Each of `start_time` and `end_time` must define **either**:
-  - a hard time (`hard`), **or**
-  - a symbolic time (`symbolic`)
-- `offset` is allowed (typically used with sun times)
-- `start_date` and `end_date` (if present) must define at least one of: `hard` (YYYY-MM-DD) or `symbolic` (holiday/alias).
-- Resolution is **not** permitted during identity hashing: symbolic dates must not be converted into hard dates for the purpose of identity.
+- Manifest Identity exists at the Event level and defines structural equivalence for create or delete operations.
+- SubEvents inherit this identity and have their own StateHash computed from the full normalized Intent object, including timing, execution behavior, payload, and enablement state.
+- Changes in Manifest Identity result in delete + create operations.
+- Changes in SubEvent StateHash result in update operations.
+- Identity changes take precedence over state changes; if identity differs, state changes are irrelevant.
 
+#### Manifest StateHash Scope
 
-Date fields are structurally validated as part of identity equivalence and hashing.
-
-**Identity Boundary**
-
-Manifest Identity explicitly excludes provider-specific recurrence semantics such as:
-- inclusive vs exclusive `UNTIL` handling
-- timezone-based cutoff rollbacks
-- first/last occurrence derivation
-
-Identity observes only normalized DatePatterns and TimePatterns, never recurrence boundary behavior. These semantics are resolved upstream during timing normalization.
-
-All timing canonicalization occurs during Intent normalization; resolution and diffing operate only on fully normalized timing structures.
+StateHash encompasses all normalized timing details, including start_time, end_time, DatePatterns, and execution parameters such as enablement, playback behavior, and payload. Timing canonicalization and normalization rules apply here to ensure consistent state comparison but do not affect Manifest Identity.
 
 #### What Does *Not* Define Manifest Identity
 
 The following fields affect *when* an entry is active or *how* it executes, but do **not** define logical identity and are therefore excluded from identity hashing:
 
+- Timing details (`start_time`, `end_time`, `start_date`, `end_date`, DatePatterns)
 - Enablement state (`enabled`)
 - Playback behavior (`repeat`, `stopType`)
 - Execution payload or command arguments
 - Provider metadata or correlation identifiers
 
-These fields may differ while still representing the **same normalized scheduler intent**.
+These fields may differ while still representing the **same normalized scheduler intent** at the Event level.
 
-#### Dates and Normalization
+#### Dates and Timing Normalization
 
+Dates and timing participate in Manifest StateHash, not Manifest Identity. They are normalized to ensure stable and consistent state comparison across imports, edits, and seasonal shifts.
 
-Dates *do* participate in Manifest Identity, but only as normalized DatePatterns (hard and/or symbolic), never as implicitly resolved values. This supports identity stability across years while still preventing accidental collisions between intents that can be eligible at different times.
-
-The presence of a `hard` end date does not imply that the final execution occurs on that date; it represents an intent boundary, not an execution guarantee.
-
-Date normalization rules:
-- Calendar-derived events may populate both `hard` and `symbolic` when a hard date matches a known symbolic holiday.
-- FPP-derived events should preserve symbolic dates in `symbolic` and leave `hard` null (no forward resolution).
-- Identity equivalence treats DatePatterns as matching when either their `symbolic` values match or their `hard` values match.
+Date normalization rules and timing canonicalization apply during Intent normalization and influence StateHash computation. Symbolic and hard dates are preserved to maintain identity stability at the state level but do not impact Event-level Manifest Identity.
 
 #### Summary Rule
 
-
-> Two SubEvents share the same Manifest Identity if and only if their execution type, execution target, and fully normalized timing are equivalent. Timing equivalence includes weekly day selection (or null meaning "Everyday"), start/end times, and DatePatterns (when present), where DatePatterns match if either hard or symbolic components match.
-> Differences in recurrence realization (such as inclusive/exclusive end handling or timezone-based date shifts) must not affect Manifest Identity.
+> Two Manifest Events share the same identity if and only if their execution type, execution target, and weekly day selection are equivalent. All other differences are state differences evaluated via SubEvent StateHash.

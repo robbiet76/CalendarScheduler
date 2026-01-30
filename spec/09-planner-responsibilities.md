@@ -63,6 +63,8 @@ It must **never**:
 
 ### Planner Output Model (Non-Persistent)
 
+The Planner produces a deterministic *desired scheduling state*. It does not determine whether entries should be created, updated, or deleted. Those decisions are handled exclusively by the Diff phase.
+
 The following structures are **internal Planner artifacts**. They are not persisted and must not be written back to the Manifest:
 - PlannedEntry
 - PlannerResult
@@ -131,7 +133,7 @@ It MUST NOT:
 
 ---
 
-## Preview vs Apply Behavior
+## Planner Execution Modes (Preview / Apply Context)
 
 The Planner behaves **identically** in preview and apply modes with one exception:
 
@@ -150,6 +152,13 @@ Rules:
 The Planner:
 
 - Consumes Manifest identities **once** per Manifest Event
+
+The Planner does not compute or interpret state hashes. It produces the fully normalized desired state that downstream diff logic compares using stateHash to determine whether updates are required.
+
+The Planner produces the fully normalized desired state that downstream diff logic compares using stateHash to determine whether updates are required.
+
+Identity fields are a strict subset of overall state. Any identity change inherently implies a state change and will be treated as a create/delete rather than an update.
+
 - Attaches identity metadata to desired entries
 - Treats identity as immutable
 

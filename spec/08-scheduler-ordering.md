@@ -119,7 +119,7 @@ Baseline chronological ordering operates on **effective ordering keys**, which m
 
 Symbolic dates (e.g., "Thanksgiving", "Christmas") are ordered **relative to other symbolic dates only** and are never resolved to a specific calendar year during ordering. Ordering must not introduce or assume a concrete year.
 
-Type and target ordering in this phase serve deterministic tie-breaking only and do not imply semantic priority. All semantic conflict resolution is performed exclusively during dominance resolution.
+Type and target ordering in this phase serve **deterministic tie-breaking only** and must not encode semantic priority. All semantic conflict resolution is performed exclusively during dominance resolution.
 
 > This phase does *not* attempt to resolve conflicts.
 
@@ -133,7 +133,10 @@ Dominance rules may move a Manifest Event **above** another *only if they overla
 
 ### Overlap Definition
 
-Event timing for overlap and dominance evaluation is derived from the combined effect of all SubEvents (base and exceptions); individual SubEvents are never considered independently.
+Event timing for overlap and dominance evaluation is derived from the **aggregate effective timing shape** of all SubEvents (base and exceptions).
+Individual SubEvents are never evaluated independently.
+
+The aggregate effective timing shape represents the union of all SubEvent timing constraints and reflects the full execution footprint of the Manifest Event.
 
 Two Manifest Events overlap if:
 
@@ -153,7 +156,9 @@ If no overlap exists, **ordering must not change**.
 
 If two overlapping events occur on the same day:
 
-- The event with the **later effective daily start time** (considering all SubEvents) dominates
+- The event with the **later effective daily start time**, as determined from the aggregate effective timing shape of its SubEvents, dominates
+
+The effective daily start time of a Manifest Event is defined as the **latest daily start time produced by any of its SubEvents**, after normalization.
 
 Rationale:
 - Later schedules are intentional overrides
@@ -181,12 +186,14 @@ Rationale:
 
 ### Rule 3 — Prevent Start-Time Starvation
 
-If placing Event A above Event B would prevent Event B from ever starting at its intended first occurrence:
+If placing Event A above Event B would prevent Event B from ever starting at its intended first occurrence, as determined from the aggregate effective timing shape of Event B:
 
 - Event A dominates
 
 Rationale:
 - Events must be able to start at least once
+
+This rule ensures that an event’s execution footprint is not completely eclipsed by a dominant event that overlaps all of its possible start opportunities.
 
 If an event’s first occurrence cannot be concretely determined due to symbolic timing, starvation prevention is evaluated conservatively without resolving symbolic values to specific dates.
 
@@ -237,4 +244,3 @@ The following are **not allowed**:
 - Optimizing for minimal diff size
 
 Correctness always outweighs minimal change.
-

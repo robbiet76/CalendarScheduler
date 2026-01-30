@@ -87,6 +87,20 @@ Rules:
 - SubEvents are never diffed, ordered, or reverted independently
 - SubEvents are never persisted outside the Manifest
 
+SubEvents participate in update detection only through their computed
+state hash.
+
+SubEvents are never diffed structurally or compared field-by-field.
+A change in any SubEvent’s execution semantics is detected solely by
+a change in its `stateHash`.
+
+Each SubEvent has an associated `stateHash` computed during Intent
+Normalization.
+
+The `stateHash` represents the complete executable state of the SubEvent
+and is used exclusively during the diff phase to determine whether an
+update is required.
+
 ---
 
 ## SubEvent Roles
@@ -176,6 +190,16 @@ This ensures:
 - Stable identity across calendar edits
 - Identity consistency between FPP and Calendar sources
 - Predictable diff and merge behavior
+
+## Identity vs State
+
+Manifest Event identity determines **what** an event is.
+Execution state determines **how** that event behaves.
+
+Two Manifest Events with identical identity may differ in execution
+state due to changes in timing boundaries, payload, or behavior flags.
+
+Identity equality alone does not imply execution equality.
 
 ---
 
@@ -338,6 +362,9 @@ If a concrete `hard` date is recognized as a known holiday for that specific yea
 | `{ hard: null, symbolic: "Thanksgiving" }` | `{ hard: null, symbolic: "Christmas" }` | A holiday-to-holiday seasonal window (year-agnostic) |
 | `{ hard: "0000-02-14", symbolic: null }` | `{ hard: "0000-02-14", symbolic: null }` | Every Feb 14 |
 | `{ hard: "0000-01-01", symbolic: null }` | `{ hard: "0000-12-31", symbolic: null }` | Entire year, every year |
+
+Resolved date values directly participate in SubEvent state hashing
+but never in identity construction beyond normalized symbolic equivalence.
 
 ---
 

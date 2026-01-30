@@ -40,22 +40,32 @@ Apply
 
 Event Resolution operates exclusively on **intent-normalized events**.
 
-Resolution MUST NOT compare:
-- Raw calendar provider records
-- Provider-specific formats (e.g., ICS fields)
-- Raw FPP scheduler entries
-- Partially-normalized or mixed-shape data
-- Manifest-shaped inputs directly
+Event Resolution operates exclusively on intent-normalized events.
+Resolution does not perform semantic normalization, identity construction, or timing interpretation.
+All such work MUST have occurred prior to Resolution.
+Identity hashes are treated as immutable and authoritative within this layer.
 
-All inputs MUST be normalized into **Canonical Intent Events** by Intent Normalization before any comparison occurs.
-
-Identity construction occurs during Intent Normalization. Event Resolution treats identity hashes as immutable and authoritative.
+> **Identity is defined strictly as the combination of event type, target, and days. Identity does not include specific dates or times.**
 
 During migration and refactoring phases, Resolution MAY accept partially-normalized inputs **only** in diagnostic or read-only modes. In such cases, Resolution MUST surface ambiguity explicitly and MUST NOT silently compensate or infer intent.
 
 ---
 
 ## Canonical Intent Contract
+
+### State Hash (SubEvent-level)
+
+Each subEvent MUST include a `stateHash` representing the fully-normalized execution state of that subEvent.
+
+The `stateHash`:
+- Is computed during Intent Normalization
+- Reflects all execution-relevant timing, behavior, and payload state
+- Is source-agnostic (calendar and FPP inputs MUST converge to the same hash for equivalent intent)
+- Is immutable within Event Resolution
+
+**Event Resolution MUST use `stateHash` as the sole and exclusive mechanism for detecting updates.**
+
+Resolution MUST NOT perform deep field-by-field or structural comparisons when `stateHash` is present.
 
 Event Resolution consumes ONLY **Canonical Intent Events**.
 
@@ -87,19 +97,15 @@ FPP-specific all-day materialization (e.g. `endTime = 24:00:00`) is an Apply/mat
 Identity + hashing:
 - `is_all_day` participates in identity and hashing.
 - Switching between timed and all-day intent is an identity change (different `identity_hash`).
+- **Identity is always determined by type + target + days, never by specific dates or times.**
 
 ---
 
 ## Inputs
 
-Event Resolution consumes:
-
-- **Source inputs:** calendar provider snapshot records (provider-agnostic, raw)  
-- **Existing inputs:** plugin manifest events OR normalized scheduler snapshot events
-
-Resolution is responsible for producing canonical Intent Events before comparison.
-
-Resolution does **not** assume manifest-shaped inputs from CalendarSnapshot or any upstream identity construction.
+Event Resolution consumes only fully-normalized Canonical Intent Events.
+Raw calendar provider records and raw FPP scheduler snapshots are NOT valid inputs for resolution.
+If raw inputs are supplied, Resolution MUST reject comparison or operate in diagnostic-only mode.
 
 ### Required event shape
 
@@ -110,6 +116,8 @@ Each event MUST include:
 - `subEvents` (array; may be empty but typically contains 1 base subEvent)
 - `ownership` (object)
 - `correlation` (object)
+
+> **Identity is strictly type + target + days. Identity does not include dates or times.**
 
 Each subEvent MUST include:
 - `identity` (object)
@@ -123,12 +131,12 @@ Each subEvent MUST include:
 
 ## Normalization Responsibility
 
-Resolution is the final authority for structural normalization required for comparison, including:
+Resolution enforces that structural normalization required for comparison has already occurred, including:
 
 - Recurrence expansion
 - SubEvent construction
 
-Resolution MAY perform **structural normalization only** (ordering, grouping, subEvent shaping).
+Resolution MAY validate ordering, grouping, and subEvent structure, but MUST NOT derive or modify intent.
 
 Resolution MUST NOT perform:
 - Semantic interpretation
@@ -195,24 +203,25 @@ Fields:
 - `correlation` (array)
 - `subEvents` (array)
 
+> **Identity is always defined as type + target + days only.**
+
+Each subEvent MUST include:
+- `stateHash` (string)
+
 Factories:
 - `CanonicalIntentEvent::fromManifestEvent(array $event)` assumes the manifest entry already represents fully normalized Canonical Intent and performs no semantic interpretation or identity derivation.
 
 Rules:
 - MUST represent final intent, never raw or partially-resolved data
 - MUST require `identity_hash` (via `id` or `identity_hash`) and `identity`
-- MUST NOT compute identity hashes outside Resolution
+- MUST NOT compute or modify identity hashes within Resolution.
 - MUST treat input as already canonicalized by Intent Normalization
 - MUST encode all-day intent via `is_all_day` and null times (see **All-day intent handling (Locked)**)
 - MUST NOT represent all-day by inventing platform-specific time sentinels such as `24:00:00`
 
 ### ResolutionInputs
-ResolutionInputs factories accept raw calendar provider records and existing manifest events, internally performing normalization and identity construction to produce:
-
-- `sourceByHash: array<string, CanonicalIntentEvent>`
-- `existingByHash: array<string, CanonicalIntentEvent>`
-
-Upstream components MUST NOT perform identity construction or subEvent normalization.
+ResolutionInputs factories accept only fully-normalized Canonical Intent Events.
+They MUST NOT perform identity construction or semantic normalization.
 
 ### Resolver
 Resolver consumes ResolutionInputs and produces ResolutionResult.
@@ -228,8 +237,10 @@ For each identity:
 1. Present in calendar only → propose CREATE intent
 2. Present in FPP only → propose DELETE intent (policy-gated)
 3. Present in both:
-   - If structural differences exist → propose UPDATE intent
+   - If any subEvent.stateHash differs → propose UPDATE intent
    - Otherwise → NOOP
+
+> **Identity matching is always based on type + target + days. Only stateHash is used to detect updates.**
 
 Policies may restrict which operations are emitted.
 
@@ -239,16 +250,16 @@ Resolution outputs intent deltas, not scheduler actions.
 
 ## Divergence Detection
 
-Two events are divergent if any of the following differ:
-- All-day flag (`is_all_day`)
-- Number of subEvents
-- Timing of any subEvent
-- Behavior of any subEvent
-- Payload of any subEvent
+**Divergence detection is performed exclusively via `stateHash` comparison at the subEvent level.**
 
-Divergence detection is structural, not semantic.
+Two events are considered divergent if:
+- Any corresponding subEvent has a differing `stateHash`
+- The number of subEvents differs
+- The `is_all_day` flag differs
 
-Resolution does not attempt semantic equivalence or scheduler inference.
+If all subEvents match by `stateHash`, the events are considered equivalent and NOOP is produced.
+
+Resolution does not perform semantic or heuristic comparisons and does not inspect individual timing or payload fields directly.
 
 ---
 
@@ -277,6 +288,8 @@ Event Resolution must not:
 Identity derivation occurs during Intent Normalization. Event Resolution does not derive or modify identity.
 
 Event Resolution treats identities as immutable once constructed.
+
+> **Identity does not include any date or time fields.**
 
 ---
 

@@ -42,6 +42,9 @@ Backwards compatibility is **explicitly not a goal**. The Manifest is free to ev
 6. **Atomic execution units**  \
    Execution details are grouped into SubEvents that are always applied and ordered atomically.
 
+7. **Explicit distinction between identity and state**  \
+   The system explicitly distinguishes *identity* (creation and deletion of Manifest Events) from *state* (updates to existing events). Updates are detected via comparison of SubEvent execution state, not Manifest Event identity.
+
 ---
 
 ## Manifest Event (Top-Level Unit)
@@ -75,6 +78,12 @@ ManifestEvent {
   revert?: RevertObject
 }
 ```
+
+### Identity vs State
+
+- The Manifest Event carries an `identityHash` that represents its semantic identity.
+- Changes to the identity imply creation or deletion of the Manifest Event; they never represent updates.
+- Manifest Events do not carry executable state directly; executable state is represented exclusively at the SubEvent level.
 
 ---
 
@@ -113,56 +122,41 @@ The **IdentityObject** defines semantic equality for Manifest Events.
 
 It answers:
 
-> **“Are these two Manifest Events the same scheduler intent?”**
+> **“Are these two Manifest Events the same logical scheduler entry?”**
 
 Identity is:
 
 - Deterministic
 - Provider-agnostic
 - Stable across time
-- Year-invariant
+- Independent of concrete dates and times
 
 ```ts
 IdentityObject {
   type: "playlist" | "command" | "sequence",
   target: string,
-  timing: {
-    start_date: { symbolic: string|null, hard: string|null },
-    end_date:   { symbolic: string|null, hard: string|null },
-    start_time: { symbolic: string|null, hard: string|null, offset: number } | null,
-    end_time:   { symbolic: string|null, hard: string|null, offset: number } | null,
-    days: { type: "weekly", value: string[] } | null,
-    is_all_day: boolean
-  }
+  days: { type: "weekly", value: string[] } | null
 }
 ```
 
 ### Identity Invariants
 
-- Identity fields must be structurally complete after ingestion.
-  For each timing component, at least one of `symbolic` or `hard` MUST be provided unless `is_all_day` is `true`.
-  When `is_all_day === true`, both `start_time` and `end_time` MUST be `null`.
-  All-day intent MUST NOT invent concrete times (no 23:59:59, no 24:00:00).
-  Individual fields MAY be null where explicitly permitted.
-- Identity must not include stopType, repeat, enabled flags, or any execution-only settings.
-- Identity fields are derived exclusively from the *primary* SubEvent execution geometry
-  (`type`, `target`, `timing.start_date`, `timing.end_date`, `timing.days`, `timing.start_time`, `timing.end_time`, `timing.is_all_day`) and must match it exactly.
-  Behavior flags, payloads, and secondary SubEvents are explicitly excluded.
-- DatePatterns participate in identity hashing as patterns only (hard/symbolic). The system MUST NOT forward-resolve symbolic holidays into year-specific hard dates for identity or hashing.
+- Identity is intentionally **minimal**.
+- Identity includes only:
+  - `type`
+  - `target`
+  - `days`
+- Identity explicitly **excludes**:
+  - start and end dates
+  - start and end times
+  - symbolic vs hard date representations
+  - execution behavior (repeat, stopType, enabled)
+- Identity fields MUST be derived from the base SubEvent geometry.
+- Changing any Identity field creates a *new* Manifest Event and implies a create/delete operation during diff.
 
-- For each timing component:
-  - `start_time` and `end_time` MUST specify either `hard` or `symbolic` unless `is_all_day` is `true`, in which case they MUST be `null`.
-  - If `start_date` or `end_date` is present, it MUST specify either `hard` or `symbolic`
-  - Providing both is permitted
-  - Providing neither is invalid
-
-Rules:
-
-- Identity excludes operational settings (e.g. stopType, repeat)
-- Identity includes date patterns (start_date/end_date) as patterns only; it never hashes year-specific forward-resolved expansions.
-- Identity excludes provider artifacts
-- Changing any Identity field creates a *new* Manifest Event identity
-- Downstream materializers (e.g. FPP writer) are responsible for mapping all-day intent to platform-specific representations.
+**Rationale:**  
+Identity represents *what* the user is scheduling, not *when* or *how* it executes.  
+Temporal and behavioral changes are treated as state updates, not identity changes.
 
 ---
 
@@ -200,9 +194,24 @@ SubEvent {
     stopType: scalar
   },
 
-  payload?: object
+  payload?: object,
+
+  stateHash: string
 }
 ```
+
+**`stateHash`**  
+- A deterministic hash of the fully-normalized SubEvent execution state.  
+- Used exclusively to detect updates during the diff phase.  
+- Provider-agnostic and stable across calendar/FPP sources.
+A change to any SubEvent `stateHash` also implies a change to the parent Manifest Event's aggregate state.
+
+### State Semantics
+
+- State is evaluated only at the SubEvent level.  
+- Each SubEvent maps 1:1 to an FPP scheduler entry.  
+- A change to one SubEvent results in an update to only that execution unit.  
+- No calendar- or FPP-specific logic is permitted during state comparison.
 
 Rules:
 
@@ -362,6 +371,7 @@ Rules:
 - SubEvents are atomic
 - Scheduler state is reproducible from the Manifest alone
 - Date semantics (hard and symbolic) are fully preserved and never lossy
+- Diffing is performed using Manifest Event `identityHash` for creation and deletion, and SubEvent `stateHash` for updates
 
 ---
 
@@ -448,5 +458,7 @@ Rules:
 
   "payload": {
     "<string>": "<scalar | object>"
-  }
+  },
+
+  "stateHash": "string"
 }
