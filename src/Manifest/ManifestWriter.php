@@ -119,6 +119,9 @@ final class ManifestWriter
     {
         $subEvents = [];
 
+        // SubEvents MUST already be in canonical, deterministic order.
+        // Ordering is defined upstream by IntentNormalizer and MUST NOT change here.
+        // Event-level stateHash depends on this ordering being stable across sources.
         foreach ($intent->subEvents as $sub) {
             $subEvents[] = [
                 'stateHash' => $sub['stateHash'],
