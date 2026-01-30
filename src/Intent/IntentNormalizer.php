@@ -1080,12 +1080,26 @@ final class IntentNormalizer
 
         $subEvents = [$subEvent];
 
+        // Event-level state hash: aggregated from SubEvent state hashes
+        // Deterministic, order-stable, and provider-agnostic
+        $eventStateHashInput = array_map(
+            fn(array $se) => (string)($se['stateHash'] ?? ''),
+            $subEvents
+        );
+        sort($eventStateHashInput, SORT_STRING);
+        $eventStateHash = hash(
+            'sha256',
+            json_encode($eventStateHashInput, JSON_THROW_ON_ERROR)
+        );
+
         return new Intent(
             $identityHash,
             $identity,
             $ownership,
             $correlation,
-            $subEvents
+            $subEvents,
+            // Aggregated state hash for the full Manifest Event
+            $eventStateHash
         );
     }
 
