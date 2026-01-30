@@ -152,6 +152,20 @@ final class ManifestWriter
             ))
         );
 
+        // Invariant: managed events must have at least one subEvent contributing state.
+        if (($intent->ownership['managed'] ?? false) && $subEvents === []) {
+            throw new \RuntimeException(
+                'ManifestWriter: managed event must contain at least one subEvent'
+            );
+        }
+
+        // Invariant: event-level stateHash must always be non-empty for managed events.
+        if (($intent->ownership['managed'] ?? false) && $eventStateHash === '') {
+            throw new \RuntimeException(
+                'ManifestWriter: managed event missing required stateHash'
+            );
+        }
+
         return [
             'id'           => $intent->identityHash,
             'identityHash' => $intent->identityHash,
