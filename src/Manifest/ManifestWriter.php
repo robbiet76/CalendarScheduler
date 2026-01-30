@@ -119,10 +119,17 @@ final class ManifestWriter
     {
         $subEvents = [];
 
+        // Each subEvent MUST already include a stateHash computed during normalization.
+        // ManifestWriter does not compute or repair state.
         // SubEvents MUST already be in canonical, deterministic order.
         // Ordering is defined upstream by IntentNormalizer and MUST NOT change here.
         // Event-level stateHash depends on this ordering being stable across sources.
         foreach ($intent->subEvents as $sub) {
+            if (!isset($sub['stateHash']) || !is_string($sub['stateHash'])) {
+                throw new \RuntimeException(
+                    'ManifestWriter: subEvent missing required stateHash'
+                );
+            }
             $subEvents[] = [
                 'stateHash' => $sub['stateHash'],
                 'timing'    => $sub['timing'],
@@ -135,6 +142,7 @@ final class ManifestWriter
             ];
         }
 
+        // Event-level stateHash is a deterministic aggregation of ordered subEvent state hashes.
         // Aggregate event-level state hash from subEvent state hashes
         $eventStateHash = hash(
             'sha256',
