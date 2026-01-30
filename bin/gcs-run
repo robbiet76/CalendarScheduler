@@ -28,7 +28,7 @@ $DEFAULT_SCHEDULE_PATH =
     '/home/fpp/media/config/schedule.json';
 
 $DEFAULT_MANIFEST_PATH =
-    '/home/fpp/media/config/plugin.googleCalendarScheduler.json';
+    '/home/fpp/media/config/calendar-scheduler/manifest.json';
 
 // -----------------------------------------------------------------------------
 // Argument parsing
@@ -101,7 +101,7 @@ try {
         : [];
 
     $calendarIntents = json_decode(
-        file_get_contents('/home/fpp/media/config/calendar/calendar-intents.json'),
+        file_get_contents('/home/fpp/media/config/calendar-scheduler/calendar/intents.json'),
         true,
         512,
         JSON_THROW_ON_ERROR

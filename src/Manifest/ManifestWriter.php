@@ -15,6 +15,7 @@ use GoogleCalendarScheduler\Diff\DiffResult;
  * - Apply Diff results (create / update / delete)
  * - Materialize Manifest Events from normalized Intents
  * - Persist the final Manifest atomically
+ * - Write canonical manifest.json (v2)
  *
  * Non-responsibilities:
  * - No hashing
@@ -26,6 +27,9 @@ use GoogleCalendarScheduler\Diff\DiffResult;
  */
 final class ManifestWriter
 {
+    /**
+     * Path to the manifest.json file where the manifest will be persisted.
+     */
     private string $manifestPath;
 
     public function __construct(string $manifestPath)

@@ -20,7 +20,7 @@ use RuntimeException;
 final class CalendarSnapshot
 {
     private const SNAPSHOT_PATH =
-        '/home/fpp/media/config/calendar/calendar-snapshot.json';
+        '/home/fpp/media/config/calendar-scheduler/calendar/calendar-snapshot.json';
     /**
      * Temporary hard-coded ICS source (until OAuth phase).
      */
