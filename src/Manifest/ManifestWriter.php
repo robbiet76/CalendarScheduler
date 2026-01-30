@@ -1,0 +1,206 @@
+<?php
+declare(strict_types=1);
+
+namespace GoogleCalendarScheduler\Manifest;
+
+use GoogleCalendarScheduler\Intent\Intent;
+use GoogleCalendarScheduler\Diff\DiffResult;
+
+/**
+ * ManifestWriter (v2)
+ *
+ * Deterministic persistence boundary for the Manifest.
+ *
+ * Responsibilities:
+ * - Apply Diff results (create / update / delete)
+ * - Materialize Manifest Events from normalized Intents
+ * - Persist the final Manifest atomically
+ *
+ * Non-responsibilities:
+ * - No hashing
+ * - No identity enforcement
+ * - No semantic validation
+ * - No diff logic
+ *
+ * All invariants are guaranteed upstream.
+ */
+final class ManifestWriter
+{
+    private string $manifestPath;
+
+    public function __construct(string $manifestPath)
+    {
+        $this->manifestPath = $manifestPath;
+    }
+
+    /**
+     * Apply a Diff plan and persist the resulting Manifest.
+     *
+     * @param array $currentManifest Existing manifest (decoded JSON)
+     * @param DiffResult $diffPlan   Diff plan (creates / updates / deletes / noops)
+     * @param array $intents         Normalized Intents indexed by identityHash
+     *
+     * @return array The manifest structure that was written
+     */
+    public function applyDiff(
+        array $currentManifest,
+        DiffResult $diffPlan,
+        array $intents
+    ): array {
+        // Normalize manifest root
+        $manifest = $currentManifest;
+        if (!isset($manifest['events']) || !is_array($manifest['events'])) {
+            $manifest['events'] = [];
+        }
+
+        // ----------------------------
+        // DELETE
+        // ----------------------------
+        foreach ($diffPlan->deletes() as $identityHash) {
+            unset($manifest['events'][$identityHash]);
+        }
+
+        // ----------------------------
+        // CREATE
+        // ----------------------------
+        foreach ($diffPlan->creates() as $identityHash) {
+            if (!isset($intents[$identityHash])) {
+                throw new \RuntimeException(
+                    "ManifestWriter: missing Intent for create '{$identityHash}'"
+                );
+            }
+
+            $manifest['events'][$identityHash] =
+                $this->renderEvent($intents[$identityHash]);
+        }
+
+        // ----------------------------
+        // UPDATE (replace entire event)
+        // ----------------------------
+        foreach ($diffPlan->updates() as $identityHash) {
+            if (!isset($intents[$identityHash])) {
+                throw new \RuntimeException(
+                    "ManifestWriter: missing Intent for update '{$identityHash}'"
+                );
+            }
+
+            $manifest['events'][$identityHash] =
+                $this->renderEvent($intents[$identityHash]);
+        }
+
+        // ----------------------------
+        // Manifest metadata
+        // ----------------------------
+        $manifest['version'] = 2;
+        $manifest['generated_at'] = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
+            ->format(DATE_ATOM);
+
+        // Deterministic ordering
+        ksort($manifest['events'], SORT_STRING);
+
+        // ----------------------------
+        // Persist atomically
+        // ----------------------------
+        $this->writeManifest($manifest);
+
+        return $manifest;
+    }
+
+    /**
+     * Render a Manifest Event from a normalized Intent.
+     *
+     * Pure transform — no mutation, no inference.
+     */
+    private function renderEvent(Intent $intent): array
+    {
+        $subEvents = [];
+
+        foreach ($intent->subEvents as $sub) {
+            $subEvents[] = [
+                'stateHash' => $sub['stateHash'],
+                'timing'    => $sub['timing'],
+                'behavior'  => [
+                    'enabled'  => $sub['payload']['enabled'] ?? true,
+                    'repeat'   => $sub['payload']['repeat'] ?? 'none',
+                    'stopType' => $sub['payload']['stopType'] ?? 'graceful',
+                ],
+                'payload'   => $this->renderPayload($sub['payload']),
+            ];
+        }
+
+        // Aggregate event-level state hash from subEvent state hashes
+        $eventStateHash = hash(
+            'sha256',
+            implode('|', array_map(
+                static fn(array $s) => $s['stateHash'],
+                $subEvents
+            ))
+        );
+
+        return [
+            'id'           => $intent->identityHash,
+            'identityHash' => $intent->identityHash,
+            'stateHash'    => $eventStateHash,
+
+            'identity'     => $intent->identity,
+            'ownership'    => $intent->ownership,
+            'correlation'  => $intent->correlation,
+            'provenance'   => $intent->provenance ?? null,
+
+            'subEvents'    => $subEvents,
+        ];
+    }
+
+    /**
+     * Render execution payload.
+     *
+     * Keeps payload stable and explicit.
+     */
+    private function renderPayload(array $payload): array
+    {
+        // Remove behavior fields already lifted to behavior block
+        $out = $payload;
+
+        unset(
+            $out['enabled'],
+            $out['repeat'],
+            $out['stopType']
+        );
+
+        return $out;
+    }
+
+    /**
+     * Atomically write manifest JSON to disk.
+     */
+    private function writeManifest(array $manifest): void
+    {
+        $json = json_encode(
+            $manifest,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
+
+        $dir = dirname($this->manifestPath);
+        if (!is_dir($dir)) {
+            if (!mkdir($dir, 0775, true) && !is_dir($dir)) {
+                throw new \RuntimeException(
+                    "ManifestWriter: failed to create directory '{$dir}'"
+                );
+            }
+        }
+
+        $tmpPath = $this->manifestPath . '.tmp';
+
+        if (file_put_contents($tmpPath, $json . PHP_EOL) === false) {
+            throw new \RuntimeException(
+                "ManifestWriter: failed to write temp manifest '{$tmpPath}'"
+            );
+        }
+
+        if (!rename($tmpPath, $this->manifestPath)) {
+            throw new \RuntimeException(
+                "ManifestWriter: failed to replace manifest '{$this->manifestPath}'"
+            );
+        }
+    }
+}

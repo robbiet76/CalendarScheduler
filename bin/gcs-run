@@ -7,16 +7,12 @@ declare(strict_types=1);
 // CLI entrypoint for GoogleCalendarScheduler (V2)
 // -----------------------------------------------------------------------------
 
-use GoogleCalendarScheduler\Core\FileManifestStore;
-use GoogleCalendarScheduler\Core\Sha256IdentityHasher;
-use GoogleCalendarScheduler\Core\IdentityCanonicalizer;
-use GoogleCalendarScheduler\Core\IdentityBuilder;
-use GoogleCalendarScheduler\Planner\Planner;
+use GoogleCalendarScheduler\Manifest\ManifestWriter;
 use GoogleCalendarScheduler\Diff\Diff;
-use GoogleCalendarScheduler\Outbound\ApplyEngine;
-use GoogleCalendarScheduler\Outbound\SchedulerRunner;
-use GoogleCalendarScheduler\Outbound\SchedulerRunOptions;
-use GoogleCalendarScheduler\Platform\FppScheduleWriter;
+use GoogleCalendarScheduler\Intent\IntentNormalizer;
+use GoogleCalendarScheduler\Intent\NormalizationContext;
+use GoogleCalendarScheduler\Platform\FPPSemantics;
+use GoogleCalendarScheduler\Platform\HolidayResolver;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -63,62 +59,84 @@ if (!in_array($format, ['text', 'json'], true)) {
 // -----------------------------------------------------------------------------
 
 try {
-    // Manifest store (Core)
-    $hasher = new Sha256IdentityHasher();
-    $canonicalizer   = new IdentityCanonicalizer($hasher);
-    $identityBuilder = new IdentityBuilder($canonicalizer, $hasher);
-    $manifestStore = new FileManifestStore(
-        $manifestPath,
-        $hasher
+    // -------------------------------------------------------------------------
+    // Normalization context
+    // -------------------------------------------------------------------------
+
+    $env = json_decode(
+        file_get_contents(__DIR__ . '/../runtime/fpp-env.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
     );
 
-    // Planner (already configured via constructor / store)
-    $planner = new Planner($manifestStore);
+    $context = new NormalizationContext(
+        new DateTimeZone('America/New_York'),
+        new FPPSemantics(),
+        new HolidayResolver($env['rawLocale']['holidays'])
+    );
 
-    // PlannerResult provider (keeps Runner ignorant of inputs)
-    $plannerResultProvider = fn () => $planner->plan();
+    $normalizer = new IntentNormalizer();
 
-    // Existing schedule loader
-    $existingScheduleLoader = function () use ($schedulePath): array {
-        if (!file_exists($schedulePath)) {
-            return [];
-        }
+    // -------------------------------------------------------------------------
+    // Load existing manifest (if any)
+    // -------------------------------------------------------------------------
 
-        $json = file_get_contents($schedulePath);
-        if ($json === false) {
-            throw new RuntimeException(
-                "Unable to read schedule file: {$schedulePath}"
-            );
-        }
+    $currentManifest = [];
+    if (file_exists($manifestPath)) {
+        $currentManifest = json_decode(
+            file_get_contents($manifestPath),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+    }
 
-        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-        if (!is_array($data)) {
-            throw new RuntimeException(
-                "Schedule file did not decode to array"
-            );
-        }
+    // -------------------------------------------------------------------------
+    // Normalize inputs
+    // -------------------------------------------------------------------------
 
-        return $data;
-    };
+    $fppRaw = file_exists($schedulePath)
+        ? json_decode(file_get_contents($schedulePath), true, 512, JSON_THROW_ON_ERROR)
+        : [];
 
-    // Writer (Platform)
-    $writer = new FppScheduleWriter($schedulePath);
+    $calendarIntents = json_decode(
+        file_get_contents('/home/fpp/media/config/calendar/calendar-intents.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
 
-    // Runner (Outbound)
-    $runner = new SchedulerRunner(
-        $plannerResultProvider,
-        new Diff(),
-        new ApplyEngine(),
-        $writer,
-        $existingScheduleLoader
+    $intents = [];
+
+    foreach ($calendarIntents as $intent) {
+        $intents[$intent['identityHash']] = $intent;
+    }
+
+    // -------------------------------------------------------------------------
+    // Diff
+    // -------------------------------------------------------------------------
+
+    $diff = new Diff();
+    $diffPlan = $diff->diff(
+        $currentManifest['events'] ?? [],
+        $intents
     );
 
     // -------------------------------------------------------------------------
-    // Execute
+    // Write manifest
     // -------------------------------------------------------------------------
 
-    $options = new SchedulerRunOptions($dryRun);
-    $result  = $runner->run($options);
+    $writer = new ManifestWriter($manifestPath);
+
+    if (!$dryRun) {
+        $writer->applyDiff(
+            $currentManifest['events'] ?? [],
+            $diffPlan,
+            $intents
+        );
+    }
+
 
 } catch (\GoogleCalendarScheduler\Core\IdentityInvariantViolation |
          \GoogleCalendarScheduler\Core\ManifestInvariantViolation $e) {
@@ -137,12 +155,16 @@ try {
 // Output
 // -----------------------------------------------------------------------------
 
+$countCreate = $diffPlan->createCount();
+$countUpdate = $diffPlan->updateCount();
+$countDelete = $diffPlan->deleteCount();
+
 if ($format === 'json') {
     echo json_encode([
-        'noop'    => $result->isNoop(),
-        'created' => $result->createCount(),
-        'updated' => $result->updateCount(),
-        'deleted' => $result->deleteCount(),
+        'noop'    => $countCreate === 0 && $countUpdate === 0 && $countDelete === 0,
+        'created' => $countCreate,
+        'updated' => $countUpdate,
+        'deleted' => $countDelete,
         'dry_run' => $dryRun,
     ], JSON_PRETTY_PRINT) . "\n";
     exit(0);
@@ -153,7 +175,7 @@ if ($quiet) {
     exit(0);
 }
 
-if ($result->isNoop()) {
+if ($countCreate === 0 && $countUpdate === 0 && $countDelete === 0) {
     echo "Scheduler run complete.\n";
     echo "No changes required.\n";
     exit(0);
@@ -161,14 +183,14 @@ if ($result->isNoop()) {
 
 if ($dryRun) {
     echo "Dry run complete.\n";
-    echo "Would create: {$result->createCount()}\n";
-    echo "Would update: {$result->updateCount()}\n";
-    echo "Would delete: {$result->deleteCount()}\n";
+    echo "Would create: {$countCreate}\n";
+    echo "Would update: {$countUpdate}\n";
+    echo "Would delete: {$countDelete}\n";
     exit(0);
 }
 
 echo "Scheduler run complete.\n";
-echo "Created: {$result->createCount()}\n";
-echo "Updated: {$result->updateCount()}\n";
-echo "Deleted: {$result->deleteCount()}\n";
+echo "Created: {$countCreate}\n";
+echo "Updated: {$countUpdate}\n";
+echo "Deleted: {$countDelete}\n";
 exit(0);

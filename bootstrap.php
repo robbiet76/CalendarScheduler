@@ -71,6 +71,12 @@ require_once __DIR__ . '/src/Platform/IcsParser.php';
 require_once __DIR__ . '/src/Platform/IniMetadata.php';
 
 // -----------------------------------------------------------------------------
+// Manifest
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Manifest/ManifestWriter.php';
+
+// -----------------------------------------------------------------------------
 // Apply - TEMPORARILY DISABLED (will be re-enabled later)
 // -----------------------------------------------------------------------------
 // require_once __DIR__ . '/src/Apply/ApplyEngine.php';
