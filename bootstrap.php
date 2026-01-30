@@ -55,8 +55,8 @@ require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 // -----------------------------------------------------------------------------
 // Diff - TEMPORARILY DISABLED (will be re-enabled later)
 // -----------------------------------------------------------------------------
-// require_once __DIR__ . '/src/Diff/DiffResult.php';
-// require_once __DIR__ . '/src/Diff/Diff.php';
+require_once __DIR__ . '/src/Diff/DiffResult.php';
+require_once __DIR__ . '/src/Diff/Diff.php';
 
 // -----------------------------------------------------------------------------
 // Platform
