@@ -62,6 +62,20 @@ if (!in_array($format, ['text', 'json'], true)) {
 // Dependency construction
 // -----------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Export FPP environment (authoritative, always fresh)
+    // -------------------------------------------------------------------------
+
+    $envExporter = __DIR__ . '/fpp-env-export';
+    if (!is_executable($envExporter)) {
+        throw new RuntimeException('Missing or non-executable fpp-env-export binary');
+    }
+
+    exec($envExporter, $envOut, $envCode);
+    if ($envCode !== 0) {
+        throw new RuntimeException('Failed to export FPP environment');
+    }
+
 try {
     // -------------------------------------------------------------------------
     // Normalization context
