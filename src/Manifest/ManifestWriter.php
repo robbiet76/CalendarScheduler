@@ -55,7 +55,20 @@ final class ManifestWriter
                     "ManifestWriter: intent at key '{$identityHash}' must be an instance of Intent"
                 );
             }
-            $manifest['events'][$identityHash] = $this->renderEvent($intent);
+
+            $event = $this->renderEvent($intent);
+
+            if (
+                !isset($event['identityHash']) ||
+                !is_string($event['identityHash']) ||
+                $event['identityHash'] === ''
+            ) {
+                throw new \RuntimeException(
+                    "ManifestWriter: rendered event missing required identityHash"
+                );
+            }
+
+            $manifest['events'][$event['identityHash']] = $event;
         }
         ksort($manifest['events'], SORT_STRING);
         $manifest['version'] = 2;
