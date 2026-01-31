@@ -62,22 +62,31 @@ if (!in_array($format, ['text', 'json'], true)) {
 // Dependency construction
 // -----------------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // Export FPP environment via web context (authoritative, always fresh)
-    // -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// Export FPP environment via web context (authoritative, always fresh)
+// -------------------------------------------------------------------------
 
-    $envPath = __DIR__ . '/../runtime/fpp-env.json';
+$envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 
-    $cmd = 'curl -sf "http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export" > /dev/null';
-    exec($cmd, $out, $rc);
+$beforeMtime = file_exists($envPath) ? filemtime($envPath) : 0;
 
-    if ($rc !== 0) {
-        throw new RuntimeException('Failed to invoke FPP environment exporter via web');
-    }
+$cmd = 'curl -sf --max-time 5 "http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export" > /dev/null';
+exec($cmd, $out, $rc);
 
-    if (!file_exists($envPath)) {
-        throw new RuntimeException('fpp-env.json was not written by web exporter');
-    }
+if ($rc !== 0) {
+    throw new RuntimeException('Failed to invoke FPP environment exporter via web');
+}
+
+if (!file_exists($envPath)) {
+    throw new RuntimeException('fpp-env.json was not written by web exporter');
+}
+
+clearstatcache(true, $envPath);
+$afterMtime = filemtime($envPath);
+
+if ($afterMtime <= $beforeMtime) {
+    throw new RuntimeException('fpp-env.json was not refreshed (mtime did not change)');
+}
 
 try {
     // -------------------------------------------------------------------------
@@ -85,7 +94,7 @@ try {
     // -------------------------------------------------------------------------
 
     $env = json_decode(
-        file_get_contents(__DIR__ . '/../runtime/fpp-env.json'),
+        file_get_contents($envPath),
         true,
         512,
         JSON_THROW_ON_ERROR

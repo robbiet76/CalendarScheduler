@@ -12,6 +12,7 @@ function exportFppEnv(string $outputPath): void
         'source'        => 'fpp-env-export-php',
         'ok'            => false,
         'errors'        => [],
+        'generatedAt'   => null,
     ];
 
     try {
@@ -46,6 +47,8 @@ function exportFppEnv(string $outputPath): void
     if (!is_dir($dir)) {
         mkdir($dir, 0775, true);
     }
+
+    $result['generatedAt'] = gmdate('c');
 
     file_put_contents(
         $outputPath,
