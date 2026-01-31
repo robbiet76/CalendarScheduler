@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Apply;
+namespace CalendarScheduler\Apply;
 
 /**
  * SchedulerRunResult

@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Intent;
+namespace CalendarScheduler\Intent;
 
 use DateTimeZone;
-use GoogleCalendarScheduler\Platform\FPPSemantics;
-use GoogleCalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Platform\FPPSemantics;
+use CalendarScheduler\Platform\HolidayResolver;
 
 /**
  * NormalizationContext

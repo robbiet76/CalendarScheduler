@@ -1,13 +1,13 @@
 <?php
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Intent;
+namespace CalendarScheduler\Intent;
 
-use GoogleCalendarScheduler\Intent\CalendarRawEvent;
-use GoogleCalendarScheduler\Intent\FppRawEvent;
-use GoogleCalendarScheduler\Intent\NormalizationContext;
-use GoogleCalendarScheduler\Platform\IniMetadata;
-use GoogleCalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Intent\CalendarRawEvent;
+use CalendarScheduler\Intent\FppRawEvent;
+use CalendarScheduler\Intent\NormalizationContext;
+use CalendarScheduler\Platform\IniMetadata;
+use CalendarScheduler\Platform\HolidayResolver;
 
 // TODO(v3): Remove debug hash preimage logging once diff parity is proven
 /**
@@ -60,7 +60,7 @@ final class IntentNormalizer
         $symbolicTime = $meta['symbolic_time'] ?? [];
         $commandMeta  = $meta['command'] ?? [];
         $type = $settings['type'] ?? null;
-        $type = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeType($type);
+        $type = \CalendarScheduler\Platform\FPPSemantics::normalizeType($type);
 
         // --- Metadata validation ---
         $this->validateSettingsSection($settings);
@@ -86,10 +86,10 @@ final class IntentNormalizer
 
         // --- Execution payload (FPP semantics) ---
         // Calendar INI may override, but defaults ALWAYS come from FPPSemantics.
-        $defaults = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultBehavior();
+        $defaults = \CalendarScheduler\Platform\FPPSemantics::defaultBehavior();
 
         $payload = [
-            'enabled'  => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled(
+            'enabled'  => \CalendarScheduler\Platform\FPPSemantics::normalizeEnabled(
                 $settings['enabled'] ?? $defaults['enabled']
             ),
             'stopType' => $settings['stopType'] ?? 'graceful',
@@ -98,8 +98,8 @@ final class IntentNormalizer
         if (isset($settings['repeat']) && is_string($settings['repeat'])) {
             $payload['repeat'] = strtolower(trim($settings['repeat']));
         } else {
-            $defaultNumeric = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
-            $payload['repeat'] = \GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic($defaultNumeric);
+            $defaultNumeric = \CalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
+            $payload['repeat'] = \CalendarScheduler\Platform\FPPSemantics::repeatToSemantic($defaultNumeric);
         }
 
         if ($type === 'command' && is_array($commandMeta) && $commandMeta !== []) {
@@ -164,7 +164,7 @@ final class IntentNormalizer
         } else {
             $type = ($d['sequence'] ?? 0) ? 'sequence' : 'playlist';
         }
-        $type = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeType($type);
+        $type = \CalendarScheduler\Platform\FPPSemantics::normalizeType($type);
 
         // --- Target normalization ---
         if ($type === 'command') {
@@ -180,7 +180,7 @@ final class IntentNormalizer
         if (is_string($endDateRaw)) {
             $endDateObj = \DateTimeImmutable::createFromFormat('Y-m-d', $endDateRaw);
             if ($endDateObj !== false
-                && \GoogleCalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate(
+                && \CalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate(
                     $endDateObj->format('Y-m-d'),
                     new \DateTimeImmutable('now', $context->timezone)
                 )
@@ -205,11 +205,11 @@ final class IntentNormalizer
 
         // --- Behavior (fully explicit) ---
         if (isset($d['repeat'])) {
-            $repeatNumeric = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeRepeat($d['repeat']);
+            $repeatNumeric = \CalendarScheduler\Platform\FPPSemantics::normalizeRepeat($d['repeat']);
         } else {
-            $repeatNumeric = \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
+            $repeatNumeric = \CalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
         }
-        $repeatSemantic = \GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic($repeatNumeric);
+        $repeatSemantic = \CalendarScheduler\Platform\FPPSemantics::repeatToSemantic($repeatNumeric);
 
         if (isset($d['stopType'])) {
             $stopTypeValue = $d['stopType'];
@@ -219,8 +219,8 @@ final class IntentNormalizer
 
         if (is_int($stopTypeValue)) {
             $stopTypeSemantic = match ($stopTypeValue) {
-                \GoogleCalendarScheduler\Platform\FPPSemantics::STOP_TYPE_HARD => 'hard',
-                \GoogleCalendarScheduler\Platform\FPPSemantics::STOP_TYPE_GRACEFUL_LOOP => 'graceful_loop',
+                \CalendarScheduler\Platform\FPPSemantics::STOP_TYPE_HARD => 'hard',
+                \CalendarScheduler\Platform\FPPSemantics::STOP_TYPE_GRACEFUL_LOOP => 'graceful_loop',
                 default => 'graceful',
             };
         } elseif (is_string($stopTypeValue)) {
@@ -230,7 +230,7 @@ final class IntentNormalizer
         }
 
         $payload = [
-            'enabled'  => \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled($d['enabled'] ?? true),
+            'enabled'  => \CalendarScheduler\Platform\FPPSemantics::normalizeEnabled($d['enabled'] ?? true),
             'repeat'   => $repeatSemantic,
             'stopType' => $stopTypeSemantic,
         ];
@@ -893,7 +893,7 @@ final class IntentNormalizer
 
         // FPP side: numeric day index / bitmask
         if (is_int($raw)) {
-            $days = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeDays($raw);
+            $days = \CalendarScheduler\Platform\FPPSemantics::normalizeDays($raw);
             if (is_array($days)) {
                 $days = $unwrapWeekly($days);
             }
@@ -1228,11 +1228,11 @@ final class IntentNormalizer
         };
 
         // Execution behavior fields must be stable across sources.
-        $enabled = \GoogleCalendarScheduler\Platform\FPPSemantics::normalizeEnabled($payload['enabled'] ?? true);
+        $enabled = \CalendarScheduler\Platform\FPPSemantics::normalizeEnabled($payload['enabled'] ?? true);
         $repeat  = isset($payload['repeat']) && is_string($payload['repeat'])
             ? strtolower(trim($payload['repeat']))
-            : (\GoogleCalendarScheduler\Platform\FPPSemantics::repeatToSemantic(
-                \GoogleCalendarScheduler\Platform\FPPSemantics::defaultRepeatForType((string)($subEvent['type'] ?? 'playlist'))
+            : (\CalendarScheduler\Platform\FPPSemantics::repeatToSemantic(
+                \CalendarScheduler\Platform\FPPSemantics::defaultRepeatForType((string)($subEvent['type'] ?? 'playlist'))
             ));
 
         $stopType = isset($payload['stopType']) && is_string($payload['stopType'])

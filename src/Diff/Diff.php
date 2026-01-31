@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Diff;
+namespace CalendarScheduler\Diff;
 
 /**
  * Phase 4 — Diff (manifest-based, spec-compliant)

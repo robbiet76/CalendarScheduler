@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Manifest;
+namespace CalendarScheduler\Manifest;
 
-use GoogleCalendarScheduler\Intent\Intent;
-use GoogleCalendarScheduler\Diff\DiffResult;
+use CalendarScheduler\Intent\Intent;
+use CalendarScheduler\Diff\DiffResult;
 
 /**
  * ManifestWriter (v2)
@@ -50,7 +50,7 @@ final class ManifestWriter
     {
         $manifest = ['events' => []];
         foreach ($intents as $identityHash => $intent) {
-            if (!($intent instanceof \GoogleCalendarScheduler\Intent\Intent)) {
+            if (!($intent instanceof \CalendarScheduler\Intent\Intent)) {
                 throw new \InvalidArgumentException(
                     "ManifestWriter: intent at key '{$identityHash}' must be an instance of Intent"
                 );

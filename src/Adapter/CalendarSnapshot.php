@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Adapter;
+namespace CalendarScheduler\Adapter;
 
-use GoogleCalendarScheduler\Adapter\CalendarTranslator;
+use CalendarScheduler\Adapter\CalendarTranslator;
 use RuntimeException;
 
 /**

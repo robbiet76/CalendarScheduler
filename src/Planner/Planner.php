@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Planner;
+namespace CalendarScheduler\Planner;
 
-use GoogleCalendarScheduler\Core\ManifestStore;
+use CalendarScheduler\Core\ManifestStore;
 
 /**
  * Planner Core (Phase 2.2)

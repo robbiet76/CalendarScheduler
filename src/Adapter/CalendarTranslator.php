@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Adapter;
+namespace CalendarScheduler\Adapter;
 
-use GoogleCalendarScheduler\Platform\IcsFetcher;
-use GoogleCalendarScheduler\Platform\IcsParser;
+use CalendarScheduler\Platform\IcsFetcher;
+use CalendarScheduler\Platform\IcsParser;
 use DateTimeImmutable;
 
 /**

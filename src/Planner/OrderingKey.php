@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Planner;
+namespace CalendarScheduler\Planner;
 
 /**
  * OrderingKey encodes a *total ordering* for PlannedEntry objects.

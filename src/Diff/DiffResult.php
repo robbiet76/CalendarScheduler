@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Diff;
+namespace CalendarScheduler\Diff;
 
 /**
  * Spec v2.3.1 — DiffResult

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Planner;
+namespace CalendarScheduler\Planner;
 
 /**
  * PlannerResult is a simple container for already-sorted PlannedEntry objects.

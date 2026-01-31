@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Apply;
+namespace CalendarScheduler\Apply;
 
-use GoogleCalendarScheduler\Planner\PlannerResult;
-use GoogleCalendarScheduler\Diff\Diff;
-// Removed: use GoogleCalendarScheduler\Resolution\Resolver;
-use GoogleCalendarScheduler\Platform\FppScheduleWriter;
+use CalendarScheduler\Planner\PlannerResult;
+use CalendarScheduler\Diff\Diff;
+// Removed: use CalendarScheduler\Resolution\Resolver;
+use CalendarScheduler\Platform\FppScheduleWriter;
 
 /**
  * SchedulerRunner

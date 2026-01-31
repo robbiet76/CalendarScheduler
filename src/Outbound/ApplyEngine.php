@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Apply;
+namespace CalendarScheduler\Apply;
 
-use GoogleCalendarScheduler\Diff\DiffResult;
-use GoogleCalendarScheduler\Platform\FppScheduleEntryAdapter;
-use GoogleCalendarScheduler\Planner\PlannedEntry;
+use CalendarScheduler\Diff\DiffResult;
+use CalendarScheduler\Platform\FppScheduleEntryAdapter;
+use CalendarScheduler\Planner\PlannedEntry;
 
 /**
  * Phase 2.4 — ApplyEngine (Outbound)

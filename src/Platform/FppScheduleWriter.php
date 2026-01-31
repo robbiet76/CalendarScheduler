@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Platform;
+namespace CalendarScheduler\Platform;
 
 /**
  * FppScheduleWriter

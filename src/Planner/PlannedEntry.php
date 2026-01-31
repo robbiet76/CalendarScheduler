@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace GoogleCalendarScheduler\Planner;
+namespace CalendarScheduler\Planner;
 
 /**
  * PlannedEntry represents one FPP scheduler entry derived from:

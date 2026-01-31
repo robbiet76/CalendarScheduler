@@ -4,19 +4,19 @@
 declare(strict_types=1);
 
 // -----------------------------------------------------------------------------
-// CLI entrypoint for GoogleCalendarScheduler (V2)
+// CLI entrypoint for CalendarScheduler (V2)
 // -----------------------------------------------------------------------------
 
-use GoogleCalendarScheduler\Manifest\ManifestWriter;
-use GoogleCalendarScheduler\Diff\Diff;
-use GoogleCalendarScheduler\Intent\IntentNormalizer;
-use GoogleCalendarScheduler\Intent\NormalizationContext;
-use GoogleCalendarScheduler\Platform\FPPSemantics;
-use GoogleCalendarScheduler\Platform\HolidayResolver;
-use GoogleCalendarScheduler\Intent\CalendarRawEvent;
-use GoogleCalendarScheduler\Adapter\CalendarSnapshot;
-use GoogleCalendarScheduler\Adapter\CalendarTranslator;
-use GoogleCalendarScheduler\Platform\IcsParser;
+use CalendarScheduler\Manifest\ManifestWriter;
+use CalendarScheduler\Diff\Diff;
+use CalendarScheduler\Intent\IntentNormalizer;
+use CalendarScheduler\Intent\NormalizationContext;
+use CalendarScheduler\Platform\FPPSemantics;
+use CalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Intent\CalendarRawEvent;
+use CalendarScheduler\Adapter\CalendarSnapshot;
+use CalendarScheduler\Adapter\CalendarTranslator;
+use CalendarScheduler\Platform\IcsParser;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -155,11 +155,14 @@ try {
     }
 
 
-} catch (\GoogleCalendarScheduler\Core\IdentityInvariantViolation |
-         \GoogleCalendarScheduler\Core\ManifestInvariantViolation $e) {
+} catch (\InvalidArgumentException $e) {
 
-    fwrite(STDERR, "ERROR: {$e->getInvariantCode()}\n");
-    fwrite(STDERR, $e->getMessage() . "\n");
+    fwrite(STDERR, "ERROR: {$e->getMessage()}\n");
+    exit(1);
+
+} catch (\RuntimeException $e) {
+
+    fwrite(STDERR, "ERROR: {$e->getMessage()}\n");
     exit(1);
 
 } catch (Throwable $e) {
