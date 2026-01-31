@@ -8,14 +8,17 @@
 #include "settings.h"
 #include "FPPLocale.h"
 
+// Canonical FPP environment export consumed by Calendar Scheduler.
+// This file is read-only from the scheduler perspective and represents
+// authoritative FPP runtime state (timezone, locale, holidays, etc.).
 static const char* OUTPUT_PATH =
-    "/home/fpp/media/plugins/GoogleCalendarScheduler/runtime/fpp-env.json";
+    "/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json";
 
 int main()
 {
     Json::Value root(Json::objectValue);
     root["schemaVersion"] = 1;
-    root["source"] = "gcs-export";
+    root["source"] = "fpp-env-export";
 
     // -------------------------------------------------------------
     // Initialize FPP settings (REQUIRED for getSetting / locale)
