@@ -89,7 +89,7 @@ final class ManifestWriter
     public function applyDiff(
         array $currentManifest,
         DiffResult $diffPlan,
-        array $intents
+        array $intents // kept for signature stability, not used here
     ): array {
         // Normalize manifest root
         $manifest = $currentManifest;
@@ -100,36 +100,43 @@ final class ManifestWriter
         // ----------------------------
         // DELETE
         // ----------------------------
-        foreach ($diffPlan->deletes() as $identityHash) {
+        foreach ($diffPlan->deletes() as $event) {
+            if (!is_array($event) || !isset($event['identityHash'])) {
+                throw new \RuntimeException(
+                    'ManifestWriter: delete entry missing identityHash'
+                );
+            }
+
+            $identityHash = $event['identityHash'];
             unset($manifest['events'][$identityHash]);
         }
 
         // ----------------------------
         // CREATE
         // ----------------------------
-        foreach ($diffPlan->creates() as $identityHash) {
-            if (!isset($intents[$identityHash])) {
+        foreach ($diffPlan->creates() as $event) {
+            if (!is_array($event) || !isset($event['identityHash'])) {
                 throw new \RuntimeException(
-                    "ManifestWriter: missing Intent for create '{$identityHash}'"
+                    'ManifestWriter: create entry missing identityHash'
                 );
             }
 
-            $manifest['events'][$identityHash] =
-                $this->renderEvent($intents[$identityHash]);
+            $identityHash = $event['identityHash'];
+            $manifest['events'][$identityHash] = $event;
         }
 
         // ----------------------------
         // UPDATE (replace entire event)
         // ----------------------------
-        foreach ($diffPlan->updates() as $identityHash) {
-            if (!isset($intents[$identityHash])) {
+        foreach ($diffPlan->updates() as $event) {
+            if (!is_array($event) || !isset($event['identityHash'])) {
                 throw new \RuntimeException(
-                    "ManifestWriter: missing Intent for update '{$identityHash}'"
+                    'ManifestWriter: update entry missing identityHash'
                 );
             }
 
-            $manifest['events'][$identityHash] =
-                $this->renderEvent($intents[$identityHash]);
+            $identityHash = $event['identityHash'];
+            $manifest['events'][$identityHash] = $event;
         }
 
         // ----------------------------
