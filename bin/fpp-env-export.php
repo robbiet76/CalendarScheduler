@@ -3,14 +3,14 @@
 declare(strict_types=1);
 
 // -----------------------------------------------------------------------------
-// CLI safety: prevent FPP web UI assumptions
+// CLI safety: prevent FPP web UI assumptions and suppress output
 // -----------------------------------------------------------------------------
-if (!isset($_SERVER['REQUEST_URI'])) {
-    $_SERVER['REQUEST_URI'] = '';
+if (php_sapi_name() === 'cli') {
+    ob_start();
 }
 
-if (php_sapi_name() !== 'cli') {
-    ob_start();
+if (!isset($_SERVER['REQUEST_URI'])) {
+    $_SERVER['REQUEST_URI'] = '';
 }
 
 /**
@@ -87,7 +87,7 @@ if (file_put_contents($tmpPath, $json) === false) {
 rename($tmpPath, $outPath);
 chmod($outPath, 0664);
 
-if (php_sapi_name() !== 'cli') {
+if (php_sapi_name() === 'cli') {
     ob_end_clean();
 }
 
