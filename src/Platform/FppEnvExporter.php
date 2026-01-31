@@ -1,14 +1,6 @@
 <?php
 declare(strict_types=1);
 
-// --- FPP runtime globals (static analysis only) ---
-/** @noinspection PhpUndefinedFunctionInspection */
-if (false) {
-    function GetSettingValue(string $key): string {
-        return '';
-    }
-}
-
 namespace CalendarScheduler\Platform;
 
 use RuntimeException;
@@ -59,4 +51,13 @@ function exportFppEnv(string $outputPath): void
         $outputPath,
         json_encode($result, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)
     );
+}
+
+namespace {
+    /** @noinspection PhpUndefinedFunctionInspection */
+    if (false) {
+        function GetSettingValue(string $key): string {
+            return '';
+        }
+    }
 }
