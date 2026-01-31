@@ -10,22 +10,20 @@ function exportFppEnv(string $outputPath): void
     $result = [
         'schemaVersion' => 1,
         'source'        => 'fpp-env-export-php',
+        'generatedAt'   => gmdate('c'), // ✅ authoritative freshness signal
         'ok'            => false,
         'errors'        => [],
-        'generatedAt'   => null,
     ];
 
     try {
-        // These globals are only available in FPP web context
         if (!function_exists('GetSettingValue')) {
             throw new RuntimeException('Not running in FPP web context');
         }
 
-        $result['latitude']  = (float)\GetSettingValue('Latitude');
-        $result['longitude'] = (float)\GetSettingValue('Longitude');
+        $result['latitude']  = (float) \GetSettingValue('Latitude');
+        $result['longitude'] = (float) \GetSettingValue('Longitude');
         $result['timezone']  = \GetSettingValue('TimeZone');
 
-        // Locale (holidays)
         if (class_exists('LocaleHolder')) {
             $locale = \LocaleHolder::GetLocale();
             $result['rawLocale'] = json_decode(
@@ -48,19 +46,8 @@ function exportFppEnv(string $outputPath): void
         mkdir($dir, 0775, true);
     }
 
-    $result['generatedAt'] = gmdate('c');
-
     file_put_contents(
         $outputPath,
         json_encode($result, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)
     );
-}
-
-namespace {
-    /** @noinspection PhpUndefinedFunctionInspection */
-    if (false) {
-        function GetSettingValue(string $key): string {
-            return '';
-        }
-    }
 }
