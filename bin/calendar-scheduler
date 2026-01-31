@@ -66,11 +66,22 @@ if (!in_array($format, ['text', 'json'], true)) {
     // Export FPP environment (authoritative, always fresh)
     // -------------------------------------------------------------------------
 
-    $exportUrl = 'http://localhost/plugin.php?plugin=calendar-scheduler&page=fpp-env-export';
-    $cmd = 'curl -sf ' . escapeshellarg($exportUrl) . ' > /dev/null';
-    exec($cmd, $out, $code);
-    if ($code !== 0) {
+    $exportUrl = 'http://127.0.0.1/plugin/GoogleCalendarScheduler/fpp-env-export.php';
+    $envPath   = __DIR__ . '/../runtime/fpp-env.json';
+
+    $ctx = stream_context_create([
+        'http' => [
+            'timeout' => 5,
+        ],
+    ]);
+
+    $envJson = @file_get_contents($exportUrl, false, $ctx);
+    if ($envJson === false) {
         throw new RuntimeException('Failed to export FPP environment via HTTP');
+    }
+
+    if (!file_exists($envPath)) {
+        throw new RuntimeException('fpp-env.json was not written by exporter');
     }
 
 try {
