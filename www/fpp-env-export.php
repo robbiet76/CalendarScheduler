@@ -17,25 +17,12 @@ if (!isset($_SERVER['REQUEST_URI'])) {
  * FPP Environment Export (PHP)
  *
  * Authoritative runtime snapshot for Calendar Scheduler.
- * Must be executed within the FPP web PHP context to expose locale and holidays.
+ * Must be executed on an FPP system; reads locale/holidays from FPP locale JSON on disk.
  * Replaces legacy C++ exporter.
  */
 
 
 require_once '/opt/fpp/www/config.php';
-
-// Ensure FPPLocale class is loaded (not auto-loaded for plugin pages)
-if (!class_exists('FPPLocale') && file_exists('/opt/fpp/www/common/FPPLocale.php')) {
-    require_once '/opt/fpp/www/common/FPPLocale.php';
-}
-
-/**
- * Explicitly initialize locale subsystem.
- * FPP does not guarantee FPPLocale is loaded for plugin pages unless LoadLocale() is called.
- */
-if (function_exists('LoadLocale')) {
-    LoadLocale();
-}
 
 $outPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 $tmpPath = $outPath . '.tmp';
@@ -69,26 +56,74 @@ if ($tz === '') {
 }
 
 // --------------------------------------------------
-// Locale / holidays (authoritative via FPP runtime)
+// Locale / holidays (authoritative via FPP locale JSON)
 // --------------------------------------------------
 $result['rawLocale'] = null;
 
-try {
-    if (class_exists('FPPLocale')) {
-        $localeObj = \FPPLocale::GetLocale();
-        if ($localeObj !== null) {
-            $result['rawLocale'] = [
-                'name'     => $localeObj->name ?? null,
-                'holidays' => $localeObj->holidays ?? [],
-            ];
+$localeName = (string)($settings['Locale'] ?? '');
+$localeName = trim($localeName);
+
+$localeCandidates = [];
+if ($localeName !== '') {
+    $localeCandidates[] = "/opt/fpp/etc/locale/{$localeName}.json";
+    $localeCandidates[] = "/opt/fpp/etc/locale/{$localeName}.JSON";
+    $localeCandidates[] = "/home/fpp/media/config/locale/{$localeName}.json";
+    $localeCandidates[] = "/home/fpp/media/config/locale/{$localeName}.JSON";
+}
+
+// Fallbacks if the above paths don't exist
+$localeCandidates[] = '/opt/fpp/etc/locale.json';
+$localeCandidates[] = '/home/fpp/media/config/locale.json';
+
+// If we have a locale directory, try to pick a JSON from it.
+$localeDir = '/opt/fpp/etc/locale';
+if (is_dir($localeDir)) {
+    $glob = glob($localeDir . '/*.json');
+    if (is_array($glob) && count($glob) > 0) {
+        // Prefer the requested locale name if present, otherwise first JSON.
+        $preferred = $localeName !== '' ? ($localeDir . '/' . $localeName . '.json') : null;
+        if ($preferred !== null && file_exists($preferred)) {
+            array_unshift($localeCandidates, $preferred);
         } else {
-            $result['errors'][] = 'FPPLocale returned null';
+            array_unshift($localeCandidates, $glob[0]);
         }
+    }
+}
+
+$localePathUsed = null;
+foreach ($localeCandidates as $p) {
+    if (is_string($p) && $p !== '' && file_exists($p)) {
+        $localePathUsed = $p;
+        break;
+    }
+}
+
+try {
+    if ($localePathUsed === null) {
+        $result['errors'][] = 'Locale file missing';
     } else {
-        $result['errors'][] = 'FPPLocale unavailable (not running in FPP web context)';
+        $raw = file_get_contents($localePathUsed);
+        if ($raw === false) {
+            $result['errors'][] = 'Locale file unreadable: ' . $localePathUsed;
+        } else {
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded)) {
+                $result['errors'][] = 'Locale file JSON invalid: ' . $localePathUsed;
+            } else {
+                // Normalize to the shape our plugin expects.
+                $result['rawLocale'] = [
+                    'name'     => (string)($decoded['name'] ?? ($decoded['Name'] ?? $localeName)),
+                    'holidays' => $decoded['holidays'] ?? ($decoded['Holidays'] ?? []),
+                ];
+                if (!is_array($result['rawLocale']['holidays'])) {
+                    $result['rawLocale']['holidays'] = [];
+                }
+                $result['rawLocale']['_sourcePath'] = $localePathUsed;
+            }
+        }
     }
 } catch (\Throwable $e) {
-    $result['errors'][] = 'Locale fetch failed: ' . $e->getMessage();
+    $result['errors'][] = 'Locale read failed: ' . $e->getMessage();
 }
 
 if ($result['rawLocale'] === null) {
