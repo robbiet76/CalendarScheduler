@@ -78,16 +78,25 @@ int main()
     root["errors"] = errors;
 
     // -------------------------------------------------------------
-    // Write output atomically
+    // Write output atomically (write temp + rename)
     // -------------------------------------------------------------
-    std::ofstream out(OUTPUT_PATH, std::ios::out | std::ios::trunc);
+    std::string tmpPath = std::string(OUTPUT_PATH) + ".tmp";
+
+    std::ofstream out(tmpPath, std::ios::out | std::ios::trunc);
     if (!out.is_open()) {
-        std::cerr << "ERROR: Unable to write " << OUTPUT_PATH << "\n";
+        std::cerr << "ERROR: Unable to write temp file " << tmpPath << "\n";
         return 2;
     }
 
     out << root.toStyledString();
+    out.flush();
     out.close();
+
+    // Atomic replace
+    if (std::rename(tmpPath.c_str(), OUTPUT_PATH) != 0) {
+        std::cerr << "ERROR: Unable to rename temp file to " << OUTPUT_PATH << "\n";
+        return 2;
+    }
 
     return 0; // exporter should never fail hard
 }
