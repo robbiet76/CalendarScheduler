@@ -2,6 +2,10 @@
 <?php
 declare(strict_types=1);
 
+if (php_sapi_name() !== 'cli') {
+    ob_start();
+}
+
 /**
  * FPP Environment Export (PHP)
  *
@@ -75,5 +79,9 @@ if (file_put_contents($tmpPath, $json) === false) {
 
 rename($tmpPath, $outPath);
 chmod($outPath, 0664);
+
+if (php_sapi_name() !== 'cli') {
+    ob_end_clean();
+}
 
 exit(0);

@@ -66,12 +66,13 @@ if (!in_array($format, ['text', 'json'], true)) {
     // Export FPP environment (authoritative, always fresh)
     // -------------------------------------------------------------------------
 
-    $envExporter = __DIR__ . '/fpp-env-export';
-    if (!is_executable($envExporter)) {
-        throw new RuntimeException('Missing or non-executable fpp-env-export binary');
+    $envExporter = __DIR__ . '/fpp-env-export.php';
+    if (!is_file($envExporter)) {
+        throw new RuntimeException('Missing fpp-env-export.php script');
     }
 
-    exec($envExporter, $envOut, $envCode);
+    $cmd = 'php ' . escapeshellarg($envExporter);
+    exec($cmd, $envOut, $envCode);
     if ($envCode !== 0) {
         throw new RuntimeException('Failed to export FPP environment');
     }
