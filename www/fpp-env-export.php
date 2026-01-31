@@ -24,6 +24,11 @@ if (!isset($_SERVER['REQUEST_URI'])) {
 
 require_once '/opt/fpp/www/config.php';
 
+// Ensure FPPLocale class is loaded (not auto-loaded for plugin pages)
+if (!class_exists('FPPLocale') && file_exists('/opt/fpp/www/common/FPPLocale.php')) {
+    require_once '/opt/fpp/www/common/FPPLocale.php';
+}
+
 /**
  * Explicitly initialize locale subsystem.
  * FPP does not guarantee FPPLocale is loaded for plugin pages unless LoadLocale() is called.
