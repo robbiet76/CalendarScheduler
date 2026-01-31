@@ -74,8 +74,12 @@ try {
         JSON_THROW_ON_ERROR
     );
 
+    $tzName = $env['timezone']
+        ?? $env['rawLocale']['timezone']
+        ?? 'UTC';
+
     $context = new NormalizationContext(
-        new DateTimeZone('America/New_York'),
+        new DateTimeZone($tzName),
         new FPPSemantics(),
         new HolidayResolver($env['rawLocale']['holidays'])
     );

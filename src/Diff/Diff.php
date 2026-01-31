@@ -211,7 +211,6 @@ final class Diff
             return trim($v);
         }
 
-        // Fail hard for managed entries (Diff relies on stateHash stability).
         if ($this->isManagedEvent($event)) {
             $id = (string)($event['id'] ?? $event['identityHash'] ?? '');
             throw new \RuntimeException('Managed manifest event missing stateHash: ' . $id);

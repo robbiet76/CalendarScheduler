@@ -72,8 +72,12 @@ final class DiffResult
             if (!is_array($entry)) {
                 throw new \InvalidArgumentException("$label[$i] must be an array entry");
             }
-            if (!isset($entry['identity_hash']) || !is_string($entry['identity_hash']) || trim($entry['identity_hash']) === '') {
-                throw new \InvalidArgumentException("$label[$i] missing required identity_hash");
+            if (
+                !array_key_exists('identityHash', $entry)
+                || !is_string($entry['identityHash'])
+                || trim($entry['identityHash']) === ''
+            ) {
+                throw new \InvalidArgumentException("$label[$i] missing required identityHash");
             }
         }
     }
