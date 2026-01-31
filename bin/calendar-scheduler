@@ -70,7 +70,7 @@ $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 
 $beforeMtime = file_exists($envPath) ? filemtime($envPath) : 0;
 
-$cmd = 'curl -sf --max-time 5 "http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export" > /dev/null';
+$cmd = 'curl -sf --max-time 5 "http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export&nopage=1" > /dev/null';
 exec($cmd, $out, $rc);
 
 if ($rc !== 0) {
