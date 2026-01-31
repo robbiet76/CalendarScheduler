@@ -16,7 +16,8 @@ if (!isset($_SERVER['REQUEST_URI'])) {
 /**
  * FPP Environment Export (PHP)
  *
- * Authoritative runtime snapshot for Calendar Scheduler
+ * Authoritative runtime snapshot for Calendar Scheduler.
+ * Must be executed within the FPP web PHP context to expose locale and holidays.
  * Replaces legacy C++ exporter.
  */
 
@@ -62,12 +63,15 @@ try {
     if (class_exists('FPPLocale')) {
         $localeObj = \FPPLocale::GetLocale();
         if ($localeObj !== null) {
-            $result['rawLocale'] = $localeObj;
+            $result['rawLocale'] = [
+                'name'     => $localeObj->name ?? null,
+                'holidays' => $localeObj->holidays ?? [],
+            ];
         } else {
             $result['errors'][] = 'FPPLocale returned null';
         }
     } else {
-        $result['errors'][] = 'FPPLocale class not available';
+        $result['errors'][] = 'FPPLocale unavailable (not running in FPP web context)';
     }
 } catch (\Throwable $e) {
     $result['errors'][] = 'Locale fetch failed: ' . $e->getMessage();
