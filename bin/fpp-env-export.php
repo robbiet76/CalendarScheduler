@@ -2,6 +2,13 @@
 <?php
 declare(strict_types=1);
 
+// -----------------------------------------------------------------------------
+// CLI safety: prevent FPP web UI assumptions
+// -----------------------------------------------------------------------------
+if (!isset($_SERVER['REQUEST_URI'])) {
+    $_SERVER['REQUEST_URI'] = '';
+}
+
 if (php_sapi_name() !== 'cli') {
     ob_start();
 }
