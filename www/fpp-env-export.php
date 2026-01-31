@@ -21,8 +21,7 @@ if (!isset($_SERVER['REQUEST_URI'])) {
  * Replaces legacy C++ exporter.
  */
 
-require_once '/opt/fpp/www/common.php';
-LoadLocale();
+require_once '/opt/fpp/www/config.php';
 
 $outPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 $tmpPath = $outPath . '.tmp';
