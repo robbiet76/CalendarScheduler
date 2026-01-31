@@ -21,7 +21,16 @@ if (!isset($_SERVER['REQUEST_URI'])) {
  * Replaces legacy C++ exporter.
  */
 
+
 require_once '/opt/fpp/www/config.php';
+
+/**
+ * Explicitly initialize locale subsystem.
+ * FPP does not guarantee FPPLocale is loaded for plugin pages unless LoadLocale() is called.
+ */
+if (function_exists('LoadLocale')) {
+    LoadLocale();
+}
 
 $outPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 $tmpPath = $outPath . '.tmp';
