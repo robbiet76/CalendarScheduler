@@ -13,6 +13,10 @@ use GoogleCalendarScheduler\Intent\IntentNormalizer;
 use GoogleCalendarScheduler\Intent\NormalizationContext;
 use GoogleCalendarScheduler\Platform\FPPSemantics;
 use GoogleCalendarScheduler\Platform\HolidayResolver;
+use GoogleCalendarScheduler\Intent\CalendarRawEvent;
+use GoogleCalendarScheduler\Adapter\CalendarSnapshot;
+use GoogleCalendarScheduler\Adapter\CalendarTranslator;
+use GoogleCalendarScheduler\Platform\IcsParser;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -82,7 +86,7 @@ try {
     // Load existing manifest (if any)
     // -------------------------------------------------------------------------
 
-    $currentManifest = [];
+    $currentManifest = ['events' => []];
     if (file_exists($manifestPath)) {
         $currentManifest = json_decode(
             file_get_contents($manifestPath),
@@ -92,48 +96,57 @@ try {
         );
     }
 
+
     // -------------------------------------------------------------------------
-    // Normalize inputs
+    // Calendar → snapshot → intents (desired state)
     // -------------------------------------------------------------------------
 
-    $fppRaw = file_exists($schedulePath)
-        ? json_decode(file_get_contents($schedulePath), true, 512, JSON_THROW_ON_ERROR)
-        : [];
-
-    $calendarIntents = json_decode(
-        file_get_contents('/home/fpp/media/config/calendar-scheduler/calendar/intents.json'),
-        true,
-        512,
-        JSON_THROW_ON_ERROR
+    $parser = new IcsParser();
+    $translator = new CalendarTranslator(
+        $parser,
+        '/home/fpp/media/config/calendar-scheduler/calendar/calendar-snapshot.json'
     );
 
-    $intents = [];
+    $snapshot = new CalendarSnapshot($translator);
+    $calendarRaw = $snapshot->refreshFromIcs();
+    $snapshot->write($calendarRaw);
 
-    foreach ($calendarIntents as $intent) {
-        $intents[$intent['identityHash']] = $intent;
+    // Normalize calendar raw events into canonical Intent objects keyed by identityHash.
+    $calendarIntents = [];
+    foreach ($calendarRaw as $raw) {
+        $intent = $normalizer->fromCalendar(
+            CalendarRawEvent::fromArray($raw),
+            $context
+        );
+        $calendarIntents[$intent->identityHash] = $intent;
     }
 
     // -------------------------------------------------------------------------
-    // Diff
+    // Build Next Manifest
+    // -------------------------------------------------------------------------
+
+    $writer = new ManifestWriter($manifestPath);
+    $nextManifest = $writer->buildManifestFromIntents($calendarIntents);
+
+    // -------------------------------------------------------------------------
+    // Diff (manifest → manifest)
     // -------------------------------------------------------------------------
 
     $diff = new Diff();
     $diffPlan = $diff->diff(
-        $currentManifest['events'] ?? [],
-        $intents
+        $nextManifest,
+        $currentManifest
     );
 
     // -------------------------------------------------------------------------
     // Write manifest
     // -------------------------------------------------------------------------
 
-    $writer = new ManifestWriter($manifestPath);
-
     if (!$dryRun) {
         $writer->applyDiff(
-            $currentManifest['events'] ?? [],
+            $currentManifest,
             $diffPlan,
-            $intents
+            $calendarIntents
         );
     }
 

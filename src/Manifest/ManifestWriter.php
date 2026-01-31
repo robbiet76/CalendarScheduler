@@ -38,6 +38,33 @@ final class ManifestWriter
     }
 
     /**
+     * Build an in-memory "next" manifest structure from Intents for diffing.
+     *
+     * This method does not perform any I/O. It deterministically builds
+     * a manifest array as would be persisted, suitable for diffing.
+     *
+     * @param array $intents Array of normalized Intents indexed by identityHash
+     * @return array Manifest structure (not persisted)
+     */
+    public function buildManifestFromIntents(array $intents): array
+    {
+        $manifest = ['events' => []];
+        foreach ($intents as $identityHash => $intent) {
+            if (!($intent instanceof \GoogleCalendarScheduler\Intent\Intent)) {
+                throw new \InvalidArgumentException(
+                    "ManifestWriter: intent at key '{$identityHash}' must be an instance of Intent"
+                );
+            }
+            $manifest['events'][$identityHash] = $this->renderEvent($intent);
+        }
+        ksort($manifest['events'], SORT_STRING);
+        $manifest['version'] = 2;
+        $manifest['generated_at'] = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
+            ->format(DATE_ATOM);
+        return $manifest;
+    }
+
+    /**
      * Apply a Diff plan and persist the resulting Manifest.
      *
      * @param array $currentManifest Existing manifest (decoded JSON)
