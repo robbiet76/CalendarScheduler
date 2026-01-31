@@ -54,20 +54,27 @@ if ($tz === '') {
 }
 
 // --------------------------------------------------
-// Locale / holidays (best effort)
+// Locale / holidays (authoritative via FPP runtime)
 // --------------------------------------------------
-$localePath = '/opt/fpp/etc/locale.json';
-if (file_exists($localePath)) {
-    $locale = json_decode(file_get_contents($localePath), true);
-    if (is_array($locale)) {
-        $result['rawLocale'] = $locale;
+$result['rawLocale'] = null;
+
+try {
+    if (class_exists('FPPLocale')) {
+        $localeObj = \FPPLocale::GetLocale();
+        if ($localeObj !== null) {
+            $result['rawLocale'] = $localeObj;
+        } else {
+            $result['errors'][] = 'FPPLocale returned null';
+        }
     } else {
-        $result['rawLocale'] = null;
-        $result['errors'][] = 'Locale JSON invalid';
+        $result['errors'][] = 'FPPLocale class not available';
     }
-} else {
-    $result['rawLocale'] = null;
-    $result['errors'][] = 'Locale file missing';
+} catch (\Throwable $e) {
+    $result['errors'][] = 'Locale fetch failed: ' . $e->getMessage();
+}
+
+if ($result['rawLocale'] === null) {
+    $result['ok'] = false;
 }
 
 // --------------------------------------------------
