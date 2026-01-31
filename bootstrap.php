@@ -27,6 +27,19 @@ define('GCS_VERSION', '2.0-dev');
 
 
 // -----------------------------------------------------------------------------
+// Platform
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Platform/IniMetadata.php';
+require_once __DIR__ . '/src/Platform/IcsFetcher.php';
+require_once __DIR__ . '/src/Platform/IcsParser.php';
+require_once __DIR__ . '/src/Platform/FppSemantics.php';
+require_once __DIR__ . '/src/Platform/HolidayResolver.php';
+require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
+require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
+// require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
+
+// -----------------------------------------------------------------------------
 // Adapter
 // -----------------------------------------------------------------------------
 
@@ -57,18 +70,6 @@ require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/src/Diff/DiffResult.php';
 require_once __DIR__ . '/src/Diff/Diff.php';
-
-// -----------------------------------------------------------------------------
-// Platform
-// -----------------------------------------------------------------------------
-
-// require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
-require_once __DIR__ . '/src/Platform/HolidayResolver.php';
-require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
-require_once __DIR__ . '/src/Platform/FppSemantics.php';
-require_once __DIR__ . '/src/Platform/IcsFetcher.php';
-require_once __DIR__ . '/src/Platform/IcsParser.php';
-require_once __DIR__ . '/src/Platform/IniMetadata.php';
 
 // -----------------------------------------------------------------------------
 // Manifest
