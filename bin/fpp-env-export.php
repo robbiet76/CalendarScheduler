@@ -22,6 +22,7 @@ if (!isset($_SERVER['REQUEST_URI'])) {
  */
 
 require_once '/opt/fpp/www/common.php';
+LoadLocale();
 
 $outPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 $tmpPath = $outPath . '.tmp';
