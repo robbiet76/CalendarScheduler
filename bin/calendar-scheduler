@@ -72,7 +72,7 @@ $beforeMtime = file_exists($envPath) ? filemtime($envPath) : 0;
 
 $cmd = 'curl --silent --show-error --fail --max-time 5 '
      . '--output /dev/null '
-     . '"http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export&nopage=1"';
+     . '"http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export.php&nopage=1"';
 exec($cmd, $out, $rc);
 
 if ($rc !== 0) {
