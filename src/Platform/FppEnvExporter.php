@@ -42,6 +42,14 @@ function exportFppEnv(string $outputPath): void
             return null;
         };
 
+        // Optional FPP scheduling year bounds (exposed by FPP web UI)
+        if (isset($GLOBALS['MINYEAR']) && is_numeric($GLOBALS['MINYEAR'])) {
+            $result['minYear'] = (int) $GLOBALS['MINYEAR'];
+        }
+        if (isset($GLOBALS['MAXYEAR']) && is_numeric($GLOBALS['MAXYEAR'])) {
+            $result['maxYear'] = (int) $GLOBALS['MAXYEAR'];
+        }
+
         $lat = $get('Latitude');
         $lon = $get('Longitude');
         $tz  = $get('TimeZone') ?? $get('TimeZoneName') ?? $get('timezone');
