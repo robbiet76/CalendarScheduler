@@ -377,6 +377,16 @@ final class FPPSemantics
      * Scheduler guard semantics
      * ===================================================================== */
 
+    // TODO (FPP):
+    // FPP already exposes authoritative scheduling bounds via MINYEAR and MAXYEAR
+    // (see values embedded in FPP settings / JS globals).
+    //
+    // We currently derive guard date ranges heuristically to mirror FPP behavior.
+    // This should be replaced with direct use of MINYEAR / MAXYEAR once they are
+    // surfaced cleanly from the FPP environment export.
+    //
+    // This will eliminate duplicated logic and guarantee scheduler parity with FPP.
+
     /**
      * Return the scheduler guard date used by FPP.
      *
