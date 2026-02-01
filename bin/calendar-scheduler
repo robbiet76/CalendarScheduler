@@ -66,9 +66,17 @@ if (!in_array($format, ['text', 'json'], true)) {
 // Export FPP environment via web context (authoritative, always fresh)
 // -------------------------------------------------------------------------
 
+
 $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 
-$beforeMtime = file_exists($envPath) ? filemtime($envPath) : 0;
+// Capture previous generatedAtEpoch before running curl
+$beforeEpoch = 0;
+if (file_exists($envPath)) {
+    $prev = json_decode(file_get_contents($envPath), true);
+    if (is_array($prev) && isset($prev['generatedAtEpoch'])) {
+        $beforeEpoch = (int)$prev['generatedAtEpoch'];
+    }
+}
 
 $cmd = 'curl --silent --show-error --fail --max-time 5 '
      . '--output /dev/null '
@@ -83,11 +91,24 @@ if (!file_exists($envPath)) {
     throw new RuntimeException('fpp-env.json was not written by web exporter');
 }
 
-clearstatcache(true, $envPath);
-$afterMtime = filemtime($envPath);
+$envCheck = json_decode(
+    file_get_contents($envPath),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
 
-if ($afterMtime <= $beforeMtime) {
-    throw new RuntimeException('fpp-env.json was not refreshed (mtime did not change)');
+if (!($envCheck['ok'] ?? false)) {
+    $errs = $envCheck['errors'] ?? ['Unknown error'];
+    throw new RuntimeException(
+        'FPP environment exporter failed: ' . implode('; ', $errs)
+    );
+}
+
+$afterEpoch = (int)($envCheck['generatedAtEpoch'] ?? 0);
+
+if ($afterEpoch <= $beforeEpoch) {
+    throw new RuntimeException('fpp-env.json was not refreshed (generatedAtEpoch did not advance)');
 }
 
 try {
