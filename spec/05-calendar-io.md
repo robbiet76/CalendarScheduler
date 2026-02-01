@@ -249,6 +249,42 @@ The CalendarTranslator is a provider-specific adapter responsible for:
 - Operating strictly pre-resolution and without semantic interpretation
 - Being stateless and side-effect free
 
+## Bidirectional Adapter Symmetry
+
+Calendar provider adapters MUST be implemented as **two‑way, loss‑aware transformers**.
+
+The same adapter logic used to ingest provider data MUST also be capable of exporting
+Manifest execution geometry back into provider‑compatible representations.
+
+### Symmetry Requirements
+
+- Ingest and export paths MUST share the same structural mapping rules
+- No provider‑specific fields may be introduced on export that were not representable on ingest
+- All reversible transformations MUST round‑trip without semantic drift
+- All irreversible transformations MUST be explicitly documented and one‑directional
+
+### Authority Boundary
+
+- Calendar I/O adapters are **structural only**
+- They MUST NOT apply semantic interpretation, guard dates, identity rules, or authority decisions
+- Directional authority (Calendar vs FPP) is determined exclusively by Diff and Reconciliation layers
+
+### Timezone Normalization
+
+- All timestamps entering or leaving Calendar I/O MUST be normalized to the **FPP local timezone**
+- Provider timezones are converted at the boundary and never propagated internally
+- Calendar I/O MUST NOT emit provider artifacts in mixed or floating timezones
+
+### Failure Rules
+
+- If an outbound transformation cannot faithfully represent a Manifest SubEvent in provider format,
+  export MUST fail explicitly
+- Silent coercion, truncation, or approximation is forbidden
+
+This symmetry guarantees that Calendar I/O remains reversible, predictable, and immune
+to read/write divergence as new providers or mutation paths (e.g. OAuth‑based calendar writes)
+are introduced.
+
 ---
 
 ## Outbound I/O (System → Calendar)

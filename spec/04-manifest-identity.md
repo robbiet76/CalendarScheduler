@@ -72,11 +72,27 @@ The following fields affect *when* an entry is active or *how* it executes, but 
 
 These fields may differ while still representing the **same normalized scheduler intent** at the Event level.
 
+
 #### Dates and Timing Normalization
 
 Dates and timing participate in Manifest StateHash, not Manifest Identity. They are normalized to ensure stable and consistent state comparison across imports, edits, and seasonal shifts.
 
 Date normalization rules and timing canonicalization apply during Intent normalization and influence StateHash computation. Symbolic and hard dates are preserved to maintain identity stability at the state level but do not impact Event-level Manifest Identity.
+
+##### Timezone Normalization (FPP-Local)
+
+All dates and times used anywhere within the plugin MUST be normalized to the FPP local timezone prior to any identity or state computation.
+
+The FPP-configured timezone is the sole authoritative timezone for:
+- Intent normalization
+- Manifest Identity derivation
+- StateHash computation
+- Diff and reconciliation
+- Apply and UI presentation
+
+External sources (e.g., calendar providers) may supply timestamps in arbitrary timezones or UTC. These MUST be converted into FPP local time during normalization. Timezone offsets, UTC instants, or source-specific timezone identifiers MUST NOT participate in identity or state hashing.
+
+Symbolic times (e.g., `dawn`, `dusk`) are interpreted relative to the FPP local timezone and location and are preserved symbolically through identity and state computation.
 
 #### Summary Rule
 

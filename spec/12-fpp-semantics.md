@@ -36,6 +36,49 @@ It must be:
 
 ---
 
+## Adapter & Round-Trip Requirement (Two-Way Semantics)
+
+The FPP Semantic Layer MUST support **bidirectional adaptation**.
+
+This means:
+
+- The same semantic rules used to translate **Manifest → FPP Scheduler Entries**
+  MUST also be usable (in reverse) to translate **FPP Scheduler Entries → Manifest SubEvents**.
+- Read-path and write-path semantics MUST NOT diverge.
+- Any normalization, defaulting, truncation, or guard behavior applied on write
+  MUST be representable and explainable on read.
+
+### Rationale
+
+The Manifest is the single source of truth, but:
+
+- Both **Calendar** and **FPP** are first-class authorities
+- Either side may be edited by the user
+- The system must reconcile changes without semantic drift
+
+To guarantee this:
+
+- All FPP-specific transformations MUST live in one place (this layer)
+- Adapters MUST be symmetric and reversible where information is not lost by FPP itself
+- Irreversible loss (e.g. guard-date truncation) MUST be explicitly documented and detectable
+
+### Constraints
+
+The semantic layer:
+
+- MAY expose helper functions for reverse adaptation
+- MUST NOT perform I/O in either direction
+- MUST NOT infer intent beyond what FPP actually stores
+- MUST preserve enough information to allow stable identity + state reconstruction
+
+If a value cannot be faithfully round-tripped due to FPP limitations,
+the semantic layer MUST surface this explicitly rather than silently guessing.
+
+This guarantees long-term correctness as OAuth, calendar mutation,
+and bidirectional sync are introduced.
+
+---
+
 ## What This Layer Owns (Authoritative)
 
 This layer is the *single authority* for:
