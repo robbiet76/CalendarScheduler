@@ -10,32 +10,69 @@ function exportFppEnv(string $outputPath): void
     $result = [
         'schemaVersion' => 1,
         'source'        => 'fpp-env-export-php',
-        'generatedAt'   => gmdate('c'), // ✅ authoritative freshness signal
+        'generatedAt'   => gmdate('c'),
         'ok'            => false,
         'errors'        => [],
     ];
 
     try {
-        if (!function_exists('GetSettingValue')) {
-            throw new RuntimeException('Not running in FPP web context');
+        // Prefer $settings from FPP's web config (most reliable in plugin.php context)
+        $settings = null;
+        if (isset($GLOBALS['settings']) && is_array($GLOBALS['settings'])) {
+            $settings = $GLOBALS['settings'];
         }
 
-        $result['latitude']  = (float) \GetSettingValue('Latitude');
-        $result['longitude'] = (float) \GetSettingValue('Longitude');
-        $result['timezone']  = \GetSettingValue('TimeZone');
+        // Fallback: GetSettingValue() if present (some contexts)
+        $get = static function (string $key) use ($settings): ?string {
+            if (is_array($settings) && array_key_exists($key, $settings)) {
+                $v = $settings[$key];
+                if (is_string($v) || is_numeric($v)) {
+                    return (string) $v;
+                }
+            }
+            if (function_exists('GetSettingValue')) {
+                /** @var callable $fn */
+                $fn = 'GetSettingValue';
+                $v = $fn($key);
+                if (is_string($v) || is_numeric($v)) {
+                    return (string) $v;
+                }
+            }
+            return null;
+        };
 
-        if (class_exists('LocaleHolder')) {
-            $locale = \LocaleHolder::GetLocale();
-            $result['rawLocale'] = json_decode(
-                json_encode($locale, JSON_THROW_ON_ERROR),
-                true,
-                512,
-                JSON_THROW_ON_ERROR
-            );
-            $result['ok'] = true;
-        } else {
-            throw new RuntimeException('FPPLocale unavailable');
+        $lat = $get('Latitude');
+        $lon = $get('Longitude');
+        $tz  = $get('TimeZone') ?? $get('TimeZoneName') ?? $get('timezone');
+        $loc = $get('Locale');
+
+        if ($lat !== null) $result['latitude']  = (float) $lat;
+        if ($lon !== null) $result['longitude'] = (float) $lon;
+        if ($tz  !== null) $result['timezone']  = $tz;
+
+        if ($loc === null || $loc === '') {
+            throw new RuntimeException('Locale setting missing');
         }
+
+        // Load locale JSON directly (this avoids LocaleHolder dependency)
+        $localePath = "/opt/fpp/etc/locale/{$loc}.json";
+        if (!is_file($localePath)) {
+            throw new RuntimeException("Locale file missing: {$localePath}");
+        }
+
+        $rawLocale = json_decode(
+            file_get_contents($localePath),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        if (!is_array($rawLocale)) {
+            throw new RuntimeException("Locale JSON invalid: {$localePath}");
+        }
+
+        $rawLocale['_source'] = $localePath;
+        $result['rawLocale']  = $rawLocale;
+        $result['ok']         = true;
 
     } catch (\Throwable $e) {
         $result['errors'][] = $e->getMessage();
