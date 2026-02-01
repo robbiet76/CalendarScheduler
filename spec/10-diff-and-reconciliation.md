@@ -67,6 +67,84 @@ If identity is missing or invalid:
 
 ## Diff Categories
 
+## Phase 2.1 — Authority & Direction Rules
+
+This phase determines **which side is considered authoritative for a given change** and **in which direction a mutation must occur**.
+
+### Equal Authority Model
+
+- The Calendar source and the FPP scheduler are **equal authorities**.
+- Neither side is globally dominant.
+- The Manifest is the **only reconciliation surface** and is the single source of truth for Apply.
+
+### Change Detection vs Change Direction
+
+The Diff phase classifies **what has changed**, not **where the change originated**.
+
+Directionality is determined by **temporal authority**, not by source type.
+
+### Temporal Authority Rule
+
+For a given Manifest Identity:
+
+- If both sides differ, the side with the **most recent stateHash change** is authoritative.
+- Recency is determined by:
+  - Calendar: last-modified timestamp from the calendar snapshot / export
+  - FPP: last-modified timestamp from the scheduler entry or derived metadata
+
+If timestamps are equal or unavailable:
+
+- Default authority is the **Desired State** (Planner output)
+- This preserves deterministic, idempotent behavior
+
+### Directional Outcomes
+
+Each Diff operation MUST carry a direction:
+
+- **Apply → FPP** (mutate scheduler)
+- **Apply → Calendar** (mutate calendar source)
+- **No-op** (already converged)
+
+This direction is metadata on the DiffResult and does not alter diff classification.
+
+### Create / Update / Delete Semantics with Direction
+
+- **Create**
+  - Calendar newer → create on FPP
+  - FPP newer → create on Calendar
+- **Update**
+  - The authoritative side overwrites the non-authoritative side
+- **Delete**
+  - Deletion is only valid if the authoritative side no longer contains the identity
+  - Unmanaged entries remain protected regardless of authority
+
+### Conflict Handling
+
+If both sides have diverged and neither can be proven newer:
+
+- Preview mode: surface a **conflict**
+- Apply mode: **fail fast**
+
+Silent conflict resolution is forbidden.
+
+### Future OAuth Considerations
+
+When OAuth is enabled:
+
+- Calendar mutations become first-class Apply operations
+- Direction rules remain unchanged
+- Authority resolution continues to rely on timestamps and stateHash comparison
+
+### Non-Goals
+
+This phase does NOT:
+
+- Attempt semantic merges
+- Infer user intent
+- Resolve partial-field conflicts
+
+It only selects **which side wins** and **where the mutation must be applied**.
+
 The diff produces exactly three result sets:
 
 ```ts
@@ -91,7 +169,7 @@ An entry is classified as **create** when:
 An entry is classified as **update** when:
 
 - Its Manifest Event identity matches an existing scheduler entry
-- One or more associated SubEvent `stateHash` values differ
+- Its Manifest Event stateHash differs from the existing Manifest Event stateHash
 
 Rules:
 
@@ -102,9 +180,11 @@ If two entries are otherwise identical, a change in scheduler index or position 
 
 - No partial updates are allowed
 
-Updates are atomic at the Manifest Event level. If any SubEvent `stateHash` differs, the entire Manifest Event is classified as an update; partial SubEvent updates are forbidden.
+Updates are atomic at the Manifest Event level. If the Manifest Event stateHash differs, the entire Manifest Event is classified as an update; partial SubEvent updates are forbidden.
 
 Comparison is performed exclusively via deterministic `stateHash` values produced during normalization. Field-level comparison is explicitly forbidden during Diff.
+
+StateHash MUST be computed over the full Manifest Event state, including (at minimum) identityHash plus all SubEvent state. Therefore, any identity change necessarily implies a stateHash change as well.
 
 Rules:
 - Structural equivalence is evaluated, not textual representation

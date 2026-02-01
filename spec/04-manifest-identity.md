@@ -10,6 +10,10 @@ All identity equivalence decisions are made only after Intent normalization.
 
 In addition to Manifest Identity, the Manifest defines **StateHash**, which represents the fully normalized configuration of a scheduler intent, including all execution parameters, timing details, enablement state, and payload. StateHash is used primarily for update detection during diff operations, allowing the system to recognize changes that do not affect identity but modify execution behavior, timing, or metadata. StateHash is computed at the SubEvent level.
 
+**StateHash is inclusive of IdentityHash.**  
+Any change in Manifest Identity MUST result in a different StateHash.  
+A StateHash change does not necessarily imply an Identity change.
+
 In contrast, Manifest Identity defines structural equivalence of scheduler intents at the Event level and is used to determine create or delete operations.
 
 #### Platform Reality (FPP)

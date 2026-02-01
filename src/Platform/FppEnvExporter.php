@@ -42,7 +42,9 @@ function exportFppEnv(string $outputPath): void
             return null;
         };
 
-        // Optional FPP scheduling year bounds (exposed by FPP web UI)
+        // FPP scheduling year bounds (exposed by FPP web UI)
+        // NOTE: MINYEAR / MAXYEAR are JS-only in FPP today.
+        // These will remain null until FPP exposes them server-side.
         if (isset($GLOBALS['MINYEAR']) && is_numeric($GLOBALS['MINYEAR'])) {
             $result['minYear'] = (int) $GLOBALS['MINYEAR'];
         }
