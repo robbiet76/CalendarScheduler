@@ -83,9 +83,14 @@ $readEnvEpoch = static function (string $path): int {
 
 $beforeEpoch = $readEnvEpoch($envPath);
 
+$envUrl = getenv('GCS_FPP_ENV_URL');
+if ($envUrl === false || trim($envUrl) === '') {
+    $envUrl = 'http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export.php&nopage=1';
+}
+
 $cmd = 'curl --silent --show-error --fail --max-time 5 '
      . '--output /dev/null '
-     . '"http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export.php&nopage=1"';
+     . escapeshellarg($envUrl);
 exec($cmd, $out, $rc);
 
 if ($rc !== 0) {
@@ -119,12 +124,6 @@ try {
     // Normalization context
     // -------------------------------------------------------------------------
 
-    $env = json_decode(
-        file_get_contents($envPath),
-        true,
-        512,
-        JSON_THROW_ON_ERROR
-    );
 
     $tzName = $env['timezone']
         ?? $env['rawLocale']['timezone']
