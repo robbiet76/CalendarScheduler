@@ -111,14 +111,37 @@ final class GoogleCalendarAdapter
         ];
 
         // --- Source updated timestamp (authority) ---
-        $updatedAtEpoch = null;
-        if (isset($raw->updated) && is_string($raw->updated)) {
-            $dt = new \DateTimeImmutable($raw->updated, new \DateTimeZone('UTC'));
-            $dt = $dt->setTimezone($context->timezone);
-            $updatedAtEpoch = $dt->getTimestamp();
+        // Prefer LAST-MODIFIED, fall back to CREATED. DTSTAMP is NOT authoritative.
+        $timestampRaw =
+            $raw->{'LAST-MODIFIED'}
+            ?? $raw->lastModified
+            ?? $raw->{'CREATED'}
+            ?? $raw->created
+            ?? null;
+
+        if (!is_string($timestampRaw) || $timestampRaw === '') {
+            throw new \RuntimeException(
+                'Google adapter could not determine valid updated timestamp'
+            );
         }
 
-        if (!is_int($updatedAtEpoch) || $updatedAtEpoch <= 0) {
+        // RFC 5545 timestamps are UTC (YYYYMMDDTHHMMSSZ)
+        $dt = \DateTimeImmutable::createFromFormat(
+            'Ymd\THis\Z',
+            $timestampRaw,
+            new \DateTimeZone('UTC')
+        );
+
+        if (!$dt instanceof \DateTimeImmutable) {
+            throw new \RuntimeException(
+                'Google adapter could not parse updated timestamp: ' . $timestampRaw
+            );
+        }
+
+        $dt = $dt->setTimezone($context->timezone);
+        $updatedAtEpoch = $dt->getTimestamp();
+
+        if ($updatedAtEpoch <= 0) {
             throw new \RuntimeException(
                 'Google adapter could not determine valid updated timestamp'
             );

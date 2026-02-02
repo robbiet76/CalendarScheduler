@@ -98,6 +98,10 @@ final class IcsParser
                 $exDates      = [];
                 $recurrenceId = null;
 
+                $created      = null;
+                $lastModified = null;
+                $dtstamp      = null;
+
                 if (preg_match('/^UID:(.+)$/m', $raw, $m)) {
                     $uid = trim($m[1]);
                 }
@@ -119,6 +123,18 @@ final class IcsParser
                     // Remove leading "DESCRIPTION:" only
                     $desc = preg_replace('/^DESCRIPTION:/', '', $desc);
                     $description = trim($desc);
+                }
+
+                if (preg_match('/^CREATED:(.+)$/m', $raw, $m)) {
+                    $created = $this->parseUtcTimestamp($m[1]);
+                }
+
+                if (preg_match('/^LAST-MODIFIED:(.+)$/m', $raw, $m)) {
+                    $lastModified = $this->parseUtcTimestamp($m[1]);
+                }
+
+                if (preg_match('/^DTSTAMP:(.+)$/m', $raw, $m)) {
+                    $dtstamp = $this->parseUtcTimestamp($m[1]);
                 }
 
                 if (preg_match('/DTSTART([^:]*):(.+)/', $raw, $m)) {
@@ -159,6 +175,9 @@ final class IcsParser
                     'exDates'      => array_map(fn(DateTime $d) => $d->format('Y-m-d H:i:s'), $exDates),
                     'recurrenceId' => $recurrenceId ? $recurrenceId->format('Y-m-d H:i:s') : null,
                     'isOverride'   => ($recurrenceId !== null),
+                    'createdAt'      => $created,
+                    'lastModifiedAt'=> $lastModified,
+                    'dtstamp'        => $dtstamp,
                 ];
 
                 continue;
@@ -203,6 +222,23 @@ final class IcsParser
             return [$dt, $isAllDay];
         } catch (Throwable) {
             return [null, false];
+        }
+    }
+
+    /**
+     * Parse RFC5545 UTC timestamp (e.g. 20260127T134636Z) into epoch seconds.
+     */
+    private function parseUtcTimestamp(string $raw): ?int
+    {
+        try {
+            $dt = \DateTimeImmutable::createFromFormat(
+                'Ymd\THis\Z',
+                trim($raw),
+                new \DateTimeZone('UTC')
+            );
+            return $dt instanceof \DateTimeImmutable ? $dt->getTimestamp() : null;
+        } catch (\Throwable) {
+            return null;
         }
     }
 
