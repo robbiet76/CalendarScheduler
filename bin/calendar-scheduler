@@ -13,10 +13,8 @@ use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
-use CalendarScheduler\Intent\CalendarRawEvent;
-use CalendarScheduler\Adapter\CalendarSnapshot;
-use CalendarScheduler\Adapter\CalendarTranslator;
-use CalendarScheduler\Platform\IcsParser;
+use CalendarScheduler\Adapter\Google\GoogleCalendarAdapter;
+use CalendarScheduler\Adapter\FppScheduleRawEventAdapter;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -33,6 +31,12 @@ $DEFAULT_SCHEDULE_PATH =
 
 $DEFAULT_MANIFEST_PATH =
     '/home/fpp/media/config/calendar-scheduler/manifest.json';
+
+$DEFAULT_CALENDAR_SNAPSHOT_PATH =
+    '/home/fpp/media/config/calendar-scheduler/calendar/calendar-snapshot.json';
+
+// Optional: if your Google adapter reads from an intents file instead of snapshot,
+// override via --calendar or env var in the future.
 
 // -----------------------------------------------------------------------------
 // Argument parsing
@@ -153,27 +157,42 @@ try {
 
 
     // -------------------------------------------------------------------------
-    // Calendar → snapshot → intents (desired state)
+    // Calendar → adapter → RawEvent → Intent (desired state)
     // -------------------------------------------------------------------------
 
-    $parser = new IcsParser();
-    $translator = new CalendarTranslator(
-        $parser,
-        '/home/fpp/media/config/calendar-scheduler/calendar/calendar-snapshot.json'
-    );
+    $calendarAdapter = new GoogleCalendarAdapter();
 
-    $snapshot = new CalendarSnapshot($translator);
-    $calendarRaw = $snapshot->refreshFromIcs();
-    $snapshot->write($calendarRaw);
-
-    // Normalize calendar raw events into canonical Intent objects keyed by identityHash.
     $calendarIntents = [];
-    foreach ($calendarRaw as $raw) {
-        $intent = $normalizer->fromCalendar(
-            CalendarRawEvent::fromArray($raw),
-            $context
-        );
-        $calendarIntents[$intent->identityHash] = $intent;
+    $calendarAuthority = [];
+    foreach ($calendarAdapter->read($context, $DEFAULT_CALENDAR_SNAPSHOT_PATH) as $raw) {
+        $intent = $normalizer->fromRaw($raw, $context);
+        $hash = $intent->identityHash;
+        $calendarIntents[$hash] = $intent;
+        $calendarAuthority[$hash] = (int)($raw->sourceUpdatedAt ?? 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // FPP → adapter → RawEvent → Intent (current state contributor)
+    // -------------------------------------------------------------------------
+    
+    $fppAdapter = new FppScheduleRawEventAdapter();
+
+    foreach ($fppAdapter->read($context, $schedulePath) as $raw) {
+        $intent = $normalizer->fromRaw($raw, $context);
+        $hash = $intent->identityHash;
+        $rawTs = (int)($raw->sourceUpdatedAt ?? 0);
+
+        if (!isset($calendarIntents[$hash])) {
+            $calendarIntents[$hash] = $intent;
+            $calendarAuthority[$hash] = $rawTs;
+        } else {
+            // Phase 2.1 authority: later timestamp wins
+            $existingTs = (int)($calendarAuthority[$hash] ?? 0);
+            if ($rawTs > $existingTs) {
+                $calendarIntents[$hash] = $intent;
+                $calendarAuthority[$hash] = $rawTs;
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

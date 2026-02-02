@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter\Google;
 
-use CalendarScheduler\Intent\CalendarRawEvent;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Intent\RawEvent;
 use CalendarScheduler\Platform\HolidayResolver;
@@ -13,7 +12,7 @@ use CalendarScheduler\Platform\FPPSemantics;
 /**
  * GoogleCalendarAdapter
  *
- * Google-specific adapter that converts CalendarRawEvent (Google ICS-ish shape)
+ * Google-specific adapter that converts a provider-native Google event array
  * into a canonical, source-agnostic RawEvent suitable for IntentNormalizer::fromRaw().
  *
  * HARD RULES:
@@ -25,10 +24,28 @@ use CalendarScheduler\Platform\FPPSemantics;
  */
 final class GoogleCalendarAdapter
 {
-    public function fromCalendarRawEvent(
-        CalendarRawEvent $raw,
+    /**
+     * Read all Google calendar events and yield RawEvent objects.
+     */
+    public function read(NormalizationContext $context): iterable
+    {
+        $googleEvents = $this->fetchGoogleEvents($context);
+
+        foreach ($googleEvents as $event) {
+            yield $this->toRaw($event, $context);
+        }
+    }
+
+    /**
+     * Convert a single Google event into RawEvent.
+     * Adapter-internal only.
+     */
+    private function toRaw(
+        array $googleEvent,
         NormalizationContext $context
     ): RawEvent {
+        // Cast to object for property-style access
+        $raw = (object)$googleEvent;
         // --- INI-driven type/payload semantics (existing logic) ---
         $meta        = IniMetadata::fromDescription($raw->description);
         $settings    = $meta['settings'] ?? [];
@@ -43,7 +60,7 @@ final class GoogleCalendarAdapter
         $this->validateCommandSection($commandMeta, $type);
 
         // --- Timing (Google/RFC5545 quirks handled here) ---
-        $draft = $this->draftTimingFromCalendar($raw, $context, $symbolic);
+        $draft = $this->draftTimingFromCalendar($googleEvent, $context, $symbolic);
         $timing = $this->normalizeTiming($draft, $context);
 
         // --- Execution payload (FPP semantics) ---
@@ -103,15 +120,24 @@ final class GoogleCalendarAdapter
         );
     }
 
+    /**
+     * Stub — replace with real Google fetch logic.
+     */
+    private function fetchGoogleEvents(NormalizationContext $context): array
+    {
+        return [];
+    }
+
     // ============================================================
     // Calendar timing adaptation (migrated from IntentNormalizer)
     // ============================================================
 
     private function draftTimingFromCalendar(
-        CalendarRawEvent $raw,
+        array $googleEvent,
         NormalizationContext $context,
         array $symbolicTime = []
     ): DraftTiming {
+        $raw = (object)$googleEvent;
         $provenance = ['source' => 'calendar'];
         $isAllDay = ($raw->isAllDay ?? false) === true;
         $tz = $context->timezone;
