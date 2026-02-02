@@ -46,6 +46,7 @@ require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
 require_once __DIR__ . '/src/Adapter/CalendarSnapshot.php';
 require_once __DIR__ . '/src/Adapter/CalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/FppScheduleTranslator.php';
+require_once __DIR__ . '/src/Adapter/Google/GoogleCalendarAdapter.php';
 
 // -----------------------------------------------------------------------------
 // Intent — canonical, source-agnostic scheduling intent (Phase 3)

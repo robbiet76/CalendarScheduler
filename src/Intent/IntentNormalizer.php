@@ -3,10 +3,8 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Intent;
 
-use CalendarScheduler\Intent\CalendarRawEvent;
-use CalendarScheduler\Intent\FppRawEvent;
+use CalendarScheduler\Intent\RawEvent;
 use CalendarScheduler\Intent\NormalizationContext;
-use CalendarScheduler\Platform\IniMetadata;
 use CalendarScheduler\Platform\HolidayResolver;
 
 // TODO(v3): Remove debug hash preimage logging once diff parity is proven
@@ -43,233 +41,73 @@ final class IntentNormalizer
         // Dependencies will be explicit when added.
     }
 
-    /**
-     * Normalize raw calendar data into Intent.
-     *
-     * Inputs are raw, source-shaped data.
-     * Output MUST fully conform to the locked Intent schema.
-     * No downstream component may reinterpret semantics.
-     */
-    public function fromCalendar(
-        CalendarRawEvent $raw,
-        NormalizationContext $context
-    ): Intent {
-        // --- INI-driven type resolution ---
-        $meta = IniMetadata::fromDescription($raw->description);
-        $settings = $meta['settings'] ?? [];
-        $symbolicTime = $meta['symbolic_time'] ?? [];
-        $commandMeta  = $meta['command'] ?? [];
-        $type = $settings['type'] ?? null;
-        $type = \CalendarScheduler\Platform\FPPSemantics::normalizeType($type);
-
-        // --- Metadata validation ---
-        $this->validateSettingsSection($settings);
-        $this->validateSymbolicTimeSection($symbolicTime);
-        $this->validateCommandSection($commandMeta, $type);
-
-        // --- Identity (human intent) ---
-        // All-day normalization is intentional and occurs ONLY at the Intent layer.
-        // Raw calendar data must never coerce or invent times.
-        // Handle all-day events explicitly:
-        // For all-day intents, times are null because the event spans entire days without specific start/end times.
-        // This preserves the intent without coercing times to 23:59:59 or 24:00:00.
-        // Date normalization happens here (IntentNormalizer) to ensure consistent interpretation,
-        // rather than in earlier layers like CalendarTranslator.
-        $draftTiming = $this->draftTimingFromCalendar($raw, $context, $symbolicTime);
-        $canonicalTiming = $this->normalizeTiming($draftTiming, $context);
-
-
-        // --- Recurrence handling (NO expansion) ---
-        // FPP scheduler operates on date ranges. We NEVER generate one subEvent per day.
-        // RRULE is used ONLY to compute the intent window (end_date).
-        // All timing logic is now handled by CanonicalTiming.
-
-        // --- Execution payload (FPP semantics) ---
-        // Calendar INI may override, but defaults ALWAYS come from FPPSemantics.
-        $defaults = \CalendarScheduler\Platform\FPPSemantics::defaultBehavior();
-
-        $payload = [
-            'enabled'  => \CalendarScheduler\Platform\FPPSemantics::normalizeEnabled(
-                $settings['enabled'] ?? $defaults['enabled']
-            ),
-            'stopType' => $settings['stopType'] ?? 'graceful',
-        ];
-
-        if (isset($settings['repeat']) && is_string($settings['repeat'])) {
-            $payload['repeat'] = strtolower(trim($settings['repeat']));
-        } else {
-            $defaultNumeric = \CalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
-            $payload['repeat'] = \CalendarScheduler\Platform\FPPSemantics::repeatToSemantic($defaultNumeric);
-        }
-
-        if ($type === 'command' && is_array($commandMeta) && $commandMeta !== []) {
-            $payload['command'] = $commandMeta;
-        }
-
-
-        // --- Ownership ---
-        $ownership = [
-            'managed'    => true,
-            'controller' => 'calendar',
-            'locked'     => false,
-        ];
-
-        // --- Correlation / provenance ---
-        $correlation = [
-            'source' => 'calendar',
-            'uid'    => $raw->provenance['uid'] ?? null,
-        ];
-
-        return $this->buildIntent(
-            $type,
-            $raw->summary,
-            $canonicalTiming,
-            $payload,
-            $ownership,
-            $correlation,
-            $context
-        );
-    }
 
     /**
-     * Normalize raw FPP scheduler data into Intent.
+     * Normalize a source-agnostic RawEvent into Intent.
      *
-     * Inputs are raw, source-shaped data.
-     * Output MUST fully conform to the locked Intent schema.
-     * No downstream component may reinterpret semantics.
+     * RawEvent MUST already be:
+     * - timezone-normalized (FPP timezone)
+     * - semantically canonical
+     * - free of provider-specific quirks
+     *
+     * This method performs ONLY:
+     * - identity construction
+     * - state hashing
+     * - invariant enforcement
      */
-    public function fromFpp(
-        FppRawEvent $raw,
+    public function fromRaw(
+        RawEvent $raw,
         NormalizationContext $context
     ): Intent {
-        $d = $raw->data;
-        // FPP all-day is explicitly encoded as 00:00 → 24:00 with zero offsets.
-        // Detect it ONCE here and propagate via DraftTiming.
-        $isAllDay =
-            ($d['startTime'] ?? null) === '00:00:00'
-            && ($d['endTime'] ?? null) === '24:00:00'
-            && ((int)($d['startTimeOffset'] ?? 0)) === 0
-            && ((int)($d['endTimeOffset'] ?? 0)) === 0;
-
-        // --- Required fields validation (fail fast) ---
-        foreach (['playlist', 'startDate', 'endDate', 'startTime', 'endTime'] as $k) {
-            if (!isset($d[$k])) {
-                throw new \RuntimeException("FPP raw event missing required field: {$k}");
-            }
-        }
-
-        // --- Type normalization ---
-        if (!empty($d['command'])) {
-            $type = 'command';
-        } else {
-            $type = ($d['sequence'] ?? 0) ? 'sequence' : 'playlist';
-        }
-        $type = \CalendarScheduler\Platform\FPPSemantics::normalizeType($type);
-
-        // --- Target normalization ---
-        if ($type === 'command') {
-            $target = (string) $d['command'];
-        } else {
-            $target = (string) $d['playlist'];
-            $target = preg_replace('/\.fseq$/i', '', $target);
-        }
-
-        // Normalize guard dates in FPP start/end dates
-        $startDateRaw = $d['startDate'] ?? null;
-        $endDateRaw   = $d['endDate'] ?? null;
-        if (is_string($endDateRaw)) {
-            $endDateObj = \DateTimeImmutable::createFromFormat('Y-m-d', $endDateRaw);
-            if ($endDateObj !== false
-                && \CalendarScheduler\Platform\FPPSemantics::isSchedulerGuardDate(
-                    $endDateObj->format('Y-m-d'),
-                    new \DateTimeImmutable('now', $context->timezone)
-                )
-            ) {
-                $endDateRaw = null;
-            }
-        }
-
-        $draftTiming = new DraftTiming(
-            $startDateRaw,
-            $endDateRaw,
-            $isAllDay ? null : ($d['startTime'] ?? null),
-            $isAllDay ? null : ($d['endTime'] ?? null),
-            (int)($d['startTimeOffset'] ?? 0),
-            (int)($d['endTimeOffset'] ?? 0),
-            $d['day'] ?? null,
-            $isAllDay,
-            ['source' => 'fpp']
+        $timingArr = $this->applyHolidaySymbolics(
+            $raw->timing,
+            $context->holidayResolver
         );
-        $canonicalTiming = $this->normalizeTiming($draftTiming, $context);
 
-
-        // --- Behavior (fully explicit) ---
-        if (isset($d['repeat'])) {
-            $repeatNumeric = \CalendarScheduler\Platform\FPPSemantics::normalizeRepeat($d['repeat']);
-        } else {
-            $repeatNumeric = \CalendarScheduler\Platform\FPPSemantics::defaultRepeatForType($type);
-        }
-        $repeatSemantic = \CalendarScheduler\Platform\FPPSemantics::repeatToSemantic($repeatNumeric);
-
-        if (isset($d['stopType'])) {
-            $stopTypeValue = $d['stopType'];
-        } else {
-            $stopTypeValue = null;
+        /**
+         * Command timing normalization:
+         * - Commands are point-in-time unless repeating
+         */
+        if ($raw->type === 'command' && ($raw->payload['repeat'] ?? 'none') === 'none') {
+            $timingArr['end_time'] = $timingArr['start_time'] ?? null;
         }
 
-        if (is_int($stopTypeValue)) {
-            $stopTypeSemantic = match ($stopTypeValue) {
-                \CalendarScheduler\Platform\FPPSemantics::STOP_TYPE_HARD => 'hard',
-                \CalendarScheduler\Platform\FPPSemantics::STOP_TYPE_GRACEFUL_LOOP => 'graceful_loop',
-                default => 'graceful',
-            };
-        } elseif (is_string($stopTypeValue)) {
-            $stopTypeSemantic = strtolower(trim($stopTypeValue));
-        } else {
-            $stopTypeSemantic = 'graceful';
-        }
-
-        $payload = [
-            'enabled'  => \CalendarScheduler\Platform\FPPSemantics::normalizeEnabled($d['enabled'] ?? true),
-            'repeat'   => $repeatSemantic,
-            'stopType' => $stopTypeSemantic,
-        ];
-        if ($type === 'command') {
-            // Construct command payload, copying all entries except excluded fields
-            $command = [];
-            $exclude = [
-                'enabled', 'sequence', 'day', 'startTime', 'startTimeOffset', 'endTime', 'endTimeOffset',
-                'repeat', 'startDate', 'endDate', 'stopType', 'playlist', 'command'
-            ];
-            foreach ($d as $k => $v) {
-                if (!in_array($k, $exclude, true)) {
-                    $command[$k] = $v;
-                }
-            }
-            $command['name'] = (string) $d['command'];
-            $payload['command'] = $command;
-        }
-
-        // --- Ownership ---
-        $ownership = [
-            'source' => 'fpp',
+        $identity = [
+            'type'   => $raw->type,
+            'target' => $raw->target,
+            'timing' => $timingArr,
         ];
 
-        // --- Correlation ---
-        $correlation = [
-            'fpp' => [
-                'raw' => $d,
-            ],
+        $subEvent = [
+            'type'    => $raw->type,
+            'target'  => $raw->target,
+            'timing'  => $timingArr,
+            'payload' => $raw->payload,
         ];
 
-        return $this->buildIntent(
-            $type,
-            $target,
-            $canonicalTiming,
-            $payload,
-            $ownership,
-            $correlation,
-            $context
+        // Identity hash
+        $identityHashInput = $this->canonicalizeForIdentityHash($identity);
+        $identityHashJson  = json_encode($identityHashInput, JSON_THROW_ON_ERROR);
+        $identityHash      = hash('sha256', $identityHashJson);
+
+        // SubEvent state hash
+        $stateHashInput = $this->canonicalizeForStateHash($subEvent);
+        $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
+        $subEvent['stateHash'] = hash('sha256', $stateHashJson);
+
+        // Event-level state hash (single subEvent for now)
+        $eventStateHash = hash(
+            'sha256',
+            json_encode([$subEvent['stateHash']], JSON_THROW_ON_ERROR)
+        );
+
+        return new Intent(
+            $identityHash,
+            $identity,
+            $raw->ownership,
+            $raw->correlation,
+            [$subEvent],
+            $eventStateHash
         );
     }
 

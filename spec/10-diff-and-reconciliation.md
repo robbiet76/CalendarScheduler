@@ -532,3 +532,323 @@ Preview does NOT:
 - repair identities
 - resolve conflicts automatically
 
+---
+
+## Phase 3 — Temporal Authority & Timestamp Model
+
+### Purpose
+
+Phase 3 defines how **temporal authority** is established between equal sources (Calendar and FPP)
+in order to determine **directionality** for Apply.
+
+This phase does NOT affect identity or state comparison.
+It is used only to decide **which side wins** when a Diff operation exists.
+
+---
+
+### Core Principle
+
+Timestamps are **observed facts**, never synthesized intent.
+
+The system MUST NOT invent timestamps to influence reconciliation.
+Only timestamps provided by upstream systems or their direct artifacts are used.
+
+---
+
+### Calendar Timestamp Model
+
+Supported calendar providers (Google Calendar, Microsoft Outlook) expose
+provider-authored last-modified timestamps per event.
+
+Rules:
+
+- Calendar adapters MUST extract and preserve the provider-supplied last-modified timestamp
+- This timestamp represents the authoritative modification time for that identity on the calendar side
+- Calendar timestamps:
+  - MAY participate in authority resolution
+  - MUST NOT participate in identityHash computation
+  - MUST NOT participate in stateHash computation
+
+If a calendar provider does not supply a reliable timestamp, the calendar side
+is considered **timestamp-unavailable** for that identity.
+
+---
+
+### FPP Timestamp Model
+
+FPP does not currently expose per-scheduler-entry modification timestamps.
+
+Therefore, the authoritative timestamp for **all managed FPP Manifest Events**
+is defined as:
+
+- The filesystem modification time (`mtime`) of `schedule.json`
+
+Rules:
+
+- The `schedule.json` mtime is treated as the last-modified timestamp for every managed FPP identity
+- This timestamp is attached to each derived Manifest Event during normalization
+- This model is forward-compatible:
+  - If FPP later exposes per-entry timestamps, this rule may be refined
+  - No Diff or Reconciliation logic depends on the granularity of the timestamp
+
+FPP timestamps:
+- MAY participate in authority resolution
+- MUST NOT participate in identityHash computation
+- MUST NOT participate in stateHash computation
+
+---
+
+### Authority Resolution Rules
+
+For each Manifest Identity where a Diff operation exists:
+
+1. If exactly one side has a timestamp → that side is authoritative
+2. If both sides have timestamps:
+   - The side with the newer timestamp is authoritative
+3. If timestamps are equal or both unavailable:
+   - Authority defaults to the **Desired State** (Planner output)
+
+This guarantees:
+
+- Deterministic behavior
+- No oscillation across runs
+- Idempotent reconciliation
+
+---
+
+### Apply-Time Implications
+
+When Apply mutates a system:
+
+- The target system naturally updates its own modification timestamp
+- On the next reconciliation run, that system will be authoritative for the affected identities
+
+No explicit timestamp mutation or bookkeeping is permitted.
+
+---
+
+
+### Non-Goals
+
+Phase 3 does NOT:
+
+- Infer user intent
+- Attempt semantic merges
+- Override identity or stateHash logic
+- Persist synthetic timestamps
+
+---
+
+## Phase 3.2 — Identity-Level Authority Evaluation
+
+### Purpose
+
+Phase 3.2 evaluates **authority per Manifest Identity**, not globally and not per-field.
+
+Its job is to determine, for each identity that appears in a DiffResult, **which side is authoritative** based on observed timestamps and availability.
+
+This phase does not mutate data and does not perform reconciliation.
+It only produces authority decisions as metadata.
+
+---
+
+### Inputs
+
+For each Manifest Identity involved in a Diff operation:
+
+- `identityHash`
+- `calendarStateHash` (if present)
+- `fppStateHash` (if present)
+- `calendarTimestamp` (nullable)
+- `fppTimestamp` (nullable)
+- presence flags:
+  - existsInCalendar
+  - existsInFpp
+  - existsInPlanner
+
+All inputs MUST already be normalized to Manifest shape.
+
+---
+
+### Authority Decision Output
+
+For each identity, Phase 3.2 produces:
+
+```
+AuthorityDecision {
+  identityHash: string
+  authoritativeSide: "calendar" | "fpp" | "planner-default"
+  reason: string
+  calendarTimestamp?: number | null
+  fppTimestamp?: number | null
+}
+```
+
+This structure is immutable and must be carried forward unchanged.
+
+---
+
+### Rules
+
+1. If exactly one side provides a timestamp → that side is authoritative
+2. If both sides provide timestamps:
+   - Newer timestamp wins
+3. If timestamps are equal or both unavailable:
+   - Authority defaults to `planner-default`
+
+Authority is resolved **only once per identity**.
+
+---
+
+### Guarantees
+
+- Authority resolution is deterministic
+- Authority resolution is idempotent
+- Authority resolution never inspects raw source data
+
+---
+
+## Phase 3.3 — Direction Resolution
+
+### Purpose
+
+Phase 3.3 translates **authority decisions** into explicit **mutation directions**.
+
+Authority answers *who wins*.  
+Direction answers *who changes*.
+
+---
+
+### Direction Output
+
+For each identity:
+
+```
+DirectionDecision {
+  identityHash: string
+  direction: "calendar→fpp" | "fpp→calendar" | "noop"
+  authoritativeSide: "calendar" | "fpp" | "planner-default"
+  reason: string
+}
+```
+
+---
+
+### Direction Rules
+
+- If authoritativeSide is `calendar` → direction is `calendar→fpp`
+- If authoritativeSide is `fpp` → direction is `fpp→calendar`
+- If authoritativeSide is `planner-default`:
+  - Default direction is `calendar→fpp`
+  - This preserves deterministic planner-driven behavior
+  - Future multi-planner support may refine this rule
+
+---
+
+### No-op Conditions
+
+Direction is set to `noop` when:
+
+- Both sides already match the planner state
+- No Diff operation exists for the identity
+
+No-op identities MUST NOT be passed to Apply.
+
+---
+
+### Guarantees
+
+- Exactly one direction per identity
+- No bidirectional mutations
+- Direction resolution is independent of Diff classification
+
+---
+
+## Phase 3.4 — Reconciliation Planning Layer
+
+### Purpose
+
+Phase 3.4 bridges **Diff** and **Apply** by producing a deterministic,
+fully-resolved **Reconciliation Plan**.
+
+This layer has no knowledge of raw calendar data or FPP schedule formats.
+
+---
+
+### Inputs
+
+- DiffResult (creates / updates / deletes)
+- AuthorityDecision map (Phase 3.2)
+- DirectionDecision map (Phase 3.3)
+- Manifest-level presence information per identity
+
+---
+
+### Output: ReconciliationPlan
+
+```
+ReconciliationPlan {
+  operations: ReconciliationOp[]
+  summary: {
+    creates: number
+    updates: number
+    deletes: number
+    toFpp: number
+    toCalendar: number
+    conflicts: number
+  }
+}
+```
+
+---
+
+### ReconciliationOp
+
+```
+ReconciliationOp {
+  identityHash: string
+  operation: "create" | "update" | "delete" | "noop" | "conflict"
+  direction: "calendar→fpp" | "fpp→calendar" | "noop"
+  authoritativeSide: "calendar" | "fpp" | "planner-default"
+  reason: string
+  payload: ManifestEvent | null
+}
+```
+
+---
+
+### Mapping Rules
+
+- **Create**
+  - Payload MUST exist
+  - Applied to the non-authoritative side
+- **Update**
+  - Applied only to the non-authoritative side
+  - Atomic at Manifest Event level
+- **Delete**
+  - Only valid if authoritative side no longer contains the identity
+- **Conflict**
+  - Emitted when authority or presence rules cannot be satisfied
+
+---
+
+### Ordering Rules
+
+Reconciliation operations MUST be ordered deterministically:
+
+1. conflicts
+2. deletes
+3. updates
+4. creates
+
+Within each category, sort by `identityHash`.
+
+---
+
+### Guarantees
+
+- No raw data flows past this layer
+- Apply receives only explicit, directional instructions
+- Preview and Apply consume the same ReconciliationPlan
+
+---
