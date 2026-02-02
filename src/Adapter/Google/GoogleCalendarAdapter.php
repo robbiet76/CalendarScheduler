@@ -114,13 +114,13 @@ final class GoogleCalendarAdapter
         // IcsParser is authoritative for timestamps.
         // Prefer provenance.updatedAtEpoch, which already accounts for
         // LAST-MODIFIED > DTSTAMP > CREATED and is normalized to epoch.
-        $updatedAtEpoch = (int)($googleEvent['provenance']['updatedAtEpoch'] ?? 0);
-
-        if ($updatedAtEpoch <= 0) {
-            throw new \RuntimeException(
-                'Google adapter could not determine valid updated timestamp'
-            );
+        if (!isset($raw->provenance) || !is_array($raw->provenance)) {
+            throw new \RuntimeException('Google adapter missing provenance in event');
         }
+        if (!isset($raw->provenance['updatedAtEpoch']) || (int)$raw->provenance['updatedAtEpoch'] <= 0) {
+            throw new \RuntimeException('Google adapter could not determine valid updated timestamp');
+        }
+        $updatedAtEpoch = (int)$raw->provenance['updatedAtEpoch'];
 
         // IMPORTANT:
         // Adapter output MUST already be canonical. IntentNormalizer must not do provider fixes.
@@ -159,8 +159,8 @@ final class GoogleCalendarAdapter
 
         $startDt = null;
 
-        if (is_string($raw->start) && trim($raw->start) !== '') {
-            $dtstart = trim($raw->start);
+        if (is_string($raw->dtstart) && trim($raw->dtstart) !== '') {
+            $dtstart = trim($raw->dtstart);
 
             // RFC 5545 / ISO variants — no fallback to "now"
             $formats = [
@@ -199,8 +199,8 @@ final class GoogleCalendarAdapter
         }
 
         // Parse DTEND (calendar-provided end time/date)
-        if (is_string($raw->end) && trim($raw->end) !== '') {
-            $dtend = trim($raw->end);
+        if (is_string($raw->dtend) && trim($raw->dtend) !== '') {
+            $dtend = trim($raw->dtend);
             $endDt = null;
 
             $formats = [
