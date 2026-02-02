@@ -164,9 +164,24 @@ final class IcsParser
                     continue;
                 }
 
+                // Canonical source timestamp (authority): prefer LAST-MODIFIED, then DTSTAMP, then CREATED.
+                $updatedAtEpoch = $lastModified ?? $dtstamp ?? $created;
+                if (!is_int($updatedAtEpoch) || $updatedAtEpoch <= 0) {
+                    // This should never happen for Google/Microsoft exports; fail fast so adapters never guess.
+                    throw new \RuntimeException('ICS event missing valid updated timestamp (LAST-MODIFIED/DTSTAMP/CREATED): ' . $uid);
+                }
+                $provenance = [
+                    'uid' => $uid,
+                    'updatedAtEpoch' => $updatedAtEpoch,
+                    'createdAtEpoch' => $created,
+                    'lastModifiedAtEpoch' => $lastModified,
+                    'dtstampEpoch' => $dtstamp,
+                ];
+
                 $events[] = [
                     'uid'          => $uid,
                     'summary'      => $summary,
+                    'provenance'   => $provenance,
                     'description'  => $description,
                     'start'        => $dtstart->format('Y-m-d H:i:s'),
                     'end'          => $dtend->format('Y-m-d H:i:s'),
@@ -175,9 +190,6 @@ final class IcsParser
                     'exDates'      => array_map(fn(DateTime $d) => $d->format('Y-m-d H:i:s'), $exDates),
                     'recurrenceId' => $recurrenceId ? $recurrenceId->format('Y-m-d H:i:s') : null,
                     'isOverride'   => ($recurrenceId !== null),
-                    'createdAt'      => $created,
-                    'lastModifiedAt'=> $lastModified,
-                    'dtstamp'        => $dtstamp,
                 ];
 
                 continue;
