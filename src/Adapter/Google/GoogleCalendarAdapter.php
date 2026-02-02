@@ -159,8 +159,8 @@ final class GoogleCalendarAdapter
 
         $startDt = null;
 
-        if (is_string($raw->dtstart) && trim($raw->dtstart) !== '') {
-            $dtstart = trim($raw->dtstart);
+        if (is_string($raw->start) && trim($raw->start) !== '') {
+            $dtstart = trim($raw->start);
 
             // RFC 5545 / ISO variants — no fallback to "now"
             $formats = [
@@ -199,8 +199,8 @@ final class GoogleCalendarAdapter
         }
 
         // Parse DTEND (calendar-provided end time/date)
-        if (is_string($raw->dtend) && trim($raw->dtend) !== '') {
-            $dtend = trim($raw->dtend);
+        if (is_string($raw->end) && trim($raw->end) !== '') {
+            $dtend = trim($raw->end);
             $endDt = null;
 
             $formats = [

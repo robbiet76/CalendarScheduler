@@ -164,8 +164,8 @@ final class IcsParser
                     continue;
                 }
 
-                // Canonical source timestamp (authority): prefer LAST-MODIFIED, then DTSTAMP, then CREATED.
-                $updatedAtEpoch = $lastModified ?? $dtstamp ?? $created;
+                // Canonical source timestamp (authority): prefer LAST-MODIFIED, then CREATED.
+                $updatedAtEpoch = $lastModified ?? $created;
                 if (!is_int($updatedAtEpoch) || $updatedAtEpoch <= 0) {
                     // This should never happen for Google/Microsoft exports; fail fast so adapters never guess.
                     throw new \RuntimeException('ICS event missing valid updated timestamp (LAST-MODIFIED/DTSTAMP/CREATED): ' . $uid);
