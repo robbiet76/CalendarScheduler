@@ -15,6 +15,8 @@ use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
 use CalendarScheduler\Adapter\Google\GoogleCalendarAdapter;
 use CalendarScheduler\Adapter\FppScheduleRawEventAdapter;
+use CalendarScheduler\Adapter\CalendarTranslator;
+use CalendarScheduler\Adapter\CalendarSnapshot;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -48,10 +50,12 @@ $opts = getopt('', [
     'manifest:',
     'format:',
     'quiet',
+    'refresh-calendar',
 ]);
 
 $dryRun = array_key_exists('dry-run', $opts);
 $quiet  = array_key_exists('quiet', $opts);
+$refreshCalendar = array_key_exists('refresh-calendar', $opts);
 
 $schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
 $manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
@@ -124,6 +128,24 @@ if ($afterEpoch <= $beforeEpoch) {
 }
 
 try {
+    // -------------------------------------------------------------------------
+    // Refresh calendar snapshot if requested
+    // -------------------------------------------------------------------------
+    if ($refreshCalendar) {
+        // Use the correct constructor for CalendarTranslator (with IcsParser and snapshot path)
+        $icsParser = new \CalendarScheduler\Adapter\IcsParser();
+        $translator = new CalendarTranslator($icsParser, $DEFAULT_CALENDAR_SNAPSHOT_PATH);
+        $snapshot = new CalendarSnapshot($translator);
+
+        try {
+            $events = $snapshot->refreshFromIcs();
+            $snapshot->write($events);
+            fwrite(STDERR, "[INFO] Calendar snapshot refreshed\n");
+        } catch (\Throwable $e) {
+            throw new RuntimeException('Failed to refresh calendar snapshot: ' . $e->getMessage());
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Normalization context
     // -------------------------------------------------------------------------
