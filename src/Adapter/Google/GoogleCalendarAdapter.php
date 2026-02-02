@@ -25,13 +25,20 @@ use CalendarScheduler\Platform\FPPSemantics;
 final class GoogleCalendarAdapter
 {
     /**
-     * Read all Google calendar events and yield RawEvent objects.
+     * Read all Google calendar events from a snapshot file and yield RawEvent objects.
      */
-    public function read(NormalizationContext $context): iterable
+    public function read(NormalizationContext $context, string $snapshotPath): iterable
     {
-        $googleEvents = $this->fetchGoogleEvents($context);
+        if (!is_file($snapshotPath)) {
+            throw new \RuntimeException("Calendar snapshot not found: {$snapshotPath}");
+        }
 
-        foreach ($googleEvents as $event) {
+        $data = json_decode(file_get_contents($snapshotPath), true);
+        if (!is_array($data)) {
+            throw new \RuntimeException("Invalid calendar snapshot JSON");
+        }
+
+        foreach ($data as $event) {
             yield $this->toRaw($event, $context);
         }
     }
@@ -120,13 +127,6 @@ final class GoogleCalendarAdapter
         );
     }
 
-    /**
-     * Stub — replace with real Google fetch logic.
-     */
-    private function fetchGoogleEvents(NormalizationContext $context): array
-    {
-        return [];
-    }
 
     // ============================================================
     // Calendar timing adaptation (migrated from IntentNormalizer)
