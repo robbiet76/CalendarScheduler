@@ -11,7 +11,7 @@ function exportFppEnv(string $outputPath): void
         'schemaVersion' => 1,
         'source'        => 'fpp-env-export-php',
         'generatedAt'   => gmdate('c'),
-        'generatedAtEpoch' => (int) (microtime(true) * 1000),
+        'generatedAtEpoch' => hrtime(true),
         'ok'            => false,
         'errors'        => [],
     ];
