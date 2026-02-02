@@ -6,6 +6,7 @@ namespace CalendarScheduler\Adapter;
 use CalendarScheduler\Platform\IcsFetcher;
 use CalendarScheduler\Platform\IcsParser;
 use DateTimeImmutable;
+use RuntimeException;
 
 /**
  * CalendarTranslator
@@ -48,6 +49,18 @@ final class CalendarTranslator
         $events = [];
 
         foreach ($records as $rec) {
+            if (!isset($rec['provenance']) || !is_array($rec['provenance'])) {
+                throw new RuntimeException('Calendar record is missing provenance and cannot be snapshotted.');
+            }
+
+            $provenance = [
+                'uid'               => $rec['provenance']['uid'] ?? null,
+                'updatedAtEpoch'    => $rec['provenance']['updatedAtEpoch'] ?? null,
+                'createdAtEpoch'    => $rec['provenance']['createdAtEpoch'] ?? null,
+                'lastModifiedAtEpoch' => $rec['provenance']['lastModifiedAtEpoch'] ?? null,
+                'dtstampEpoch'      => $rec['provenance']['dtstampEpoch'] ?? null,
+            ];
+
             $events[] = [
                 'summary'  => $rec['summary'] ?? '',
 
@@ -59,6 +72,8 @@ final class CalendarTranslator
                 'description' => $rec['description'] ?? null,
 
                 'uid'          => $rec['uid'] ?? null,
+                'provenance'   => $provenance,
+
                 'isAllDay'     => $rec['isAllDay'] ?? false,
                 'exDates'      => $rec['exDates'] ?? [],
                 'recurrenceId' => $rec['recurrenceId'] ?? null,
