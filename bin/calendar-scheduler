@@ -13,6 +13,7 @@ use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Platform\IcsParser;
 use CalendarScheduler\Adapter\Google\GoogleCalendarAdapter;
 use CalendarScheduler\Adapter\FppScheduleRawEventAdapter;
 use CalendarScheduler\Adapter\CalendarTranslator;
@@ -133,7 +134,7 @@ try {
     // -------------------------------------------------------------------------
     if ($refreshCalendar) {
         // Use the correct constructor for CalendarTranslator (with IcsParser and snapshot path)
-        $icsParser = new \CalendarScheduler\Adapter\IcsParser();
+        $icsParser = new IcsParser();
         $translator = new CalendarTranslator($icsParser, $DEFAULT_CALENDAR_SNAPSHOT_PATH);
         $snapshot = new CalendarSnapshot($translator);
 
