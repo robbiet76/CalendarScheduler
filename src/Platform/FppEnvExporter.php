@@ -7,11 +7,25 @@ use RuntimeException;
 
 function exportFppEnv(string $outputPath): void
 {
+    $previousEpoch = 0;
+    if (is_file($outputPath)) {
+        $existing = @file_get_contents($outputPath);
+        if ($existing !== false) {
+            $decoded = @json_decode($existing, true);
+            if (is_array($decoded) && isset($decoded['generatedAtEpoch']) && is_numeric($decoded['generatedAtEpoch'])) {
+                $previousEpoch = (int)$decoded['generatedAtEpoch'];
+            }
+        }
+    }
+    $epoch = time();
+    if ($epoch <= $previousEpoch) {
+        $epoch = $previousEpoch + 1;
+    }
     $result = [
         'schemaVersion' => 1,
         'source'        => 'fpp-env-export-php',
         'generatedAt'   => gmdate('c'),
-        'generatedAtEpoch' => hrtime(true),
+        'generatedAtEpoch' => $epoch,
         'ok'            => false,
         'errors'        => [],
     ];
