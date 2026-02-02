@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 use CalendarScheduler\Manifest\ManifestWriter;
 use CalendarScheduler\Diff\Diff;
+use CalendarScheduler\Diff\Reconciler;
+use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\FPPSemantics;
@@ -207,6 +209,9 @@ try {
     
     $fppAdapter = new FppScheduleRawEventAdapter();
 
+    $fppIntents = [];
+    $fppAuthority = [];
+
     foreach ($fppAdapter->read($context, $schedulePath) as $raw) {
         fprintf(
             STDERR,
@@ -217,27 +222,17 @@ try {
         );
         $intent = $normalizer->fromRaw($raw, $context);
         $hash = $intent->identityHash;
-        $rawTs = (int)($raw->sourceUpdatedAt ?? 0);
-
-        if (!isset($calendarIntents[$hash])) {
-            $calendarIntents[$hash] = $intent;
-            $calendarAuthority[$hash] = $rawTs;
-        } else {
-            // Phase 2.1 authority: later timestamp wins
-            $existingTs = (int)($calendarAuthority[$hash] ?? 0);
-            if ($rawTs > $existingTs) {
-                $calendarIntents[$hash] = $intent;
-                $calendarAuthority[$hash] = $rawTs;
-            }
-        }
+        $fppIntents[$hash] = $intent;
+        $fppAuthority[$hash] = (int)($raw->sourceUpdatedAt ?? 0);
     }
 
     // -------------------------------------------------------------------------
-    // Build Next Manifest
+    // Build Next Manifests
     // -------------------------------------------------------------------------
 
     $writer = new ManifestWriter($manifestPath);
-    $nextManifest = $writer->buildManifestFromIntents($calendarIntents);
+    $calendarManifest = $writer->buildManifestFromIntents($calendarIntents);
+    $fppManifest = $writer->buildManifestFromIntents($fppIntents);
 
     // -------------------------------------------------------------------------
     // Diff (manifest → manifest)
@@ -245,7 +240,7 @@ try {
 
     $diff = new Diff();
     $diffPlan = $diff->diff(
-        $nextManifest,
+        $calendarManifest,
         $currentManifest
     );
 
@@ -286,7 +281,50 @@ $countCreate = $diffPlan->createCount();
 $countUpdate = $diffPlan->updateCount();
 $countDelete = $diffPlan->deleteCount();
 
+if ($dryRun) {
+    $calendarSnapshotEpoch = filemtime($DEFAULT_CALENDAR_SNAPSHOT_PATH) ?: time();
+    $fppSnapshotEpoch = filemtime($schedulePath) ?: time();
+
+    $reconciler = new Reconciler();
+    $result = $reconciler->reconcile(
+        $calendarManifest,
+        $fppManifest,
+        $currentManifest,
+        $calendarAuthority,
+        $fppAuthority,
+        $calendarSnapshotEpoch,
+        $fppSnapshotEpoch
+    );
+
+    $countCreateFpp = $result->countByTarget(ReconciliationAction::TARGET_FPP)['create'] ?? 0;
+    $countUpdateFpp = $result->countByTarget(ReconciliationAction::TARGET_FPP)['update'] ?? 0;
+    $countDeleteFpp = $result->countByTarget(ReconciliationAction::TARGET_FPP)['delete'] ?? 0;
+
+    $countCreateCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['create'] ?? 0;
+    $countUpdateCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['update'] ?? 0;
+    $countDeleteCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['delete'] ?? 0;
+}
+
 if ($format === 'json') {
+    if ($dryRun) {
+        echo json_encode([
+            'noop'    => $countCreateFpp === 0 && $countUpdateFpp === 0 && $countDeleteFpp === 0 &&
+                         $countCreateCalendar === 0 && $countUpdateCalendar === 0 && $countDeleteCalendar === 0,
+            'fpp' => [
+                'created' => $countCreateFpp,
+                'updated' => $countUpdateFpp,
+                'deleted' => $countDeleteFpp,
+            ],
+            'calendar' => [
+                'created' => $countCreateCalendar,
+                'updated' => $countUpdateCalendar,
+                'deleted' => $countDeleteCalendar,
+            ],
+            'dry_run' => $dryRun,
+        ], JSON_PRETTY_PRINT) . "\n";
+        exit(0);
+    }
+
     echo json_encode([
         'noop'    => $countCreate === 0 && $countUpdate === 0 && $countDelete === 0,
         'created' => $countCreate,
@@ -302,17 +340,20 @@ if ($quiet) {
     exit(0);
 }
 
-if ($countCreate === 0 && $countUpdate === 0 && $countDelete === 0) {
-    echo "Scheduler run complete.\n";
-    echo "No changes required.\n";
+if ($dryRun) {
+    echo "Dry run complete.\n";
+    echo "FPP would create: {$countCreateFpp}\n";
+    echo "FPP would update: {$countUpdateFpp}\n";
+    echo "FPP would delete: {$countDeleteFpp}\n";
+    echo "Calendar would create: {$countCreateCalendar}\n";
+    echo "Calendar would update: {$countUpdateCalendar}\n";
+    echo "Calendar would delete: {$countDeleteCalendar}\n";
     exit(0);
 }
 
-if ($dryRun) {
-    echo "Dry run complete.\n";
-    echo "Would create: {$countCreate}\n";
-    echo "Would update: {$countUpdate}\n";
-    echo "Would delete: {$countDelete}\n";
+if ($countCreate === 0 && $countUpdate === 0 && $countDelete === 0) {
+    echo "Scheduler run complete.\n";
+    echo "No changes required.\n";
     exit(0);
 }
 
