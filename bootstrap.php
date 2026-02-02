@@ -70,6 +70,9 @@ require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 // -----------------------------------------------------------------------------
 require_once __DIR__ . '/src/Diff/DiffResult.php';
 require_once __DIR__ . '/src/Diff/Diff.php';
+require_once __DIR__ . '/src/Diff/ReconciliationAction.php';
+require_once __DIR__ . '/src/Diff/ReconciliationResult.php';
+require_once __DIR__ . '/src/Diff/Reconciler.php';
 
 // -----------------------------------------------------------------------------
 // Manifest
