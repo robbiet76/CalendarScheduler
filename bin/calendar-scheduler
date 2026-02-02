@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 use CalendarScheduler\Manifest\ManifestWriter;
 use CalendarScheduler\Diff\Diff;
+use CalendarScheduler\Apply\ApplyRunner;
 use CalendarScheduler\Diff\Reconciler;
 use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Intent\IntentNormalizer;
@@ -247,6 +248,27 @@ try {
     );
 
     // -------------------------------------------------------------------------
+    // Reconcile (always runs; pure planning)
+    // -------------------------------------------------------------------------
+
+    $calendarSnapshotEpoch = filemtime($DEFAULT_CALENDAR_SNAPSHOT_PATH);
+    $calendarSnapshotEpoch = is_int($calendarSnapshotEpoch) && $calendarSnapshotEpoch > 0 ? $calendarSnapshotEpoch : time();
+
+    $fppSnapshotEpoch = filemtime($schedulePath);
+    $fppSnapshotEpoch = is_int($fppSnapshotEpoch) && $fppSnapshotEpoch > 0 ? $fppSnapshotEpoch : time();
+
+    $reconciler = new Reconciler();
+    $result = $reconciler->reconcile(
+        $calendarManifest,
+        $fppManifest,
+        $currentManifest,
+        $calendarAuthority,
+        $fppAuthority,
+        $calendarSnapshotEpoch,
+        $fppSnapshotEpoch
+    );
+
+    // -------------------------------------------------------------------------
     // Write manifest
     // -------------------------------------------------------------------------
 
@@ -272,44 +294,42 @@ try {
 // Output
 // -----------------------------------------------------------------------------
 
-$countCreate = $diffPlan->createCount();
-$countUpdate = $diffPlan->updateCount();
-$countDelete = $diffPlan->deleteCount();
+ $countCreate = $diffPlan->createCount();
+ $countUpdate = $diffPlan->updateCount();
+ $countDelete = $diffPlan->deleteCount();
 
-if ($dryRun) {
-    $calendarSnapshotEpoch = filemtime($DEFAULT_CALENDAR_SNAPSHOT_PATH) ?: time();
-    $fppSnapshotEpoch = filemtime($schedulePath) ?: time();
+ $countCreateFpp = 0;
+ $countUpdateFpp = 0;
+ $countDeleteFpp = 0;
 
-    $reconciler = new Reconciler();
-    $result = $reconciler->reconcile(
-        $calendarManifest,
-        $fppManifest,
-        $currentManifest,
-        $calendarAuthority,
-        $fppAuthority,
-        $calendarSnapshotEpoch,
-        $fppSnapshotEpoch
-    );
+ $countCreateCalendar = 0;
+ $countUpdateCalendar = 0;
+ $countDeleteCalendar = 0;
 
-    $countCreateFpp = $result->countByTarget(ReconciliationAction::TARGET_FPP)['create'] ?? 0;
-    $countUpdateFpp = $result->countByTarget(ReconciliationAction::TARGET_FPP)['update'] ?? 0;
-    $countDeleteFpp = $result->countByTarget(ReconciliationAction::TARGET_FPP)['delete'] ?? 0;
+ foreach ($result->actions() as $action) {
+     // ignore noop/block for counts
+     if ($action->type === ReconciliationAction::TYPE_NOOP || $action->type === ReconciliationAction::TYPE_BLOCK) {
+         continue;
+     }
 
-    $countCreateCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['create'] ?? 0;
-    $countUpdateCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['update'] ?? 0;
-    $countDeleteCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['delete'] ?? 0;
-}
+     if ($action->target === ReconciliationAction::TARGET_FPP) {
+         if ($action->type === ReconciliationAction::TYPE_CREATE) $countCreateFpp++;
+         elseif ($action->type === ReconciliationAction::TYPE_UPDATE) $countUpdateFpp++;
+         elseif ($action->type === ReconciliationAction::TYPE_DELETE) $countDeleteFpp++;
+         continue;
+     }
 
-if ($apply) {
-    if ($dryRun) {
-        // Apply boundary reached but dry-run: do nothing
-    } else {
-        $writer->applyDiff(
-            $currentManifest,
-            $diffPlan,
-            $calendarIntents
-        );
-    }
+     if ($action->target === ReconciliationAction::TARGET_CALENDAR) {
+         if ($action->type === ReconciliationAction::TYPE_CREATE) $countCreateCalendar++;
+         elseif ($action->type === ReconciliationAction::TYPE_UPDATE) $countUpdateCalendar++;
+         elseif ($action->type === ReconciliationAction::TYPE_DELETE) $countDeleteCalendar++;
+         continue;
+     }
+ }
+
+if ($apply && !$dryRun) {
+    $applier = new ApplyRunner($manifestPath);
+    $applier->applyManifest($result->targetManifest());
 }
 
 if ($format === 'json') {

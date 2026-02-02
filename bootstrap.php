@@ -83,13 +83,10 @@ require_once __DIR__ . '/src/Diff/Reconciler.php';
 require_once __DIR__ . '/src/Manifest/ManifestWriter.php';
 
 // -----------------------------------------------------------------------------
-// Apply - TEMPORARILY DISABLED (will be re-enabled later)
+// Apply
 // -----------------------------------------------------------------------------
-// require_once __DIR__ . '/src/Apply/ApplyEngine.php';
-// require_once __DIR__ . '/src/Apply/ApplyResult.php';
-// require_once __DIR__ . '/src/Apply/SchedulerRunOptions.php';
-// require_once __DIR__ . '/src/Apply/SchedulerRunResult.php';
-// require_once __DIR__ . '/src/Apply/SchedulerRunner.php';
+
+require_once __DIR__ . '/src/Apply/ApplyRunner.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete
