@@ -54,11 +54,13 @@ $opts = getopt('', [
     'format:',
     'quiet',
     'refresh-calendar',
+    'apply',
 ]);
 
 $dryRun = array_key_exists('dry-run', $opts);
 $quiet  = array_key_exists('quiet', $opts);
 $refreshCalendar = array_key_exists('refresh-calendar', $opts);
+$apply = array_key_exists('apply', $opts);
 
 $schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
 $manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
@@ -248,14 +250,7 @@ try {
     // Write manifest
     // -------------------------------------------------------------------------
 
-    if (!$dryRun) {
-        $writer->applyDiff(
-            $currentManifest,
-            $diffPlan,
-            $calendarIntents
-        );
-    }
-
+    // Removed: manifest mutation during planning to enforce Apply boundary
 
 } catch (\InvalidArgumentException $e) {
 
@@ -303,6 +298,18 @@ if ($dryRun) {
     $countCreateCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['create'] ?? 0;
     $countUpdateCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['update'] ?? 0;
     $countDeleteCalendar = $result->countByTarget(ReconciliationAction::TARGET_CALENDAR)['delete'] ?? 0;
+}
+
+if ($apply) {
+    if ($dryRun) {
+        // Apply boundary reached but dry-run: do nothing
+    } else {
+        $writer->applyDiff(
+            $currentManifest,
+            $diffPlan,
+            $calendarIntents
+        );
+    }
 }
 
 if ($format === 'json') {
