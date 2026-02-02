@@ -89,12 +89,17 @@ final class GoogleCalendarAdapter
         // IMPORTANT:
         // Adapter output MUST already be canonical. IntentNormalizer must not do provider fixes.
         return new RawEvent(
-            $type,
-            $target,
-            $timing,
-            $payload,
-            $ownership,
-            $correlation
+            source: 'calendar',
+            type: $type,
+            target: $target,
+            timing: $timing,
+            payload: $payload,
+            ownership: $ownership,
+            correlation: $correlation,
+            // Prefer a real provider timestamp if present; otherwise use 0 (unknown).
+            sourceUpdatedAt: (int)($raw->provenance['updatedAtEpoch']
+                ?? $raw->provenance['updated_at_epoch']
+                ?? 0)
         );
     }
 

@@ -70,14 +70,45 @@ final class FppScheduleRawEventAdapter
 
             // --- Payload ---
             $repeatNumeric = FPPSemantics::normalizeRepeat($entry['repeat'] ?? null);
+            // --- stopType normalization (inline, previously FPPSemantics::normalizeStopType) ---
+            $stopTypeValue = $entry['stopType'] ?? null;
+            if (is_int($stopTypeValue)) {
+                if ($stopTypeValue === FPPSemantics::STOP_TYPE_HARD) {
+                    $stopType = 'hard';
+                } elseif ($stopTypeValue === FPPSemantics::STOP_TYPE_GRACEFUL_LOOP) {
+                    $stopType = 'graceful_loop';
+                } else {
+                    $stopType = 'graceful';
+                }
+            } elseif (is_string($stopTypeValue)) {
+                $stopType = strtolower(trim($stopTypeValue));
+            } else {
+                $stopType = 'graceful';
+            }
+
             $payload = [
                 'enabled'  => FPPSemantics::normalizeEnabled($entry['enabled'] ?? true),
                 'repeat'   => FPPSemantics::repeatToSemantic($repeatNumeric),
-                'stopType' => FPPSemantics::normalizeStopType($entry['stopType'] ?? null),
+                'stopType' => $stopType,
             ];
 
             if ($type === 'command') {
-                $payload['command'] = FPPSemantics::extractCommandPayload($entry);
+                // Inline FPPSemantics::extractCommandPayload
+                $command = [];
+                foreach ($entry as $k => $v) {
+                    if (
+                        $k === 'enabled' || $k === 'sequence' || $k === 'day' ||
+                        $k === 'startTime' || $k === 'startTimeOffset' ||
+                        $k === 'endTime' || $k === 'endTimeOffset' ||
+                        $k === 'repeat' || $k === 'startDate' || $k === 'endDate' ||
+                        $k === 'stopType' || $k === 'playlist' || $k === 'command'
+                    ) {
+                        continue;
+                    }
+                    $command[$k] = $v;
+                }
+                $command['name'] = (string)$entry['command'];
+                $payload['command'] = $command;
             }
 
             $out[] = new RawEvent(
