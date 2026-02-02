@@ -55,6 +55,7 @@ require_once __DIR__ . '/src/Adapter/Google/GoogleCalendarAdapter.php';
 
 require_once __DIR__ . '/src/Intent/Intent.php';
 require_once __DIR__ . '/src/Intent/RawEvent.php';
+require_once __DIR__ . '/src/Intent/RawEventValidator.php';
 require_once __DIR__ . '/src/Intent/IntentNormalizer.php';
 require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 
