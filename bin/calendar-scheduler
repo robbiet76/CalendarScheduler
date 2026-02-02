@@ -165,6 +165,13 @@ try {
     $calendarIntents = [];
     $calendarAuthority = [];
     foreach ($calendarAdapter->read($context, $DEFAULT_CALENDAR_SNAPSHOT_PATH) as $raw) {
+        fprintf(
+            STDERR,
+            "[DEBUG] RawEvent source=%s target=%s updatedAt=%d\n",
+            $raw->source,
+            $raw->target,
+            $raw->sourceUpdatedAt
+        );
         $intent = $normalizer->fromRaw($raw, $context);
         $hash = $intent->identityHash;
         $calendarIntents[$hash] = $intent;
@@ -178,6 +185,13 @@ try {
     $fppAdapter = new FppScheduleRawEventAdapter();
 
     foreach ($fppAdapter->read($context, $schedulePath) as $raw) {
+        fprintf(
+            STDERR,
+            "[DEBUG] RawEvent source=%s target=%s updatedAt=%d\n",
+            $raw->source,
+            $raw->target,
+            $raw->sourceUpdatedAt
+        );
         $intent = $normalizer->fromRaw($raw, $context);
         $hash = $intent->identityHash;
         $rawTs = (int)($raw->sourceUpdatedAt ?? 0);
