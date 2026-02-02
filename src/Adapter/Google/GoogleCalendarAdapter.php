@@ -111,35 +111,10 @@ final class GoogleCalendarAdapter
         ];
 
         // --- Source updated timestamp (authority) ---
-        // Prefer LAST-MODIFIED, fall back to CREATED. DTSTAMP is NOT authoritative.
-        $timestampRaw =
-            $raw->{'LAST-MODIFIED'}
-            ?? $raw->lastModified
-            ?? $raw->{'CREATED'}
-            ?? $raw->created
-            ?? null;
-
-        if (!is_string($timestampRaw) || $timestampRaw === '') {
-            throw new \RuntimeException(
-                'Google adapter could not determine valid updated timestamp'
-            );
-        }
-
-        // RFC 5545 timestamps are UTC (YYYYMMDDTHHMMSSZ)
-        $dt = \DateTimeImmutable::createFromFormat(
-            'Ymd\THis\Z',
-            $timestampRaw,
-            new \DateTimeZone('UTC')
-        );
-
-        if (!$dt instanceof \DateTimeImmutable) {
-            throw new \RuntimeException(
-                'Google adapter could not parse updated timestamp: ' . $timestampRaw
-            );
-        }
-
-        $dt = $dt->setTimezone($context->timezone);
-        $updatedAtEpoch = $dt->getTimestamp();
+        // IcsParser is authoritative for timestamps.
+        // Prefer provenance.updatedAtEpoch, which already accounts for
+        // LAST-MODIFIED > DTSTAMP > CREATED and is normalized to epoch.
+        $updatedAtEpoch = (int)($googleEvent['provenance']['updatedAtEpoch'] ?? 0);
 
         if ($updatedAtEpoch <= 0) {
             throw new \RuntimeException(
