@@ -110,6 +110,20 @@ final class GoogleCalendarAdapter
             'uid'    => $raw->provenance['uid'] ?? null,
         ];
 
+        // --- Source updated timestamp (authority) ---
+        $updatedAtEpoch = null;
+        if (isset($raw->updated) && is_string($raw->updated)) {
+            $dt = new \DateTimeImmutable($raw->updated, new \DateTimeZone('UTC'));
+            $dt = $dt->setTimezone($context->timezone);
+            $updatedAtEpoch = $dt->getTimestamp();
+        }
+
+        if (!is_int($updatedAtEpoch) || $updatedAtEpoch <= 0) {
+            throw new \RuntimeException(
+                'Google adapter could not determine valid updated timestamp'
+            );
+        }
+
         // IMPORTANT:
         // Adapter output MUST already be canonical. IntentNormalizer must not do provider fixes.
         return new RawEvent(
@@ -120,10 +134,7 @@ final class GoogleCalendarAdapter
             payload: $payload,
             ownership: $ownership,
             correlation: $correlation,
-            // Prefer a real provider timestamp if present; otherwise use 0 (unknown).
-            sourceUpdatedAt: (int)($raw->provenance['updatedAtEpoch']
-                ?? $raw->provenance['updated_at_epoch']
-                ?? 0)
+            sourceUpdatedAt: $updatedAtEpoch
         );
     }
 
