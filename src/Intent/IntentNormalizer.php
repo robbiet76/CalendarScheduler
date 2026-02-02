@@ -6,6 +6,7 @@ namespace CalendarScheduler\Intent;
 use CalendarScheduler\Intent\RawEvent;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Intent\RawEventValidator;
 
 // TODO(v3): Remove debug hash preimage logging once diff parity is proven
 /**
@@ -59,6 +60,7 @@ final class IntentNormalizer
         RawEvent $raw,
         NormalizationContext $context
     ): Intent {
+        RawEventValidator::assertValid($raw);
         $timingArr = $this->applyHolidaySymbolics(
             $raw->timing,
             $context->holidayResolver
