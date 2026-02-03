@@ -6,6 +6,7 @@ namespace CalendarScheduler\Apply;
 use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Diff\ReconciliationResult;
 use CalendarScheduler\Apply\ApplyOptions;
+use CalendarScheduler\Adapter\FppScheduleAdapter;
 
 /**
  * ApplyRunner
@@ -15,7 +16,8 @@ use CalendarScheduler\Apply\ApplyOptions;
 final class ApplyRunner
 {
     public function __construct(
-        private readonly ManifestWriter $manifestWriter
+        private readonly ManifestWriter $manifestWriter,
+        private readonly FppScheduleAdapter $fppAdapter
     ) {}
 
     public function evaluate(
@@ -61,6 +63,37 @@ final class ApplyRunner
                 throw new \RuntimeException('Apply blocked: ' . implode('; ', $messages));
             }
 
+            // Execute allowed FPP actions
+            foreach ($evaluation->allowed as $action) {
+                if ($action->target !== ReconciliationAction::TARGET_FPP) {
+                    continue;
+                }
+
+                if (
+                    $action->type === ReconciliationAction::TYPE_CREATE ||
+                    $action->type === ReconciliationAction::TYPE_UPDATE
+                ) {
+                    if ($action->event === null) {
+                        throw new \RuntimeException(
+                            'ApplyRunner: FPP create/update missing event for ' . $action->identityHash
+                        );
+                    }
+
+                    // Convert manifest event to FPP schedule entry
+                    $entry = $this->fppAdapter->toScheduleEntry($action->event);
+
+                    // TODO (Phase D2):
+                    // Write $entry into FPP schedule.json
+                    // For now this is intentionally a no-op placeholder
+                }
+
+                if ($action->type === ReconciliationAction::TYPE_DELETE) {
+                    // TODO (Phase D2):
+                    // Remove schedule entry by identity
+                }
+            }
+
+            // Persist the new canonical manifest
             $this->manifestWriter->applyTargetManifest($result->targetManifest());
         }
     }

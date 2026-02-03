@@ -3,10 +3,8 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Intent;
 
-use CalendarScheduler\Intent\RawEvent;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\HolidayResolver;
-use CalendarScheduler\Intent\RawEventValidator;
 
 // TODO(v3): Remove debug hash preimage logging once diff parity is proven
 /**
@@ -44,25 +42,16 @@ final class IntentNormalizer
 
 
     /**
-     * Normalize a source-agnostic RawEvent into Intent.
+     * Normalize a canonical manifest-event array into an Intent.
      *
-     * RawEvent MUST already be:
-     * - timezone-normalized (FPP timezone)
-     * - semantically canonical
-     * - free of provider-specific quirks
-     *
-     * This method performs ONLY:
-     * - identity construction
-     * - state hashing
-     * - invariant enforcement
+     * @param array<string,mixed> $event
      */
-    public function fromRaw(
-        RawEvent $raw,
+    public function fromManifestEvent(
+        array $event,
         NormalizationContext $context
     ): Intent {
-        RawEventValidator::assertValid($raw);
         $timingArr = $this->applyHolidaySymbolics(
-            $raw->timing,
+            $event['timing'],
             $context->holidayResolver
         );
 
@@ -70,21 +59,24 @@ final class IntentNormalizer
          * Command timing normalization:
          * - Commands are point-in-time unless repeating
          */
-        if ($raw->type === 'command' && ($raw->payload['repeat'] ?? 'none') === 'none') {
+        if (
+            ($event['type'] ?? null) === 'command'
+            && (($event['payload']['repeat'] ?? 'none') === 'none')
+        ) {
             $timingArr['end_time'] = $timingArr['start_time'] ?? null;
         }
 
         $identity = [
-            'type'   => $raw->type,
-            'target' => $raw->target,
+            'type'   => $event['type'],
+            'target' => $event['target'],
             'timing' => $timingArr,
         ];
 
         $subEvent = [
-            'type'    => $raw->type,
-            'target'  => $raw->target,
+            'type'    => $event['type'],
+            'target'  => $event['target'],
             'timing'  => $timingArr,
-            'payload' => $raw->payload,
+            'payload' => $event['payload'],
         ];
 
         // Identity hash
@@ -106,8 +98,8 @@ final class IntentNormalizer
         return new Intent(
             $identityHash,
             $identity,
-            $raw->ownership,
-            $raw->correlation,
+            $event['ownership'],
+            $event['correlation'],
             [$subEvent],
             $eventStateHash
         );
@@ -313,4 +305,3 @@ final class IntentNormalizer
         return $timing;
     }
 }
-

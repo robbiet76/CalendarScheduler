@@ -19,7 +19,7 @@ use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
 use CalendarScheduler\Platform\IcsParser;
 use CalendarScheduler\Adapter\Google\GoogleCalendarAdapter;
-use CalendarScheduler\Adapter\FppScheduleRawEventAdapter;
+use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Adapter\CalendarTranslator;
 use CalendarScheduler\Adapter\CalendarSnapshot;
 use CalendarScheduler\Apply\ApplyOptions;
@@ -191,22 +191,22 @@ try {
 
 
     // -------------------------------------------------------------------------
-    // Calendar → adapter → RawEvent → Intent (desired state)
+    // Calendar → adapter → Intent (desired state)
     // -------------------------------------------------------------------------
 
     $calendarAdapter = new GoogleCalendarAdapter();
 
     $calendarIntents = [];
     $calendarAuthority = [];
-    foreach ($calendarAdapter->read($context, $DEFAULT_CALENDAR_SNAPSHOT_PATH) as $raw) {
-        $intent = $normalizer->fromRaw($raw, $context);
+    foreach ($calendarAdapter->read($context, $DEFAULT_CALENDAR_SNAPSHOT_PATH) as $event) {
+        $intent = $normalizer->fromManifestEvent($event, $context);
         $hash = $intent->identityHash;
         $calendarIntents[$hash] = $intent;
-        $calendarAuthority[$hash] = (int)($raw->sourceUpdatedAt ?? 0);
+        $calendarAuthority[$hash] = (int)($event['updatedAtEpoch'] ?? 0);
     }
 
     // -------------------------------------------------------------------------
-    // FPP → adapter → RawEvent → Intent (current state contributor)
+    // FPP → adapter → Intent (current state contributor)
     // -------------------------------------------------------------------------
     
     $fppAdapter = new FppScheduleRawEventAdapter();
@@ -214,18 +214,11 @@ try {
     $fppIntents = [];
     $fppAuthority = [];
 
-    foreach ($fppAdapter->read($context, $schedulePath) as $raw) {
-        fprintf(
-            STDERR,
-            "[DEBUG] RawEvent source=%s target=%s updatedAt=%d\n",
-            $raw->source,
-            $raw->target,
-            $raw->sourceUpdatedAt
-        );
-        $intent = $normalizer->fromRaw($raw, $context);
+    foreach ($fppAdapter->read($context, $schedulePath) as $event) {
+        $intent = $normalizer->fromManifestEvent($event, $context);
         $hash = $intent->identityHash;
         $fppIntents[$hash] = $intent;
-        $fppAuthority[$hash] = (int)($raw->sourceUpdatedAt ?? 0);
+        $fppAuthority[$hash] = (int)($event['updatedAtEpoch'] ?? 0);
     }
 
     // -------------------------------------------------------------------------
@@ -353,7 +346,8 @@ if ($apply) {
     );
 
     $applier = new ApplyRunner(
-        new ManifestWriter($manifestPath)
+        new ManifestWriter($manifestPath),
+        new FppScheduleAdapter()
     );
 
     $applier->apply($result, $options);
