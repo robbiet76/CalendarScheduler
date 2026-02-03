@@ -237,11 +237,18 @@ final class IntentNormalizer
             if (!is_array($v)) {
                 return ['hard' => null, 'symbolic' => null];
             }
+
+            $hard = isset($v['hard']) && is_string($v['hard']) && trim($v['hard']) !== ''
+                ? $v['hard']
+                : null;
+
+            $symbolic = isset($v['symbolic']) && is_string($v['symbolic']) && trim($v['symbolic']) !== ''
+                ? $v['symbolic']
+                : null;
+
             return [
-                'hard'     => $v['hard'] ?? null,
-                'symbolic' => isset($v['symbolic']) && is_string($v['symbolic'])
-                    ? trim((string)$v['symbolic'])
-                    : ($v['symbolic'] ?? null),
+                'hard'     => $hard,
+                'symbolic' => $symbolic,
             ];
         };
 
