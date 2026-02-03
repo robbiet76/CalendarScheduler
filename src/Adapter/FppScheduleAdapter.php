@@ -36,6 +36,7 @@ final class FppScheduleAdapter
         'stopType' => true,
         'playlist' => true,
         'command' => true,
+        // If FPP ever adds additional scheduler keys, add them here (adapter-only).
     ];
 
     /**
@@ -147,8 +148,11 @@ final class FppScheduleAdapter
         ];
 
         if ($type === 'command') {
-            // EXACT legacy behavior:
-            // Copy all non-reserved fields into command payload, then add name.
+            /**
+             * IMPORTANT (restored behavior):
+             * Preserve *all* non-scheduler keys for command entries, not only args/multisync/hosts.
+             * This prevents state drift and matches the old adapter.
+             */
             $command = [];
             foreach ($entry as $k => $v) {
                 if (isset(self::COMMAND_EXCLUDE_KEYS[$k])) {
@@ -210,14 +214,19 @@ final class FppScheduleAdapter
         // --- Type-specific fields ---
         if ($type === 'command') {
             $cmd = is_array($payload['command'] ?? null) ? (array) $payload['command'] : [];
-            // Legacy contract: command payload includes "name"
-            $entry['command'] = (string) ($cmd['name'] ?? $target);
-            // Copy any non-name keys back onto the schedule entry.
+
+            /**
+             * Reverse mapping symmetry:
+             * - command.name -> entry.command
+             * - all other command keys pass through to the schedule entry
+             */
+            $entry['command'] = isset($cmd['name']) ? (string) $cmd['name'] : $target;
+
             foreach ($cmd as $k => $v) {
                 if ($k === 'name') {
                     continue;
                 }
-                // Avoid stomping reserved scheduler keys.
+                // Avoid stomping scheduler keys even if a payload contains them
                 if (isset(self::COMMAND_EXCLUDE_KEYS[$k])) {
                     continue;
                 }
