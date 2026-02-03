@@ -5,21 +5,12 @@ namespace CalendarScheduler\Apply;
 
 use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Diff\ReconciliationResult;
-use RuntimeException;
+use CalendarScheduler\Apply\ApplyOptions;
 
 /**
  * ApplyRunner
  *
  * The ONLY layer allowed to mutate external state.
- *
- * Current policy:
- * - Calendar is NOT writable yet (no OAuth / write-back).
- * - FPP writes are not implemented yet in Apply.
- *
- * Therefore:
- * - --dry-run reports executable vs preview-only actions separately
- * - --apply refuses if any non-noop actions exist (to avoid writing a "future" manifest)
- *   until actual writer(s) are implemented.
  */
 final class ApplyRunner
 {
@@ -27,96 +18,50 @@ final class ApplyRunner
         private readonly ManifestWriter $manifestWriter
     ) {}
 
-    /**
-     * Produce a capability-aware summary of reconciliation actions.
-     *
-     * @return array{
-     *   executable: array{fpp: array{create:int,update:int,delete:int}},
-     *   previewOnly: array{calendar: array{create:int,update:int,delete:int}},
-     *   blocked: array<int,string>
-     * }
-     */
-    public function summarize(ReconciliationResult $result): array
+    public function evaluate(
+        ReconciliationResult $result,
+        ApplyOptions $options
+    ): ApplyEvaluation
     {
-        $exec = ['fpp' => ['create' => 0, 'update' => 0, 'delete' => 0]];
-        $prev = ['calendar' => ['create' => 0, 'update' => 0, 'delete' => 0]];
-        $blocked = [];
+        $evaluation = new ApplyEvaluation();
 
-        foreach ($result->actions() as $a) {
-            if ($a->type === ReconciliationAction::TYPE_NOOP) {
+        foreach ($result->actions() as $action) {
+            if ($action->type === ReconciliationAction::TYPE_NOOP) {
+                $evaluation->noops[] = $action;
                 continue;
             }
 
-            if (!in_array($a->type, [
-                ReconciliationAction::TYPE_CREATE,
-                ReconciliationAction::TYPE_UPDATE,
-                ReconciliationAction::TYPE_DELETE,
-                ReconciliationAction::TYPE_BLOCK,
-            ], true)) {
-                $blocked[] = "Unknown action type '{$a->type}' for identity {$a->identityHash}";
-                continue;
+            if ($options->canWrite($action->target)) {
+                $evaluation->allowed[] = $action;
+            } else {
+                $evaluation->blocked[] = $action;
             }
-
-            if ($a->type === ReconciliationAction::TYPE_BLOCK) {
-                $blocked[] = "Blocked: {$a->identityHash} ({$a->reason})";
-                continue;
-            }
-
-            if ($a->target === ReconciliationAction::TARGET_FPP) {
-                $exec['fpp'][$a->type]++;
-                continue;
-            }
-
-            if ($a->target === ReconciliationAction::TARGET_CALENDAR) {
-                // calendar writeback not supported yet: preview-only
-                $prev['calendar'][$a->type]++;
-                continue;
-            }
-
-            $blocked[] = "Unknown target '{$a->target}' for identity {$a->identityHash}";
         }
 
-        return [
-            'executable' => $exec,
-            'previewOnly' => $prev,
-            'blocked' => $blocked,
-        ];
+        return $evaluation;
     }
 
-    /**
-     * Apply reconciliation result.
-     *
-     * Current phase policy:
-     * - Refuse to apply if ANY non-noop actions exist, because we cannot mutate sources yet.
-     * - This prevents writing a manifest that does not reflect reality.
-     */
-    public function apply(ReconciliationResult $result): void
+    public function apply(
+        ReconciliationResult $result,
+        ApplyOptions $options
+    ): void
     {
-        $summary = $this->summarize($result);
+        $evaluation = $this->evaluate($result, $options);
 
-        if ($summary['blocked'] !== []) {
-            throw new RuntimeException('Apply blocked: ' . implode('; ', $summary['blocked']));
+        if ($options->isPlan() || $options->isDryRun()) {
+            return;
         }
 
-        $execCounts = $summary['executable']['fpp'];
-        $prevCounts = $summary['previewOnly']['calendar'];
+        if ($options->isApply()) {
+            if ($evaluation->blocked !== [] && $options->failOnBlockedActions) {
+                $messages = [];
+                foreach ($evaluation->blocked as $action) {
+                    $messages[] = "Blocked: {$action->identityHash} ({$action->reason})";
+                }
+                throw new \RuntimeException('Apply blocked: ' . implode('; ', $messages));
+            }
 
-        $hasExecutable = ($execCounts['create'] + $execCounts['update'] + $execCounts['delete']) > 0;
-        $hasPreview = ($prevCounts['create'] + $prevCounts['update'] + $prevCounts['delete']) > 0;
-
-        if ($hasPreview) {
-            throw new RuntimeException(
-                'Apply refused: calendar write-back is not supported yet (preview-only actions exist)'
-            );
+            $this->manifestWriter->applyTargetManifest($result->targetManifest());
         }
-
-        if ($hasExecutable) {
-            throw new RuntimeException(
-                'Apply refused: FPP Apply is not implemented yet (executable actions exist)'
-            );
-        }
-
-        // No actions to apply => safe to persist "current state" manifest (idempotent).
-        $this->manifestWriter->applyTargetManifest($result->targetManifest());
     }
 }

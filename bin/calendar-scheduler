@@ -22,6 +22,9 @@ use CalendarScheduler\Adapter\Google\GoogleCalendarAdapter;
 use CalendarScheduler\Adapter\FppScheduleRawEventAdapter;
 use CalendarScheduler\Adapter\CalendarTranslator;
 use CalendarScheduler\Adapter\CalendarSnapshot;
+use CalendarScheduler\Apply\ApplyOptions;
+use CalendarScheduler\Apply\ApplyMode;
+use CalendarScheduler\Apply\WritableTargets;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -196,13 +199,6 @@ try {
     $calendarIntents = [];
     $calendarAuthority = [];
     foreach ($calendarAdapter->read($context, $DEFAULT_CALENDAR_SNAPSHOT_PATH) as $raw) {
-        fprintf(
-            STDERR,
-            "[DEBUG] RawEvent source=%s target=%s updatedAt=%d\n",
-            $raw->source,
-            $raw->target,
-            $raw->sourceUpdatedAt
-        );
         $intent = $normalizer->fromRaw($raw, $context);
         $hash = $intent->identityHash;
         $calendarIntents[$hash] = $intent;
@@ -349,11 +345,18 @@ try {
      }
  }
 
-if ($apply && !$dryRun) {
+if ($apply) {
+    $options = new ApplyOptions(
+        ApplyMode::APPLY,
+        WritableTargets::fppOnly(),
+        true // fail if calendar actions are blocked
+    );
+
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath)
     );
-    $applier->apply($result);
+
+    $applier->apply($result, $options);
 }
 
 if ($format === 'json') {
