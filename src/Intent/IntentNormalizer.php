@@ -149,11 +149,39 @@ final class IntentNormalizer
             ];
         };
 
+        $pickDate = function (?array $date): array {
+            if ($date === null) {
+                return ['symbolic' => null, 'hard' => null];
+            }
+
+            $symbolic = $date['symbolic'] ?? null;
+            if (is_string($symbolic)) {
+                $symbolic = trim($symbolic);
+                if ($symbolic === '') {
+                    $symbolic = null;
+                }
+            }
+
+            if (is_string($symbolic)) {
+                return [
+                    'symbolic' => strtolower($symbolic),
+                    'hard'     => null,
+                ];
+            }
+
+            return [
+                'symbolic' => null,
+                'hard'     => $date['hard'] ?? null,
+            ];
+        };
+
         return [
             'type'   => $identity['type'],
             'target' => $identity['target'],
             'timing' => [
                 'all_day'    => (bool)$timing['all_day'],
+                'start_date' => $pickDate($timing['start_date'] ?? null),
+                'end_date'   => $pickDate($timing['end_date'] ?? null),
                 'start_time' => $pickTime($timing['start_time'] ?? null),
                 'days'       => $timing['days'] ?? null,
             ],
