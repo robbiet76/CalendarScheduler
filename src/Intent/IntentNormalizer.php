@@ -78,12 +78,29 @@ final class IntentNormalizer
             'payload' => $event['payload'],
         ];
 
+        // Debug raw timing state before canonicalization
+        $this->debugPreHash(
+            (string)($event['source'] ?? 'unknown'),
+            [
+                'stage'  => 'pre-canonical',
+                'type'   => $identity['type'],
+                'target' => $identity['target'],
+                'timing' => $identity['timing'],
+            ]
+        );
+
         // Identity hash
         $identityHashInput = $this->canonicalizeForIdentityHash($identity);
 
+        // Debug canonicalized timing state
         $this->debugPreHash(
             (string)($event['source'] ?? 'unknown'),
-            $identityHashInput
+            [
+                'stage'  => 'post-canonical',
+                'type'   => $identityHashInput['type'],
+                'target' => $identityHashInput['target'],
+                'timing' => $identityHashInput['timing'],
+            ]
         );
 
         $identityHashJson  = json_encode($identityHashInput, JSON_THROW_ON_ERROR);
@@ -341,17 +358,18 @@ final class IntentNormalizer
      * Debug canonical identity inputs immediately before identity hashing.
      * Emits symbolic vs hard resolution state for verification.
      */
-    private function debugPreHash(string $source, array $identityInput): void
+    private function debugPreHash(string $source, array $data): void
     {
         if (getenv('GCS_DEBUG_INTENTS') !== '1') {
             return;
         }
 
-        $timing = $identityInput['timing'] ?? [];
+        $timing = $data['timing'] ?? [];
+        $stage  = $data['stage'] ?? 'unknown';
 
         $fmtDate = function ($v): string {
             if (!is_array($v)) {
-                return '';
+                return 'hard= symbolic=';
             }
             return sprintf(
                 'hard=%s symbolic=%s',
@@ -361,13 +379,14 @@ final class IntentNormalizer
         };
 
         fwrite(STDERR, sprintf(
-            "PRE-HASH [%s]\n".
+            "PRE-HASH [%s] (%s)\n".
             "  type=%s target=%s\n".
             "  start_date: %s\n".
             "  end_date:   %s\n\n",
             $source,
-            $identityInput['type'] ?? '',
-            $identityInput['target'] ?? '',
+            $stage,
+            $data['type'] ?? '',
+            $data['target'] ?? '',
             $fmtDate($timing['start_date'] ?? null),
             $fmtDate($timing['end_date'] ?? null),
         ));
