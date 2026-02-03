@@ -118,6 +118,8 @@ final class FppScheduleAdapter
         }
 
         // --- Timing (canonical) ---
+        $normalizedDays = FPPSemantics::normalizeDays($entry['day'] ?? null);
+
         $timing = [
             'all_day' => $isAllDay,
             'start_date' => ['hard' => $entry['startDate'] ?? null, 'symbolic' => null],
@@ -132,7 +134,12 @@ final class FppScheduleAdapter
                 'symbolic' => null,
                 'offset'   => (int) ($entry['endTimeOffset'] ?? 0),
             ],
-            'days' => FPPSemantics::normalizeDays($entry['day'] ?? null),
+            'days' => $normalizedDays === null
+                ? null
+                : [
+                    'type'  => 'weekly',
+                    'value' => $normalizedDays,
+                ],
         ];
 
         // --- Payload ---
@@ -208,7 +215,12 @@ final class FppScheduleAdapter
             'enabled'  => FPPSemantics::denormalizeEnabled((bool) ($payload['enabled'] ?? true)),
             'repeat'   => FPPSemantics::semanticToRepeat((string) ($payload['repeat'] ?? 'none')),
             'stopType' => FPPSemantics::stopTypeToEnum($payload['stopType'] ?? null),
-            'day'      => FPPSemantics::denormalizeDays($timing['days'] ?? null),
+            'day' => FPPSemantics::denormalizeDays(
+                is_array($timing['days'] ?? null)
+                    && ($timing['days']['type'] ?? null) === 'weekly'
+                    ? ($timing['days']['value'] ?? null)
+                    : null
+            ),
         ];
 
         // --- Type-specific fields ---
