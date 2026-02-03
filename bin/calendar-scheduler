@@ -205,25 +205,75 @@ try {
     );
 
     // === Calendar Adapter Events ===
-    if (getenv('GCS_DEBUG_INTENTS') === '1') {
-        fwrite(STDERR, "=== Calendar Adapter Events ===\n");
+    $debugIntents = (getenv('GCS_DEBUG_INTENTS') === '1');
+
+    $summarizeEvent = static function (array $event): array {
+        $timing  = is_array($event['timing'] ?? null) ? (array) $event['timing'] : [];
+        $payload = is_array($event['payload'] ?? null) ? (array) $event['payload'] : [];
+
+        $allDay = (bool) ($timing['all_day'] ?? false);
+
+        $startDate = is_array($timing['start_date'] ?? null) ? (array) $timing['start_date'] : [];
+        $endDate   = is_array($timing['end_date'] ?? null) ? (array) $timing['end_date'] : [];
+        $startTime = is_array($timing['start_time'] ?? null) ? (array) $timing['start_time'] : [];
+        $endTime   = is_array($timing['end_time'] ?? null) ? (array) $timing['end_time'] : [];
+
+        $daysVal = $timing['days'] ?? null;
+        $daysStr = '';
+        if (is_array($daysVal)) {
+            // Accept both the canonical structure {type,value} and a flat list.
+            if (isset($daysVal['type'], $daysVal['value'])) {
+                $v = $daysVal['value'];
+                $daysStr = is_array($v) ? implode(',', $v) : (string) $v;
+                $daysStr = (string) $daysVal['type'] . ':' . $daysStr;
+            } else {
+                $daysStr = implode(',', $daysVal);
+            }
+        } elseif ($daysVal !== null) {
+            $daysStr = (string) $daysVal;
+        }
+
+        return [
+            'source' => (string) ($event['source'] ?? ''),
+            'type'   => (string) ($event['type'] ?? ''),
+            'target' => (string) ($event['target'] ?? ''),
+            'allDay' => $allDay ? '1' : '0',
+            'startDate' => (string) ($startDate['hard'] ?? ''),
+            'endDate'   => (string) ($endDate['hard'] ?? ''),
+            'startTime' => $allDay ? '' : (string) ($startTime['hard'] ?? ''),
+            'endTime'   => $allDay ? '' : (string) ($endTime['hard'] ?? ''),
+            'days'      => $daysStr,
+            'enabled'   => isset($payload['enabled']) ? var_export((bool) $payload['enabled'], true) : '',
+            'repeat'    => (string) ($payload['repeat'] ?? ''),
+            'stopType'  => (string) ($payload['stopType'] ?? ''),
+            'updatedAtEpoch' => (string) ((int) ($event['updatedAtEpoch'] ?? 0)),
+        ];
+    };
+
+    if ($debugIntents) {
+        fwrite(STDERR, "=== Calendar Adapter Events (pre-normalize) ===\n");
         foreach ($calendarEvents as $event) {
-            $identityHash = $event['identityHash'] ?? '';
-            $target = $event['target'] ?? '';
-            $start = $event['start'] ?? '';
-            $end = $event['end'] ?? '';
-            $days = $event['days'] ?? '';
-            $enabled = $event['enabled'] ?? '';
+            if (!is_array($event)) {
+                continue;
+            }
+            $s = $summarizeEvent($event);
             fwrite(
                 STDERR,
                 sprintf(
-                    "identityHash=%s target=%s start=%s end=%s days=%s enabled=%s\n",
-                    $identityHash,
-                    $target,
-                    $start,
-                    $end,
-                    is_array($days) ? implode(',', $days) : $days,
-                    var_export($enabled, true)
+                    "source=%s type=%s target=%s allDay=%s startDate=%s endDate=%s startTime=%s endTime=%s days=%s enabled=%s repeat=%s stopType=%s updatedAtEpoch=%s\n",
+                    $s['source'],
+                    $s['type'],
+                    $s['target'],
+                    $s['allDay'],
+                    $s['startDate'],
+                    $s['endDate'],
+                    $s['startTime'],
+                    $s['endTime'],
+                    $s['days'],
+                    $s['enabled'],
+                    $s['repeat'],
+                    $s['stopType'],
+                    $s['updatedAtEpoch']
                 )
             );
         }
@@ -231,6 +281,23 @@ try {
 
     foreach ($calendarEvents as $event) {
         $intent = $normalizer->fromManifestEvent($event, $context);
+        if ($debugIntents) {
+            $s = is_array($event) ? $summarizeEvent($event) : ['type'=>'','target'=>'','startDate'=>'','endDate'=>'','startTime'=>'','endTime'=>'','days'=>''];
+            fwrite(
+                STDERR,
+                sprintf(
+                    "CALENDAR intent identityHash=%s type=%s target=%s startDate=%s endDate=%s startTime=%s endTime=%s days=%s\n",
+                    $intent->identityHash,
+                    $s['type'],
+                    $s['target'],
+                    $s['startDate'],
+                    $s['endDate'],
+                    $s['startTime'],
+                    $s['endTime'],
+                    $s['days']
+                )
+            );
+        }
         $hash = $intent->identityHash;
         $calendarIntents[$hash] = $intent;
         $calendarAuthority[$hash] = (int)($event['updatedAtEpoch'] ?? 0);
@@ -251,25 +318,30 @@ try {
     );
 
     // === FPP Adapter Events ===
-    if (getenv('GCS_DEBUG_INTENTS') === '1') {
-        fwrite(STDERR, "=== FPP Adapter Events ===\n");
+    if ($debugIntents) {
+        fwrite(STDERR, "=== FPP Adapter Events (pre-normalize) ===\n");
         foreach ($fppEvents as $event) {
-            $identityHash = $event['identityHash'] ?? '';
-            $target = $event['target'] ?? '';
-            $start = $event['start'] ?? '';
-            $end = $event['end'] ?? '';
-            $days = $event['days'] ?? '';
-            $enabled = $event['enabled'] ?? '';
+            if (!is_array($event)) {
+                continue;
+            }
+            $s = $summarizeEvent($event);
             fwrite(
                 STDERR,
                 sprintf(
-                    "identityHash=%s target=%s start=%s end=%s days=%s enabled=%s\n",
-                    $identityHash,
-                    $target,
-                    $start,
-                    $end,
-                    is_array($days) ? implode(',', $days) : $days,
-                    var_export($enabled, true)
+                    "source=%s type=%s target=%s allDay=%s startDate=%s endDate=%s startTime=%s endTime=%s days=%s enabled=%s repeat=%s stopType=%s updatedAtEpoch=%s\n",
+                    $s['source'],
+                    $s['type'],
+                    $s['target'],
+                    $s['allDay'],
+                    $s['startDate'],
+                    $s['endDate'],
+                    $s['startTime'],
+                    $s['endTime'],
+                    $s['days'],
+                    $s['enabled'],
+                    $s['repeat'],
+                    $s['stopType'],
+                    $s['updatedAtEpoch']
                 )
             );
         }
@@ -277,6 +349,23 @@ try {
 
     foreach ($fppEvents as $event) {
         $intent = $normalizer->fromManifestEvent($event, $context);
+        if ($debugIntents) {
+            $s = is_array($event) ? $summarizeEvent($event) : ['type'=>'','target'=>'','startDate'=>'','endDate'=>'','startTime'=>'','endTime'=>'','days'=>''];
+            fwrite(
+                STDERR,
+                sprintf(
+                    "FPP intent identityHash=%s type=%s target=%s startDate=%s endDate=%s startTime=%s endTime=%s days=%s\n",
+                    $intent->identityHash,
+                    $s['type'],
+                    $s['target'],
+                    $s['startDate'],
+                    $s['endDate'],
+                    $s['startTime'],
+                    $s['endTime'],
+                    $s['days']
+                )
+            );
+        }
         $hash = $intent->identityHash;
         $fppIntents[$hash] = $intent;
         $fppAuthority[$hash] = (int)($event['updatedAtEpoch'] ?? 0);
