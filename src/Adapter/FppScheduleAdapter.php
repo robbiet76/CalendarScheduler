@@ -21,6 +21,23 @@ use CalendarScheduler\Platform\FPPSemantics;
  */
 final class FppScheduleAdapter
 {
+    /** @var array<string,bool> */
+    private const COMMAND_EXCLUDE_KEYS = [
+        'enabled' => true,
+        'sequence' => true,
+        'day' => true,
+        'startTime' => true,
+        'startTimeOffset' => true,
+        'endTime' => true,
+        'endTimeOffset' => true,
+        'repeat' => true,
+        'startDate' => true,
+        'endDate' => true,
+        'stopType' => true,
+        'playlist' => true,
+        'command' => true,
+    ];
+
     /**
      * Load and convert all FPP schedule entries into canonical manifest-event arrays.
      *
@@ -130,12 +147,17 @@ final class FppScheduleAdapter
         ];
 
         if ($type === 'command') {
-            // Preserve the previously agreed command extraction behavior.
-            $payload['command'] = [
-                'args'      => $entry['args'] ?? [],
-                'multisync' => (bool) ($entry['multisync'] ?? false),
-                'hosts'     => $entry['hosts'] ?? null,
-            ];
+            // EXACT legacy behavior:
+            // Copy all non-reserved fields into command payload, then add name.
+            $command = [];
+            foreach ($entry as $k => $v) {
+                if (isset(self::COMMAND_EXCLUDE_KEYS[$k])) {
+                    continue;
+                }
+                $command[$k] = $v;
+            }
+            $command['name'] = (string) ($entry['command'] ?? '');
+            $payload['command'] = $command;
         }
 
         // Canonical manifest-event shape (hashes computed upstream)
@@ -154,6 +176,9 @@ final class FppScheduleAdapter
                 'source' => 'fpp',
                 'raw'    => $entry,
             ],
+            // IMPORTANT: calendar-scheduler consumes updatedAtEpoch for authority.
+            'updatedAtEpoch'  => $scheduleUpdatedAt,
+            // Keep for any older call sites that still read this name.
             'sourceUpdatedAt' => $scheduleUpdatedAt,
         ];
     }
@@ -177,19 +202,27 @@ final class FppScheduleAdapter
 
         $entry = [
             'enabled'  => FPPSemantics::denormalizeEnabled((bool) ($payload['enabled'] ?? true)),
-            'repeat'   => FPPSemantics::semanticToRepeat($payload['repeat'] ?? null),
+            'repeat'   => FPPSemantics::semanticToRepeat((string) ($payload['repeat'] ?? 'none')),
             'stopType' => FPPSemantics::stopTypeToEnum($payload['stopType'] ?? null),
             'day'      => FPPSemantics::denormalizeDays($timing['days'] ?? null),
         ];
 
         // --- Type-specific fields ---
         if ($type === 'command') {
-            $entry['command'] = $target;
             $cmd = is_array($payload['command'] ?? null) ? (array) $payload['command'] : [];
-            $entry['args']      = $cmd['args']      ?? [];
-            // FPP commonly stores multisync as int; preserve old behavior of accepting bool-like.
-            $entry['multisync'] = (int) ($cmd['multisync'] ?? 0);
-            $entry['hosts']     = $cmd['hosts']     ?? null;
+            // Legacy contract: command payload includes "name"
+            $entry['command'] = (string) ($cmd['name'] ?? $target);
+            // Copy any non-name keys back onto the schedule entry.
+            foreach ($cmd as $k => $v) {
+                if ($k === 'name') {
+                    continue;
+                }
+                // Avoid stomping reserved scheduler keys.
+                if (isset(self::COMMAND_EXCLUDE_KEYS[$k])) {
+                    continue;
+                }
+                $entry[$k] = $v;
+            }
         } else {
             $entry['playlist'] = $target;
             $entry['sequence'] = ($type === 'sequence') ? 1 : 0;
