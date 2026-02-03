@@ -204,6 +204,29 @@ try {
         $DEFAULT_CALENDAR_SNAPSHOT_PATH
     );
 
+    // === Calendar Adapter Events ===
+    fwrite(STDERR, "=== Calendar Adapter Events ===\n");
+    foreach ($calendarEvents as $event) {
+        $identityHash = $event['identityHash'] ?? '';
+        $target = $event['target'] ?? '';
+        $start = $event['start'] ?? '';
+        $end = $event['end'] ?? '';
+        $days = $event['days'] ?? '';
+        $enabled = $event['enabled'] ?? '';
+        fwrite(
+            STDERR,
+            sprintf(
+                "identityHash=%s target=%s start=%s end=%s days=%s enabled=%s\n",
+                $identityHash,
+                $target,
+                $start,
+                $end,
+                is_array($days) ? implode(',', $days) : $days,
+                var_export($enabled, true)
+            )
+        );
+    }
+
     foreach ($calendarEvents as $event) {
         $intent = $normalizer->fromManifestEvent($event, $context);
         $hash = $intent->identityHash;
@@ -224,6 +247,29 @@ try {
         $context,
         $schedulePath
     );
+
+    // === FPP Adapter Events ===
+    fwrite(STDERR, "=== FPP Adapter Events ===\n");
+    foreach ($fppEvents as $event) {
+        $identityHash = $event['identityHash'] ?? '';
+        $target = $event['target'] ?? '';
+        $start = $event['start'] ?? '';
+        $end = $event['end'] ?? '';
+        $days = $event['days'] ?? '';
+        $enabled = $event['enabled'] ?? '';
+        fwrite(
+            STDERR,
+            sprintf(
+                "identityHash=%s target=%s start=%s end=%s days=%s enabled=%s\n",
+                $identityHash,
+                $target,
+                $start,
+                $end,
+                is_array($days) ? implode(',', $days) : $days,
+                var_export($enabled, true)
+            )
+        );
+    }
 
     foreach ($fppEvents as $event) {
         $intent = $normalizer->fromManifestEvent($event, $context);
