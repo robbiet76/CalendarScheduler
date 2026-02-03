@@ -7,7 +7,7 @@ declare(strict_types=1);
 // CLI entrypoint for CalendarScheduler (V2)
 // -----------------------------------------------------------------------------
 
-use CalendarScheduler\Manifest\ManifestWriter;
+use CalendarScheduler\Planner\ManifestPlanner;
 use CalendarScheduler\Diff\Diff;
 use CalendarScheduler\Apply\ApplyRunner;
 use CalendarScheduler\Diff\Reconciler;
@@ -56,12 +56,14 @@ $opts = getopt('', [
     'quiet',
     'refresh-calendar',
     'apply',
+    'plan',
 ]);
 
 $dryRun = array_key_exists('dry-run', $opts);
 $quiet  = array_key_exists('quiet', $opts);
 $refreshCalendar = array_key_exists('refresh-calendar', $opts);
 $apply = array_key_exists('apply', $opts);
+$plan = array_key_exists('plan', $opts);
 
 $schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
 $manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
@@ -233,9 +235,9 @@ try {
     // Build Next Manifests
     // -------------------------------------------------------------------------
 
-    $writer = new ManifestWriter($manifestPath);
-    $calendarManifest = $writer->buildManifestFromIntents($calendarIntents);
-    $fppManifest = $writer->buildManifestFromIntents($fppIntents);
+    $planner = new ManifestPlanner();
+    $calendarManifest = $planner->buildManifestFromIntents($calendarIntents);
+    $fppManifest = $planner->buildManifestFromIntents($fppIntents);
 
     // -------------------------------------------------------------------------
     // Diff (manifest → manifest)
@@ -267,6 +269,25 @@ try {
         $calendarSnapshotEpoch,
         $fppSnapshotEpoch
     );
+
+    if ($plan) {
+        foreach ($result->actions() as $action) {
+            printf(
+                "[%s → %s] %-6s identity=%s reason=\"%s\"\n",
+                $action->authority,
+                $action->target,
+                strtoupper($action->type),
+                $action->identityHash,
+                $action->reason
+            );
+        }
+
+        if ($result->actionCount() === 0) {
+            echo "No reconciliation actions required.\n";
+        }
+
+        exit(0);
+    }
 
     // -------------------------------------------------------------------------
     // Write manifest
