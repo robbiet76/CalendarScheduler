@@ -46,7 +46,7 @@ require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
 require_once __DIR__ . '/src/Adapter/CalendarSnapshot.php';
 require_once __DIR__ . '/src/Adapter/CalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/FppScheduleTranslator.php';
-require_once __DIR__ . '/src/Adapter/FppScheduleRawEventAdapter.php';
+require_once __DIR__ . '/src/Adapter/FppScheduleAdapter.php';
 require_once __DIR__ . '/src/Adapter/Google/GoogleCalendarAdapter.php';
 
 // -----------------------------------------------------------------------------
@@ -54,8 +54,6 @@ require_once __DIR__ . '/src/Adapter/Google/GoogleCalendarAdapter.php';
 // -----------------------------------------------------------------------------
 
 require_once __DIR__ . '/src/Intent/Intent.php';
-require_once __DIR__ . '/src/Intent/RawEvent.php';
-require_once __DIR__ . '/src/Intent/RawEventValidator.php';
 require_once __DIR__ . '/src/Intent/IntentNormalizer.php';
 require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 
