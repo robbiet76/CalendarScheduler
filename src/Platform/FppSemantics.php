@@ -398,27 +398,27 @@ final class FPPSemantics
 
         sort($days);
 
-        // Try preset reverse match
+        // Try preset reverse match (PHP array keys must be string/int)
+        $key = implode(',', $days);
+
         $presetMap = [
-            ['SU']                 => self::DAY_SUN,
-            ['MO']                 => self::DAY_MON,
-            ['TU']                 => self::DAY_TUE,
-            ['WE']                 => self::DAY_WED,
-            ['TH']                 => self::DAY_THU,
-            ['FR']                 => self::DAY_FRI,
-            ['SA']                 => self::DAY_SAT,
-            ['MO','TU','WE','TH','FR'] => self::DAY_WKDAYS,
-            ['SU','SA']            => self::DAY_WKEND,
-            ['MO','WE','FR']       => self::DAY_M_W_F,
-            ['TU','TH']            => self::DAY_T_TH,
-            ['SU','MO','TU','WE','TH'] => self::DAY_SUN_THURS,
-            ['FR','SA']            => self::DAY_FRI_SAT,
+            'SU'                 => self::DAY_SUN,
+            'MO'                 => self::DAY_MON,
+            'TU'                 => self::DAY_TUE,
+            'WE'                 => self::DAY_WED,
+            'TH'                 => self::DAY_THU,
+            'FR'                 => self::DAY_FRI,
+            'SA'                 => self::DAY_SAT,
+            'MO,TU,WE,TH,FR'     => self::DAY_WKDAYS,
+            'SU,SA'              => self::DAY_WKEND,
+            'MO,WE,FR'           => self::DAY_M_W_F,
+            'TU,TH'              => self::DAY_T_TH,
+            'SU,MO,TU,WE,TH'     => self::DAY_SUN_THURS,
+            'FR,SA'              => self::DAY_FRI_SAT,
         ];
 
-        foreach ($presetMap as $presetDays => $presetIndex) {
-            if ($days === $presetDays) {
-                return $presetIndex;
-            }
+        if (isset($presetMap[$key])) {
+            return $presetMap[$key];
         }
 
         // Fall back to bitmask encoding
