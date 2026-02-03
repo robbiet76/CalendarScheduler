@@ -518,19 +518,17 @@ final class GoogleCalendarAdapter
 
     private function normalizeDateField(?string $raw, HolidayResolver $resolver): array
     {
+        // Calendar ALWAYS provides hard dates.
+        // Symbolic holidays are inferred later by IntentNormalizer.
         if ($raw === null || $raw === '') {
             return ['hard' => null, 'symbolic' => null];
         }
 
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
-            return ['hard' => $raw, 'symbolic' => null];
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
+            throw new \RuntimeException("Invalid calendar date format '{$raw}'");
         }
 
-        if ($resolver->isSymbolic($raw)) {
-            return ['hard' => null, 'symbolic' => $raw];
-        }
-
-        return ['hard' => null, 'symbolic' => $raw];
+        return ['hard' => $raw, 'symbolic' => null];
     }
 
     private function normalizeTimeField(?string $raw, int $offset): array
