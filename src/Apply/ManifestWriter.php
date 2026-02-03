@@ -1,9 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace CalendarScheduler\Manifest;
-
-use CalendarScheduler\Diff\DiffResult;
+namespace CalendarScheduler\Apply;
 
 /**
  * ManifestWriter (v2)
@@ -33,6 +31,33 @@ final class ManifestWriter
     public function __construct(string $manifestPath)
     {
         $this->manifestPath = $manifestPath;
+    }
+
+    /**
+     * Persist a fully resolved target manifest.
+     *
+     * This is the ONLY entry point used by ApplyRunner.
+     * No diff logic, no reconciliation, no validation.
+     *
+     * @param array<string,mixed> $targetManifest
+     */
+    public function applyTargetManifest(array $targetManifest): void
+    {
+        // Ensure root shape
+        if (!isset($targetManifest['events']) || !is_array($targetManifest['events'])) {
+            $targetManifest['events'] = [];
+        }
+
+        // Deterministic ordering
+        ksort($targetManifest['events'], SORT_STRING);
+
+        $targetManifest['version'] = 2;
+        $targetManifest['generated_at'] = (new \DateTimeImmutable(
+            'now',
+            new \DateTimeZone('UTC')
+        ))->format(DATE_ATOM);
+
+        $this->writeManifest($targetManifest);
     }
 
     /**

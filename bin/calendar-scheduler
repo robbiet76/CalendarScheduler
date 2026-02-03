@@ -10,6 +10,7 @@ declare(strict_types=1);
 use CalendarScheduler\Planner\ManifestPlanner;
 use CalendarScheduler\Diff\Diff;
 use CalendarScheduler\Apply\ApplyRunner;
+use CalendarScheduler\Apply\ManifestWriter;
 use CalendarScheduler\Diff\Reconciler;
 use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Intent\IntentNormalizer;
@@ -349,8 +350,10 @@ try {
  }
 
 if ($apply && !$dryRun) {
-    $applier = new ApplyRunner($manifestPath);
-    $applier->applyManifest($result->targetManifest());
+    $applier = new ApplyRunner(
+        new ManifestWriter($manifestPath)
+    );
+    $applier->apply($result);
 }
 
 if ($format === 'json') {
