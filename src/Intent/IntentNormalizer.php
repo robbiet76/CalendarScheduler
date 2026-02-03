@@ -156,7 +156,10 @@ final class IntentNormalizer
 
             $symbolic = $time['symbolic'] ?? null;
             if (is_string($symbolic)) {
-                $symbolic = strtolower(trim($symbolic));
+                $symbolic = trim($symbolic);
+                if ($symbolic === '') {
+                    $symbolic = null;
+                }
             }
 
             return [
@@ -176,8 +179,6 @@ final class IntentNormalizer
                 $symbolic = trim($symbolic);
                 if ($symbolic === '') {
                     $symbolic = null;
-                } else {
-                    $symbolic = strtolower($symbolic);
                 }
             }
 
@@ -256,9 +257,13 @@ final class IntentNormalizer
                 ];
             }
 
-            // Normalize symbolic times to lowercase for stable hashing.
             $symbolic = $v['symbolic'] ?? null;
-            $symbolic = $lowerOrNull($symbolic);
+            if (is_string($symbolic)) {
+                $symbolic = trim($symbolic);
+                if ($symbolic === '') {
+                    $symbolic = null;
+                }
+            }
 
             return [
                 'hard'     => $v['hard'] ?? null,
