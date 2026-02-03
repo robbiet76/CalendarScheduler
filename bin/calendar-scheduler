@@ -205,26 +205,28 @@ try {
     );
 
     // === Calendar Adapter Events ===
-    fwrite(STDERR, "=== Calendar Adapter Events ===\n");
-    foreach ($calendarEvents as $event) {
-        $identityHash = $event['identityHash'] ?? '';
-        $target = $event['target'] ?? '';
-        $start = $event['start'] ?? '';
-        $end = $event['end'] ?? '';
-        $days = $event['days'] ?? '';
-        $enabled = $event['enabled'] ?? '';
-        fwrite(
-            STDERR,
-            sprintf(
-                "identityHash=%s target=%s start=%s end=%s days=%s enabled=%s\n",
-                $identityHash,
-                $target,
-                $start,
-                $end,
-                is_array($days) ? implode(',', $days) : $days,
-                var_export($enabled, true)
-            )
-        );
+    if (getenv('GCS_DEBUG_INTENTS') === '1') {
+        fwrite(STDERR, "=== Calendar Adapter Events ===\n");
+        foreach ($calendarEvents as $event) {
+            $identityHash = $event['identityHash'] ?? '';
+            $target = $event['target'] ?? '';
+            $start = $event['start'] ?? '';
+            $end = $event['end'] ?? '';
+            $days = $event['days'] ?? '';
+            $enabled = $event['enabled'] ?? '';
+            fwrite(
+                STDERR,
+                sprintf(
+                    "identityHash=%s target=%s start=%s end=%s days=%s enabled=%s\n",
+                    $identityHash,
+                    $target,
+                    $start,
+                    $end,
+                    is_array($days) ? implode(',', $days) : $days,
+                    var_export($enabled, true)
+                )
+            );
+        }
     }
 
     foreach ($calendarEvents as $event) {
@@ -249,26 +251,28 @@ try {
     );
 
     // === FPP Adapter Events ===
-    fwrite(STDERR, "=== FPP Adapter Events ===\n");
-    foreach ($fppEvents as $event) {
-        $identityHash = $event['identityHash'] ?? '';
-        $target = $event['target'] ?? '';
-        $start = $event['start'] ?? '';
-        $end = $event['end'] ?? '';
-        $days = $event['days'] ?? '';
-        $enabled = $event['enabled'] ?? '';
-        fwrite(
-            STDERR,
-            sprintf(
-                "identityHash=%s target=%s start=%s end=%s days=%s enabled=%s\n",
-                $identityHash,
-                $target,
-                $start,
-                $end,
-                is_array($days) ? implode(',', $days) : $days,
-                var_export($enabled, true)
-            )
-        );
+    if (getenv('GCS_DEBUG_INTENTS') === '1') {
+        fwrite(STDERR, "=== FPP Adapter Events ===\n");
+        foreach ($fppEvents as $event) {
+            $identityHash = $event['identityHash'] ?? '';
+            $target = $event['target'] ?? '';
+            $start = $event['start'] ?? '';
+            $end = $event['end'] ?? '';
+            $days = $event['days'] ?? '';
+            $enabled = $event['enabled'] ?? '';
+            fwrite(
+                STDERR,
+                sprintf(
+                    "identityHash=%s target=%s start=%s end=%s days=%s enabled=%s\n",
+                    $identityHash,
+                    $target,
+                    $start,
+                    $end,
+                    is_array($days) ? implode(',', $days) : $days,
+                    var_export($enabled, true)
+                )
+            );
+        }
     }
 
     foreach ($fppEvents as $event) {
