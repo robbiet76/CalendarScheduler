@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter;
 
+use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\FPPSemantics;
 
 /**
@@ -20,6 +21,47 @@ use CalendarScheduler\Platform\FPPSemantics;
  */
 final class FppScheduleAdapter
 {
+    /**
+     * Load and convert all FPP schedule entries into canonical manifest-event arrays.
+     *
+     * @param \DateTimeZone $fppTz
+     * @param string $schedulePath Absolute path to schedule.json
+     * @return array<int,array<string,mixed>> manifest-events
+     */
+    public function loadManifestEvents(
+        NormalizationContext $context,
+        string $schedulePath
+    ): array {
+        $fppTz = $context->timezone;
+        if (!is_file($schedulePath)) {
+            throw new \RuntimeException("FPP schedule not found: {$schedulePath}");
+        }
+
+        $raw = json_decode(
+            file_get_contents($schedulePath),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        if (!is_array($raw)) {
+            throw new \RuntimeException('Invalid FPP schedule.json');
+        }
+
+        $mtime = filemtime($schedulePath);
+        $updatedAt = is_int($mtime) ? $mtime : time();
+
+        $events = [];
+        foreach ($raw as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $events[] = $this->fromScheduleEntry($entry, $fppTz, $updatedAt);
+        }
+
+        return $events;
+    }
+
     /**
      * Convert a single FPP schedule entry into a canonical manifest-event array.
      *

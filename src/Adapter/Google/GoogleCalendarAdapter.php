@@ -4,30 +4,33 @@ declare(strict_types=1);
 namespace CalendarScheduler\Adapter\Google;
 
 use CalendarScheduler\Intent\NormalizationContext;
-use CalendarScheduler\Intent\RawEvent;
+use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
 use CalendarScheduler\Platform\IniMetadata;
-use CalendarScheduler\Platform\FPPSemantics;
 
 /**
  * GoogleCalendarAdapter
  *
  * Google-specific adapter that converts a provider-native Google event array
- * into a canonical, source-agnostic RawEvent suitable for IntentNormalizer::fromRaw().
+ * into a canonical, source-agnostic manifest event array.
  *
  * HARD RULES:
  * - This adapter owns all provider quirks (DTEND exclusivity, RRULE UNTIL semantics, BYDAY rules, etc.)
  * - Output MUST be timezone-normalized to FPP timezone ($context->timezone)
- * - Output MUST be semantically canonical and MUST NOT require IntentNormalizer to "fix" provider differences
+ * - Output MUST be semantically canonical and MUST NOT require downstream fixes
  *
  * Any failure to adapt MUST throw.
  */
 final class GoogleCalendarAdapter
 {
     /**
-     * Read all Google calendar events from a snapshot file and yield RawEvent objects.
+     * Load and normalize all Google calendar events from a snapshot file, returning manifest event arrays.
+     *
+     * @param NormalizationContext $context
+     * @param string $snapshotPath
+     * @return array Manifest event arrays
      */
-    public function read(NormalizationContext $context, string $snapshotPath): iterable
+    public function loadManifestEvents(NormalizationContext $context, string $snapshotPath): array
     {
         if (!is_file($snapshotPath)) {
             throw new \RuntimeException("Calendar snapshot not found: {$snapshotPath}");
@@ -38,19 +41,21 @@ final class GoogleCalendarAdapter
             throw new \RuntimeException("Invalid calendar snapshot JSON");
         }
 
+        $manifestEvents = [];
         foreach ($data as $event) {
-            yield $this->toRaw($event, $context);
+            $manifestEvents[] = $this->toManifestEvent($event, $context);
         }
+        return $manifestEvents;
     }
 
     /**
-     * Convert a single Google event into RawEvent.
+     * Convert a single Google event into a manifest event array.
      * Adapter-internal only.
      */
-    private function toRaw(
+    private function toManifestEvent(
         array $googleEvent,
         NormalizationContext $context
-    ): RawEvent {
+    ): array {
         // Cast to object for property-style access
         $raw = (object)$googleEvent;
         // --- INI-driven type/payload semantics (existing logic) ---
@@ -122,18 +127,41 @@ final class GoogleCalendarAdapter
         }
         $updatedAtEpoch = (int)$raw->provenance['updatedAtEpoch'];
 
-        // IMPORTANT:
-        // Adapter output MUST already be canonical. IntentNormalizer must not do provider fixes.
-        return new RawEvent(
-            source: 'calendar',
-            type: $type,
-            target: $target,
-            timing: $timing,
-            payload: $payload,
-            ownership: $ownership,
-            correlation: $correlation,
-            sourceUpdatedAt: $updatedAtEpoch
-        );
+        // --- Hashes: identityHash and stateHash (as previously fed to IntentNormalizer) ---
+        // The identityHash and stateHash are computed using the same logic as before:
+        // identityHash: hash of (source, type, target, timing, payload, correlation)
+        // stateHash:    hash of (timing, payload, ownership, correlation)
+
+        // Use stable JSON encoding for hash inputs
+        $identityData = [
+            'source'      => 'calendar',
+            'type'        => $type,
+            'target'      => $target,
+            'timing'      => $timing,
+            'payload'     => $payload,
+            'correlation' => $correlation,
+        ];
+        $stateData = [
+            'timing'      => $timing,
+            'payload'     => $payload,
+            'ownership'   => $ownership,
+            'correlation' => $correlation,
+        ];
+        $identityHash = hash('sha256', json_encode($identityData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $stateHash    = hash('sha256', json_encode($stateData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+        return [
+            'source'         => 'calendar',
+            'type'           => $type,
+            'target'         => $target,
+            'timing'         => $timing,
+            'payload'        => $payload,
+            'ownership'      => $ownership,
+            'correlation'    => $correlation,
+            'updatedAtEpoch' => $updatedAtEpoch,
+            'identityHash'   => $identityHash,
+            'stateHash'      => $stateHash,
+        ];
     }
 
 

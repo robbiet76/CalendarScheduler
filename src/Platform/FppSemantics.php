@@ -45,6 +45,18 @@ final class FPPSemantics
         };
     }
 
+    /**
+     * Convert canonical semantic type back to FPP entry type.
+     */
+    public static function denormalizeType(string $type): string
+    {
+        return match ($type) {
+            self::TYPE_SEQUENCE => self::TYPE_SEQUENCE,
+            self::TYPE_COMMAND  => self::TYPE_COMMAND,
+            default             => self::TYPE_PLAYLIST,
+        };
+    }
+
     /* =====================================================================
      * Enabled / disabled semantics
      * ===================================================================== */
@@ -55,6 +67,14 @@ final class FPPSemantics
     public static function normalizeEnabled(mixed $value): bool
     {
         return !($value === false || $value === 0 || $value === '0');
+    }
+
+    /**
+     * Convert semantic enabled value back to FPP-compatible scalar.
+     */
+    public static function denormalizeEnabled(bool $value): int
+    {
+        return $value ? 1 : 0;
     }
 
     /* =====================================================================
@@ -92,6 +112,18 @@ final class FPPSemantics
         }
 
         return self::STOP_TYPE_GRACEFUL;
+    }
+
+    /**
+     * Convert FPP stopType enum back to semantic string.
+     */
+    public static function stopTypeToSemantic(int $value): string
+    {
+        return match ($value) {
+            self::STOP_TYPE_HARD          => 'hard',
+            self::STOP_TYPE_GRACEFUL_LOOP => 'graceful_loop',
+            default                       => 'graceful',
+        };
     }
 
     /* =====================================================================
@@ -349,6 +381,55 @@ final class FPPSemantics
         }
 
         throw new \RuntimeException("Unsupported FPP day encoding: {$value}");
+    }
+
+    /**
+     * Convert weekly day tokens back to an FPP day encoding.
+     *
+     * Returns:
+     * - preset index when possible
+     * - day mask encoding otherwise
+     */
+    public static function denormalizeDays(?array $days): int
+    {
+        if ($days === null) {
+            return self::DAY_EVERYDAY;
+        }
+
+        sort($days);
+
+        // Try preset reverse match
+        $presetMap = [
+            ['SU']                 => self::DAY_SUN,
+            ['MO']                 => self::DAY_MON,
+            ['TU']                 => self::DAY_TUE,
+            ['WE']                 => self::DAY_WED,
+            ['TH']                 => self::DAY_THU,
+            ['FR']                 => self::DAY_FRI,
+            ['SA']                 => self::DAY_SAT,
+            ['MO','TU','WE','TH','FR'] => self::DAY_WKDAYS,
+            ['SU','SA']            => self::DAY_WKEND,
+            ['MO','WE','FR']       => self::DAY_M_W_F,
+            ['TU','TH']            => self::DAY_T_TH,
+            ['SU','MO','TU','WE','TH'] => self::DAY_SUN_THURS,
+            ['FR','SA']            => self::DAY_FRI_SAT,
+        ];
+
+        foreach ($presetMap as $presetDays => $presetIndex) {
+            if ($days === $presetDays) {
+                return $presetIndex;
+            }
+        }
+
+        // Fall back to bitmask encoding
+        $mask = self::DAY_MASK_FLAG;
+        foreach (self::DAY_MASK_BITS as $bit => $code) {
+            if (in_array($code, $days, true)) {
+                $mask |= $bit;
+            }
+        }
+
+        return $mask;
     }
 
     /* =====================================================================

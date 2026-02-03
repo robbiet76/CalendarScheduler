@@ -6,7 +6,6 @@ namespace CalendarScheduler\Intent;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\HolidayResolver;
 
-// TODO(v3): Remove debug hash preimage logging once diff parity is proven
 /**
  * IntentNormalizer
  *

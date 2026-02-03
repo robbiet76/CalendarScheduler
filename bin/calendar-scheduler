@@ -198,7 +198,13 @@ try {
 
     $calendarIntents = [];
     $calendarAuthority = [];
-    foreach ($calendarAdapter->read($context, $DEFAULT_CALENDAR_SNAPSHOT_PATH) as $event) {
+
+    $calendarEvents = $calendarAdapter->loadManifestEvents(
+        $context,
+        $DEFAULT_CALENDAR_SNAPSHOT_PATH
+    );
+
+    foreach ($calendarEvents as $event) {
         $intent = $normalizer->fromManifestEvent($event, $context);
         $hash = $intent->identityHash;
         $calendarIntents[$hash] = $intent;
@@ -209,12 +215,17 @@ try {
     // FPP → adapter → Intent (current state contributor)
     // -------------------------------------------------------------------------
     
-    $fppAdapter = new FppScheduleRawEventAdapter();
+    $fppAdapter = new FppScheduleAdapter();
 
     $fppIntents = [];
     $fppAuthority = [];
 
-    foreach ($fppAdapter->read($context, $schedulePath) as $event) {
+    $fppEvents = $fppAdapter->loadManifestEvents(
+        $context,
+        $schedulePath
+    );
+
+    foreach ($fppEvents as $event) {
         $intent = $normalizer->fromManifestEvent($event, $context);
         $hash = $intent->identityHash;
         $fppIntents[$hash] = $intent;
