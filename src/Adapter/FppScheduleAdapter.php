@@ -40,6 +40,40 @@ final class FppScheduleAdapter
     ];
 
     /**
+     * Split an FPP date field into canonical hard/symbolic parts.
+     *
+     * FPP allows:
+     *  - Hard dates: YYYY-MM-DD (including date-masking patterns with 0000 year / 00 month / 00 day)
+     *  - Symbolic dates: holiday tokens like "Thanksgiving", "Epiphany", "Christmas", etc.
+     *
+     * Canonical contract:
+     *  - hard is either a YYYY-MM-DD string (including 0000/00 masking) or null
+     *  - symbolic is either a non-empty lowercase token or null
+     *
+     * @param mixed $value
+     * @return array{hard: ?string, symbolic: ?string}
+     */
+    private function splitDateHardSymbolic(mixed $value): array
+    {
+        if (!is_string($value)) {
+            return ['hard' => null, 'symbolic' => null];
+        }
+
+        $s = trim($value);
+        if ($s === '') {
+            return ['hard' => null, 'symbolic' => null];
+        }
+
+        // Accept YYYY-MM-DD including "date masking" (0000 year / 00 month / 00 day).
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $s) === 1) {
+            return ['hard' => $s, 'symbolic' => null];
+        }
+
+        // Otherwise treat as symbolic token (holiday name).
+        return ['hard' => null, 'symbolic' => strtolower($s)];
+    }
+
+    /**
      * Load and convert all FPP schedule entries into canonical manifest-event arrays.
      *
      * @param \DateTimeZone $fppTz
@@ -120,10 +154,13 @@ final class FppScheduleAdapter
         // --- Timing (canonical) ---
         $normalizedDays = FPPSemantics::normalizeDays($entry['day'] ?? null);
 
+        $startDateParts = $this->splitDateHardSymbolic($entry['startDate'] ?? null);
+        $endDateParts   = $this->splitDateHardSymbolic($endDate);
+
         $timing = [
             'all_day' => $isAllDay,
-            'start_date' => ['hard' => $entry['startDate'] ?? null, 'symbolic' => null],
-            'end_date'   => ['hard' => $endDate, 'symbolic' => null],
+            'start_date' => $startDateParts,
+            'end_date'   => $endDateParts,
             'start_time' => $isAllDay ? null : [
                 'hard'     => $entry['startTime'] ?? null,
                 'symbolic' => null,
@@ -270,8 +307,8 @@ final class FppScheduleAdapter
         $startDate = is_array($timing['start_date'] ?? null) ? (array) $timing['start_date'] : [];
         $endDate   = is_array($timing['end_date'] ?? null) ? (array) $timing['end_date'] : [];
 
-        $entry['startDate'] = $startDate['hard'] ?? null;
-        $entry['endDate']   = $endDate['hard']   ?? null;
+        $entry['startDate'] = ($startDate['hard'] ?? null) ?: (($startDate['symbolic'] ?? null) ?: null);
+        $entry['endDate']   = ($endDate['hard'] ?? null)   ?: (($endDate['symbolic'] ?? null)   ?: null);
 
         return $entry;
     }
