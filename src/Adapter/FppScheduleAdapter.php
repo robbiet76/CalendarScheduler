@@ -48,7 +48,7 @@ final class FppScheduleAdapter
      *
      * Canonical contract:
      *  - hard is either a YYYY-MM-DD string (including 0000/00 masking) or null
-     *  - symbolic is either a non-empty lowercase token or null
+     *  - symbolic is either a non-empty token (case preserved) or null
      *
      * @param mixed $value
      * @return array{hard: ?string, symbolic: ?string}
@@ -70,7 +70,7 @@ final class FppScheduleAdapter
         }
 
         // Otherwise treat as symbolic token (holiday name).
-        return ['hard' => null, 'symbolic' => strtolower($s)];
+        return ['hard' => null, 'symbolic' => $s];
     }
 
     /**
