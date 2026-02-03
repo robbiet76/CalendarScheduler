@@ -62,6 +62,7 @@ require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 // -----------------------------------------------------------------------------
 // Planner  - TEMPORARILY DISABLED (will be re-enabled later)
 // -----------------------------------------------------------------------------
+require_once __DIR__ . '/src/Planner/ManifestPlanner.php';
 // require_once __DIR__ . '/src/Planner/OrderingKey.php';
 // require_once __DIR__ . '/src/Planner/PlannedEntry.php';
 // require_once __DIR__ . '/src/Planner/PlannerResult.php';
@@ -80,13 +81,12 @@ require_once __DIR__ . '/src/Diff/Reconciler.php';
 // Manifest
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Manifest/ManifestWriter.php';
-
 // -----------------------------------------------------------------------------
 // Apply
 // -----------------------------------------------------------------------------
 
 require_once __DIR__ . '/src/Apply/ApplyRunner.php';
+require_once __DIR__ . '/src/Apply/ManifestWriter.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete
