@@ -80,6 +80,12 @@ final class IntentNormalizer
 
         // Identity hash
         $identityHashInput = $this->canonicalizeForIdentityHash($identity);
+
+        $this->debugPreHash(
+            (string)($event['source'] ?? 'unknown'),
+            $identityHashInput
+        );
+
         $identityHashJson  = json_encode($identityHashInput, JSON_THROW_ON_ERROR);
         $identityHash      = hash('sha256', $identityHashJson);
 
@@ -302,5 +308,40 @@ final class IntentNormalizer
         }
 
         return $timing;
+    }
+    /**
+     * Debug canonical identity inputs immediately before identity hashing.
+     * Emits symbolic vs hard resolution state for verification.
+     */
+    private function debugPreHash(string $source, array $identityInput): void
+    {
+        if (getenv('GCS_DEBUG_INTENTS') !== '1') {
+            return;
+        }
+
+        $timing = $identityInput['timing'] ?? [];
+
+        $fmtDate = function ($v): string {
+            if (!is_array($v)) {
+                return '';
+            }
+            return sprintf(
+                'hard=%s symbolic=%s',
+                $v['hard'] ?? '',
+                $v['symbolic'] ?? ''
+            );
+        };
+
+        fwrite(STDERR, sprintf(
+            "PRE-HASH [%s]\n".
+            "  type=%s target=%s\n".
+            "  start_date: %s\n".
+            "  end_date:   %s\n\n",
+            $source,
+            $identityInput['type'] ?? '',
+            $identityInput['target'] ?? '',
+            $fmtDate($timing['start_date'] ?? null),
+            $fmtDate($timing['end_date'] ?? null),
+        ));
     }
 }
