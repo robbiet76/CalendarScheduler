@@ -159,19 +159,19 @@ final class IntentNormalizer
                 $symbolic = trim($symbolic);
                 if ($symbolic === '') {
                     $symbolic = null;
+                } else {
+                    $symbolic = strtolower($symbolic);
                 }
             }
 
-            if (is_string($symbolic)) {
-                return [
-                    'symbolic' => strtolower($symbolic),
-                    'hard'     => null,
-                ];
+            $hard = $date['hard'] ?? null;
+            if (!is_string($hard) || $hard === '') {
+                $hard = null;
             }
 
             return [
-                'symbolic' => null,
-                'hard'     => $date['hard'] ?? null,
+                'symbolic' => $symbolic,
+                'hard'     => $hard,
             ];
         };
 
