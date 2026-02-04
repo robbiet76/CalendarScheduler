@@ -6,7 +6,7 @@
 
 ## Purpose
 
-The **Calendar I/O Layer** defines the system boundary between the scheduler domain and external calendar systems (e.g. Google Calendar via ICS).
+The **Calendar I/O Layer** defines the system boundary between the scheduler domain and external calendar systems (e.g. Google Calendar via Google Calendar API / ICS).
 
 This layer is responsible for **all communication with calendar providers**, regardless of direction or transport mechanism.
 
@@ -34,7 +34,7 @@ Manifest → Calendar is a projection of execution geometry. Calendar → System
 This abstraction allows flexibility across:
 
 - Pull vs push models
-- File-based ICS vs API-based providers
+- File-based ICS vs API-based providers (OAuth)
 - Batch vs streaming updates
 
 ---
@@ -43,7 +43,7 @@ This abstraction allows flexibility across:
 
 The Calendar I/O Layer **must**:
 
-- Communicate with calendar providers
+- Communicate with calendar providers (ICS or API)
 - Parse provider data into provider-neutral records
 - Serialize provider-neutral records back into provider formats
 - Preserve symbolic and structural intent
@@ -88,9 +88,18 @@ This file represents the authoritative, source-shaped calendar input used for:
 
 Inbound Calendar I/O is responsible for *receiving* calendar data and translating it into a **provider-neutral event representation** suitable for resolution.
 
-### Canonical CalendarEvent Shape
+### Rules
 
-The inbound Calendar I/O layer expects CalendarTranslator implementations to emit a canonical, provider-neutral `CalendarEvent` object with the following structure:
+- Raw provider data only (no normalization)
+- IntentNormalizer MUST read exclusively from this file
+- File persists across plugin upgrades
+- This file is the authoritative ingestion boundary
+
+---
+
+## Canonical CalendarEvent Shape
+
+Calendar providers MUST be translated into a provider-neutral `CalendarEvent`:
 
 ```json
 {
@@ -98,16 +107,19 @@ The inbound Calendar I/O layer expects CalendarTranslator implementations to emi
     "provider": "google",
     "calendar_id": "primary"
   },
-  "summary": "Meeting with Team",
-  "description": "Raw description text including embedded INI-style metadata",
+  "summary": "Event Title",
+  "description": "Raw description text including embedded INI metadata",
   "dtstart": "2024-06-01T09:00:00-07:00",
   "dtend": "2024-06-01T10:00:00-07:00",
   "rrule": {
     "freq": "WEEKLY",
-    "byday": ["MO", "WE", "FR"]
+    "byday": ["MO", "WE"]
+  },
+  "extended": {
+    "private": {}
   },
   "provenance": {
-    "uid": "event-uid-1234",
+    "uid": "provider-event-id",
     "imported_at": "2024-06-01T12:00:00Z"
   }
 }
@@ -121,6 +133,8 @@ Where:
 - `dtstart` and `dtend`: ISO 8601 timestamps with timezone information, representing the event start and end.
 - `rrule`: an unexpanded recurrence rule object representing recurrence patterns.
 - `provenance`: metadata including the original event UID and the import timestamp.
+- `extended.private` is opaque and preserved verbatim
+- Description metadata remains authoritative user input
 
 ### Inbound Contract
 
@@ -432,10 +446,9 @@ Failures surface immediately and do not partially apply.
 
 ## Guarantees
 
-- Calendar I/O is reversible at the provider-neutral record level where supported
+- Calendar I/O is reversible at the provider-neutral level
 - Manifest intent is never silently altered
-- Derived intent end dates are timezone-correct, recurrence-boundary faithful, and independent of provider UI rendering quirks.
-- Provider-specific behavior is fully isolated
+- Provider-specific quirks are isolated
 
 ---
 
@@ -566,3 +579,63 @@ Users are expected to:
 - Rely on it
 
 If a value cannot be safely edited by a user, it does not belong in the metadata.
+
+
+### NEW OAUTH/API UPDATE
+
+## Bidirectional Adapter Symmetry
+
+Calendar provider adapters MUST be implemented as **two-way, loss-aware transformers**.
+
+### Symmetry Requirements
+
+- Ingest and export share the same structural mapping rules
+- All reversible transformations MUST round-trip without drift
+- All irreversible transformations MUST be explicitly documented
+
+---
+
+## Outbound I/O (System → Calendar)
+
+### Transport Modes
+
+Outbound Calendar I/O MAY be implemented via:
+
+- ICS artifact generation (legacy / offline)
+- Direct provider API calls (OAuth)
+
+Both modes MUST obey identical structural semantics.
+
+---
+
+## OAuth / API-Based Providers (NEW)
+
+For API-backed providers (e.g. Google Calendar API):
+
+### Storage
+
+- Provider event IDs MUST be stored in Manifest provenance
+- Structured metadata SHOULD be stored in provider-supported private fields when available
+
+### Writes
+
+- Apply operations create, update, or delete managed events only
+- Partial updates MUST be avoided unless provider guarantees atomicity
+
+### Failure Rules
+
+- API failures are hard failures
+- Partial Apply is forbidden
+
+---
+
+## Symbolic Preservation
+
+- Symbolic dates and times MUST remain symbolic
+- No forward resolution is permitted in Calendar I/O
+- Unsupported symbolic constructs MUST fail explicitly
+
+---
+
+> Calendar I/O is the only layer that knows calendars exist.
+

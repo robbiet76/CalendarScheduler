@@ -282,7 +282,11 @@ final class FppScheduleAdapter
                 $entry[$k] = $v;
             }
         } else {
-            $entry['playlist'] = $target;
+            $entry['playlist'] =
+                ($type === 'sequence' && !str_ends_with($target, '.fseq'))
+                    ? $target . '.fseq'
+                    : $target;
+
             $entry['sequence'] = ($type === 'sequence') ? 1 : 0;
         }
 
