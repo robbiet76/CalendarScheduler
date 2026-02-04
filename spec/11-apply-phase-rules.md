@@ -6,7 +6,7 @@
 
 ## Purpose
 
-The **Apply Phase** is responsible for **executing the DiffResult** against the FPP scheduler.
+The **Apply Phase** is responsible for **executing an approved DiffResult** against an external provider write target (e.g., the FPP scheduler, Google Calendar via API).
 
 It answers one question only:
 
@@ -21,7 +21,7 @@ The Apply phase is **procedural**, **write-only**, and **non-decisional**.
 The Apply phase operates under strict constraints:
 
 - **Input:** A validated `DiffResult`
-- **Output:** Mutated FPP scheduler state
+- **Output:** Mutated provider state (e.g., FPP scheduler state and/or calendar provider state)
 - **Authority:** Execution only — never interpretation
 
 The Apply phase does **not** decide *what* should change — only *how* to apply changes already decided.
@@ -33,6 +33,7 @@ The Apply phase does **not** decide *what* should change — only *how* to apply
 The Apply phase accepts:
 
 - `DiffResult` (creates / updates / deletes)
+- Provider target configuration (which single calendar account/calendar is connected; which provider is authoritative is determined upstream)
 - Diff operations are event-atomic units (e.g., `PlannedEvent`), each of which may expand to multiple scheduler entries via SubEvents
 - Runtime flags:
   - `dry_run`
@@ -40,24 +41,32 @@ The Apply phase accepts:
 
 The Apply phase must **never** accept:
 
-- Manifest data directly
+- Manifest data directly (except as already materialized into DiffResult operations)
 - Planner output directly
 - Calendar data
 - Identity construction inputs
 
 ---
 
-## Write-Only Interaction with FPP
+## Provider Interaction Model
 
-Apply interacts with FPP in **write-only mode**.
+Apply interacts with providers in **write-only / non-semantic mode**.
 
 Rules:
 
-- `schedule.json` must be treated as a **write target only**
-- Apply must not scan, inspect, or re-parse existing scheduler entries
-- All reconciliation decisions are finalized before Apply begins
+- Apply may perform **minimal provider reads** only when required for safe writes:
+  - Concurrency tokens (e.g., Google `etag`)
+  - Provider object IDs needed to address an update/delete
+  - Connectivity/authorization validation
+- Apply must **not** read provider state to make *semantic* decisions:
+  - No matching
+  - No identity construction
+  - No intent reconstruction
+  - No reconciliation
 
-If Apply needs to read scheduler state to perform a write, that is a design error upstream.
+All reconciliation decisions are finalized before Apply begins.
+
+If Apply needs to interpret provider content to decide what to do, that is a design error upstream.
 
 ---
 
@@ -75,29 +84,28 @@ Updates are applied atomically at the event level: if any SubEvent-derived sched
 
 Rationale:
 
-- Deletes remove obsolete managed entries
+- Deletes remove obsolete managed objects
 - Updates preserve identity continuity
 - Creates introduce new entries cleanly
 - Ordering is applied last to avoid transient instability
 
 ---
 
-## Managed vs Unmanaged Enforcement
+## Managed Boundary and Adoption
 
-Apply MUST respect managed boundaries:
+Apply MUST only mutate objects that are within the **CS-managed set**.
 
-- Managed entries:
-  - May be created
-  - May be updated
-  - May be deleted
-  - May be reordered
-- Unmanaged entries:
-  - Must never be deleted
-  - Must never be updated
-  - Must never be reordered
-  - Must retain original relative order
+- “Managed” is an **internal implementation concept**, not a user-facing feature.
+- On first sync/adoption, existing provider objects that participate in scheduling are **adopted** into the managed set.
+- After adoption, the expected steady state is: **all schedulable objects in the connected scope are managed**.
 
-If an operation would affect an unmanaged entry, Apply must fail fast.
+Enforcement:
+
+- Apply MAY create/update/delete/reorder **managed** objects.
+- Apply MUST NOT mutate objects outside the managed scope.
+- If an operation would affect an out-of-scope object, Apply MUST fail fast.
+
+Scope is determined upstream (connection target + adoption state) and supplied to Apply via DiffResult/provenance.
 
 ---
 
@@ -109,9 +117,8 @@ Rules:
 
 - Managed entries are written in Planner-defined order
 - Entries derived from a single Manifest Event (base + exception SubEvents) must remain grouped and must never interleave with entries from another event
-- Unmanaged entries remain grouped at the top
-- The position of unmanaged entries is determined by the DiffResult snapshot and must not require runtime inspection of `schedule.json`
-- Relative unmanaged order is preserved
+- Out-of-scope objects are not reordered by Apply
+- Ordering decisions must be fully determined by the DiffResult snapshot and must not require semantic inspection of provider state
 - No ordering heuristics are permitted
 
 Ordering must be:
@@ -149,6 +156,21 @@ Given the same `DiffResult`:
 - No identity drift may occur
 
 Violations of idempotency are critical defects.
+
+---
+
+## Provider Concurrency and Addressing
+
+Apply MUST use provider-safe mechanisms to ensure updates are precise and repeatable:
+
+- Google Calendar API:
+  - Updates/deletes MUST be addressed by provider event ID
+  - If available, writes SHOULD use `etag` (or equivalent) to prevent overwriting concurrent changes
+- FPP scheduler:
+  - Writes MUST be deterministic and derived only from the DiffResult
+  - When full-file writes are used (e.g., rewriting `schedule.json`), the output must be stable across runs
+
+Concurrency handling is **mechanical** only. Any conflict policy (which side wins) is decided upstream.
 
 ---
 
@@ -199,6 +221,8 @@ The Apply phase MUST NOT:
 - Read Manifest data
 - Repair invalid entries
 - Perform compatibility shims
+- Decide conflict policy for concurrent edits
+- Invent provider identifiers or attempt fuzzy matching
 
 If Apply “fixes” something, it is a bug upstream.
 

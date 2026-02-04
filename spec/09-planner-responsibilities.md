@@ -14,6 +14,8 @@ It answers one question only:
 
 The Planner does **not** write to FPP, does **not** mutate the Manifest, and does **not** interpret existing scheduler state as authoritative.
 
+The Planner produces desired state for *all* execution targets (FPP scheduler and calendar providers), but remains target-agnostic.
+
 ---
 
 ## Core Responsibilities
@@ -48,10 +50,9 @@ The Planner accepts **only**:
 
 It must **never**:
 
-- Read from FPP directly
-- Read calendar data
-- Perform provider-specific logic
-- Re-validate Manifest identity invariants (these are enforced exclusively by ManifestStore)
+- Read directly from execution targets (e.g. FPP scheduler, calendar providers).
+
+Unmanaged state is handled downstream by Diff/Reconciliation and is not supplied to the Planner.
 
 > Note: Preservation of unmanaged entry ordering refers only to unmanaged entries
 > supplied to the Planner as part of an external snapshot. The Planner MUST NOT
@@ -72,12 +73,14 @@ The following structures are **internal Planner artifacts**. They are not persis
 
 ```ts
 PlannerResult {
-  creates: FppScheduleEntry[]
-  updates: FppScheduleEntry[]
-  deletes: FppScheduleEntry[]
-  desiredEntries: FppScheduleEntry[]
+  creates: PlannedEntry[]
+  updates: PlannedEntry[]
+  deletes: PlannedEntry[]
+  desiredEntries: PlannedEntry[]
 }
 ```
+
+`PlannedEntry` is an abstract execution geometry, later materialized by target-specific adapters during Apply.
 
 Rules:
 
@@ -122,8 +125,10 @@ safety and atomicity. Arbitrary or hash-based ordering is forbidden.
 It MUST:
 
 - Apply the Scheduler Ordering Model exactly
-- Preserve unmanaged entry ordering and grouping
+- Preserve relative ordering for entries outside the managed scope as dictated by Diff/Reconciliation.
 - Ensure deterministic ordering across runs
+
+The Planner never infers unmanaged scope itself.
 
 It MUST NOT:
 
@@ -140,6 +145,8 @@ The Planner behaves **identically** in preview and apply modes with one exceptio
 - In preview mode, invalid or incomplete identities MAY be surfaced
 - In apply mode, invalid identities MUST fail fast
 
+Preview/apply parity applies regardless of execution target.
+
 Rules:
 
 - Preview MUST NOT mask logic errors
@@ -153,9 +160,9 @@ The Planner:
 
 - Consumes Manifest identities **once** per Manifest Event
 
-The Planner does not compute or interpret state hashes. It produces the fully normalized desired state that downstream diff logic compares using stateHash to determine whether updates are required.
-
 The Planner produces the fully normalized desired state that downstream diff logic compares using stateHash to determine whether updates are required.
+
+Identity is consumed uniformly regardless of whether the eventual Apply target is FPP or a calendar provider.
 
 Identity fields are a strict subset of overall state. Any identity change inherently implies a state change and will be treated as a create/delete rather than an update.
 
@@ -228,5 +235,6 @@ The Planner is:
 - Deterministic
 - Manifest-driven
 - Ordering-authoritative
+- Target-agnostic (FPP, calendar providers, future execution targets)
 
 Any deviation from these principles is a design error.

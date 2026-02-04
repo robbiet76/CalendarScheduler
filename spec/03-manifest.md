@@ -30,7 +30,8 @@ Backwards compatibility is **explicitly not a goal**. The Manifest is free to ev
    Every calendar event produces exactly one Manifest Event. Execution details are represented exclusively by SubEvents derived from it.
 
 3. **No persistence in FPP**  \
-   The Manifest is *not* stored in `schedule.json`. FPP stores only executable scheduler entries.
+   The Manifest is *not* stored in `schedule.json`. FPP stores only executable scheduler entries.  
+   The Manifest is persisted separately by CS and is kept up to date whenever either side changes.
 
 4. **Symbolic preservation**  \
    Symbolic dates and times (Dawn, Dusk, Holidays, DatePatterns) are preserved semantically and resolved only at the FPP interface layer.
@@ -47,6 +48,10 @@ Backwards compatibility is **explicitly not a goal**. The Manifest is free to ev
 
 8. **Explicit separation of scheduling and execution semantics**  \
    Scheduling recurrence (dates, days, patterns) and execution behavior (looping, repetition during runtime) are treated as distinct concerns and are never conflated.
+
+9. **Manifest stays current**  \
+   Any time the scheduler state changes (e.g. a user saves `schedule.json` in FPP) or calendar state changes (provider ingest), CS MUST ingest the new source snapshot, normalize it, run Diff against the existing Manifest, and then **mutate the Manifest** to reflect the new authoritative state.  
+   This is equivalent to the user performing an "Apply" operation when they edit the scheduler directly.
 
 ---
 
@@ -295,27 +300,25 @@ OwnershipObject {
 ---
 ### Managed vs Unmanaged Semantics
 
-The `managed` flag represents an explicit user grant allowing automated reconciliation actions to modify a Manifest Event.
+The `managed` flag is an **internal adoption marker** indicating whether an external record has been brought under CS reconciliation control.
 
 - **managed = true**
-  - The system MAY create, update, or delete this Manifest Event through reconciliation.
-  - The event is considered under automated control.
-  - All Diff and Apply operations are permitted, subject to locking rules.
+  - The event is adopted and CS MAY create, update, or delete it through reconciliation (subject to locking rules).
+  - Managed is not intended to be a user-facing per-event opt-in control.
 
 - **managed = false**
-  - The system MUST NOT mutate or delete this Manifest Event.
-  - Identity matches MAY be observed for informational or preview purposes only.
-  - Unmanaged events are excluded from all Apply operations.
-  - This guarantee exists to protect user-authored scheduler state from unintended mutation.
+  - The event has not yet been adopted.
+  - CS MUST treat it as read-only for Apply. Identity matches MAY be shown in preview/debug output, but no mutations are permitted.
 
-The `managed` flag is never inferred. It MUST be set explicitly during ingestion or by direct user action.
+**Adoption semantics**
 
-Defaults by ingestion source:
+- On first successful sync/adoption, CS sets `managed = true` for all discovered events/entries in the connected sources.
+- After adoption, new items created on either side are considered adopted by default.
+- The ongoing safety/control mechanism is `locked`, not `managed`.
 
-- Calendar-derived events (google/ics): `managed = true`, `controller = "calendar"` (unless explicitly overridden).
-- FPP-observed events (schedule.json snapshot): `managed = false`, `controller = "fpp"`.
+**Authority note**
 
-These defaults are lifecycle semantics (authority), not planner policy.
+Directional authority (Calendar vs FPP) is determined by Diff/Reconciliation layers. `managed` only gates whether Apply is allowed at all.
 
 ---
 
@@ -333,6 +336,7 @@ Semantics:
 - `enabled` expresses the intended enabled state when applying a managed Manifest Event.
   For unmanaged / FPP-observed events, `enabled` is observational only and MUST NOT be treated as permission to mutate.
 - `deleted` is a Manifest-level tombstone flag. It does not imply provider deletion.
+- Authority decisions MUST be based on per-item change detection where possible; relying only on a file-level `schedule.json` timestamp is insufficient.
 
 ---
 
@@ -342,7 +346,16 @@ Semantics:
 ProvenanceObject {
   source: "google" | "ics" | "manual" | "fpp",
   provider: string,
+
+  // When CS first created/ingested this Manifest Event.
   imported_at: string, // ISO-8601
+
+  // Per-source observation timestamps used for authority comparisons.
+  // These are NOT identity inputs.
+  last_seen_at?: {
+    calendar?: string, // ISO-8601
+    fpp?: string       // ISO-8601
+  },
 
   // Optional non-semantic snapshots for debugging/traceability.
   // MUST NOT be used for identity, hashing, diffing, or apply decisions.

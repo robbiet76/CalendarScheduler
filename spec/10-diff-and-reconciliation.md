@@ -12,6 +12,15 @@ It answers one question only:
 
 > **“Given what *****should***** exist and what *****does***** exist, what minimal changes are required?”**
 
+When a user edits and saves the FPP scheduler (`schedule.json`), this action MUST be treated as an implicit Apply operation.
+
+On save, the system MUST:
+- Re-ingest scheduler state
+- Run normalization and Diff
+- Mutate the Manifest so that it reflects the new scheduler reality
+
+This prevents calendar-derived state from overwriting user-authored scheduler changes in subsequent reconciliation runs.
+
 This phase is strictly comparative. It does not infer intent, repair data, or compensate for upstream mistakes.
 
 ---
@@ -27,7 +36,8 @@ Rules:
 - The Planner is authoritative for *ordering*
 - FPP scheduler state is authoritative only for *what currently exists*
 
-`schedule.json` is **not** authoritative and must never be used as a source of truth.
+`schedule.json` is not authoritative for intent, but IS authoritative for detecting
+user-initiated scheduler mutations that MUST be reconciled into the Manifest.
 
 ---
 
@@ -249,6 +259,11 @@ Rules:
 - Unmanaged entries must never produce DiffOperations
 - Unmanaged entries must never be mutated by Apply
 
+“Managed” is an internal adoption state, not a user-visible concept.
+
+All scheduler and calendar entries are considered adopted (managed) after the first
+successful reconciliation run.
+
 ---
 
 ## Ordering Considerations
@@ -268,6 +283,11 @@ If an update would only change order:
 Ordering is enforced during apply, not diff.
 
 ---
+
+The unmanaged state exists only prior to initial adoption.
+
+After adoption, unmanaged identities SHOULD NOT exist unless explicitly introduced
+by future policy.
 
 ## Forbidden Behaviors
 
@@ -459,6 +479,9 @@ Preview MUST be safe:
 - No writes
 - No network side effects beyond the minimum required to read sources
 
+Preview MUST reflect implicit Apply operations triggered by scheduler edits in the
+same way as explicit Apply runs.
+
 ### Terminology
 
 - **Operation**: create/update/delete classification for a Manifest Identity.
@@ -549,6 +572,7 @@ It is used only to decide **which side wins** when a Diff operation exists.
 ### Core Principle
 
 Timestamps are **observed facts**, never synthesized intent.
+The system MUST NOT track intent history beyond what is required for authority resolution.
 
 The system MUST NOT invent timestamps to influence reconciliation.
 Only timestamps provided by upstream systems or their direct artifacts are used.
@@ -582,6 +606,12 @@ Therefore, the authoritative timestamp for **all managed FPP Manifest Events**
 is defined as:
 
 - The filesystem modification time (`mtime`) of `schedule.json`
+
+This model assumes that any save of `schedule.json` represents a user-authored
+Apply action.
+
+Upon save, Diff MUST be executed and the Manifest MUST be updated to reflect
+the scheduler state.
 
 Rules:
 

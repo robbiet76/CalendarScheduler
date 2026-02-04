@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -25,6 +25,7 @@ The system may evolve, but its behavioral contracts must remain explicit,
 versioned, and intentional.
 
 No component may grow capabilities implicitly.
+All bidirectional behavior must be explicit, symmetrical, and mediated through the Manifest.
 
 ---
 
@@ -46,8 +47,9 @@ Rules:
 - Providers must not:
   - Assign identity
   - Apply scheduler semantics
-  - Write to FPP
+  - Bypass the Apply phase when mutating external systems
   - Modify the Manifest directly
+- Providers may perform outbound mutations only via the Apply phase and only from Manifest-derived intent
 
 All provider differences must be normalized before reaching the Manifest.
 
@@ -149,6 +151,7 @@ The following are explicitly forbidden:
 - Compatibility shims inside core logic
 - Reading schedule.json outside the semantic layer
 - Planner or Diff logic becoming backend-aware
+- Implicit authority shifts based on write direction (e.g. API vs file-based I/O)
 
 ---
 
@@ -174,3 +177,4 @@ The system evolves by addition, not mutation.
 - Semantics remain isolated
 - Providers remain replaceable
 - Behavior remains explainable
+- Apply is the sole mutation boundary for external systems

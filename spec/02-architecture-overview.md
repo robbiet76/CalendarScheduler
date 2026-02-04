@@ -8,9 +8,8 @@ This section describes the high-level architecture of the scheduler system, its 
 
 ---
 
-## Design Goals
-
 - **Single source of truth** via the Manifest
+- **Bidirectional calendar interaction (read and write) via provider adapters**
 - **Strict separation of concerns** between planning, diffing, and applying
 - **Provider-agnostic calendar ingestion** (no Google-specific logic outside adapters)
 - **FPP-specific logic isolated** to a single semantic layer
@@ -31,6 +30,8 @@ No source is compared directly to another source.
 
 Both calendars and the FPP scheduler UI serve as user-facing intent editors. Neither is authoritative. The Manifest remains the only authority over scheduling intent.
 
+Calendars and the FPP scheduler UI act as bidirectional intent editors: user mutations in either interface (such as creating, modifying, or deleting events in a calendar or in the scheduler UI) are treated as implicit Apply operations, and are reconciled into the Manifest as the single source of truth.
+
 ### Core Rule
 
 > **Manifest equals intent.**  
@@ -45,7 +46,7 @@ appears to function.
 This principle enforces a strict, ordered flow:
 
 1. **Source Acquisition**  
-   External systems provide raw facts only (e.g., ICS data, schedule.json entries).
+   External systems provide raw facts only (e.g., ICS data, schedule.json entries). Calendar sources include both file-based ingestion and API/OAuth-based providers.
 
 2. **Source Translation**  
    Provider-specific formats are normalized into *raw boundary objects* (e.g., CalendarRawEvent, FppRawEvent).  
@@ -82,6 +83,8 @@ This intent-first approach ensures:
 - Auditable decisions
 - Clean separation of responsibilities
 - Safe evolution toward additional calendar providers or schedulers
+
+The architecture explicitly supports two-way calendar synchronization: outbound writes to external calendar providers occur only through the Apply layer, using provider adapters to translate Manifest intent into provider-compatible events.
 
 ### Interfaces vs Intent
 
@@ -144,24 +147,26 @@ Resolution compares Intent derived from different sources, never raw data.
 ## High-Level Data Flow
 
 ```
-Calendar Provider (ICS)               FPP Scheduler (schedule.json)
-        ↓                                    ↓
-Provider Adapter (ICS → Raw Events)   FPP Adapter (schedule.json → Raw Events)
-        ↓                                    ↓
-                      IntentNormalizer (Raw Events → Intent)
-                                    ↓
-                                Planner (Intent → Bundles → Desired Entries)
-                                    ↓
-                           Manifest (Identity, Intent, Provenance)
-                                    ↓
-                           Comparator / Diff Engine
-                                    ↓
-                                Apply Engine
-                                    ↓
-                           FPP Scheduler (schedule.json)
+Calendar Provider (ICS/API/OAuth)         FPP Scheduler (schedule.json)
+        ↓                                         ↓
+Provider Adapter (ICS/API → Raw Events)   FPP Adapter (schedule.json → Raw Events)
+        ↓                                         ↓
+                    IntentNormalizer (Raw Events → Intent)
+                                  ↓
+                              Planner (Intent → Bundles → Desired Entries)
+                                  ↓
+                         Manifest (Identity, Intent, Provenance)
+                                  ↓
+                         Comparator / Diff Engine
+                                  ↓
+                              Apply Engine
+                        ↙                     ↘
+     Calendar Provider (API/OAuth)        FPP Scheduler (schedule.json)
 ```
 
 Provider adapters emit *raw factual events only*, with no intent, identity, defaults, or scheduling semantics inferred. Raw boundary objects never write to or modify the Manifest directly.
+
+Outbound provider adapters perform the inverse transformation during the Apply phase: they translate Manifest execution geometry and intent into provider-compatible representations, writing changes back to external calendars as needed.
 
 ---
 
@@ -224,6 +229,10 @@ They contain no intent or identity and are never compared or diffed directly.
 - Manifest identity is immutable once created
 - Manifest governs ownership, not schedule.json
 - All scheduler reconciliation flows through Manifest
+
+**The Manifest MUST be mutated when:**
+- The scheduler state is saved by the user
+- Calendar events are created, modified, or deleted via provider adapters
 
 (See **03 — Manifest**)
 

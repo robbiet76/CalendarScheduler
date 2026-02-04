@@ -6,7 +6,7 @@
 
 ## Purpose
 
-The **Calendar I/O Layer** defines the system boundary between the scheduler domain and external calendar systems (e.g. Google Calendar via Google Calendar API / ICS).
+The **Calendar I/O Layer** defines the system boundary between the scheduler domain and external calendar systems (e.g. calendar providers via API or ICS).
 
 This layer is responsible for **all communication with calendar providers**, regardless of direction or transport mechanism.
 
@@ -74,7 +74,7 @@ This file represents the authoritative, source-shaped calendar input used for:
 
 ### Path
 
-/home/fpp/media/config/google-calendar/calendar-raw.json
+/home/fpp/media/config/calendar-scheduler/calendar/
 
 ### Rules
 
@@ -101,6 +101,7 @@ Inbound Calendar I/O is responsible for *receiving* calendar data and translatin
 
 Calendar providers MUST be translated into a provider-neutral `CalendarEvent`:
 
+<!-- Example provider value; "google" is shown as an example only. -->
 ```json
 {
   "source": {
@@ -133,7 +134,7 @@ Where:
 - `dtstart` and `dtend`: ISO 8601 timestamps with timezone information, representing the event start and end.
 - `rrule`: an unexpanded recurrence rule object representing recurrence patterns.
 - `provenance`: metadata including the original event UID and the import timestamp.
-- `extended.private` is opaque and preserved verbatim
+- `extended.private` is provider-defined and preserved verbatim
 - Description metadata remains authoritative user input
 
 ### Inbound Contract
@@ -583,34 +584,9 @@ If a value cannot be safely edited by a user, it does not belong in the metadata
 
 ### NEW OAUTH/API UPDATE
 
-## Bidirectional Adapter Symmetry
+## OAuth / API-Backed Providers
 
-Calendar provider adapters MUST be implemented as **two-way, loss-aware transformers**.
-
-### Symmetry Requirements
-
-- Ingest and export share the same structural mapping rules
-- All reversible transformations MUST round-trip without drift
-- All irreversible transformations MUST be explicitly documented
-
----
-
-## Outbound I/O (System → Calendar)
-
-### Transport Modes
-
-Outbound Calendar I/O MAY be implemented via:
-
-- ICS artifact generation (legacy / offline)
-- Direct provider API calls (OAuth)
-
-Both modes MUST obey identical structural semantics.
-
----
-
-## OAuth / API-Based Providers (NEW)
-
-For API-backed providers (e.g. Google Calendar API):
+For API-backed providers (e.g. Google Calendar API as an example):
 
 ### Storage
 
@@ -627,7 +603,7 @@ For API-backed providers (e.g. Google Calendar API):
 - API failures are hard failures
 - Partial Apply is forbidden
 
----
+----
 
 ## Symbolic Preservation
 
@@ -635,7 +611,7 @@ For API-backed providers (e.g. Google Calendar API):
 - No forward resolution is permitted in Calendar I/O
 - Unsupported symbolic constructs MUST fail explicitly
 
----
+----
 
 > Calendar I/O is the only layer that knows calendars exist.
 

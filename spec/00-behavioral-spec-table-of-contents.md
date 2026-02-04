@@ -58,12 +58,11 @@ Defines:
 
 ## 5. Calendar Ingestion Layer  
 📄 **File:** `spec/05-calendar-io.md`
+📄 **File:** `spec/05-calendar-io-Google.md`
 
 Defines:
 - Calendar-agnostic ingestion contract
 - Provider-specific adapters (e.g., Google ICS)
-- What “resolved” means
-- What ingestion must *never* do
 
 ---
 

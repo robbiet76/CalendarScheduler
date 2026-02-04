@@ -1,4 +1,4 @@
-> **Status:** STABLE  
+**Status:** STABLE  
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
@@ -67,23 +67,23 @@ The system does **not**:
 
 - Add metadata fields to `schedule.json`
 - Store manifest data in the FPP scheduler
-- Persist identity outside the Manifest
+- Persist manifest identity or reconciliation metadata inside the FPP scheduler
 
 FPP scheduler entries remain **pure FPP-native structures**.
 
 ---
 
-## 5. No Direct Calendar-to-FPP Writes
+## 5. No Direct Calendar-to-FPP Writes (Bypassing Manifest)
 
 The system does **not**:
 
-- Write calendar data directly into FPP
-- Bypass the Manifest
-- Apply changes without diff reconciliation
-
-All changes must flow through:
+- Write calendar data directly into FPP scheduler structures
+- Bypass the Manifest as the system-of-record
+- Apply calendar-originated changes without diff reconciliation
 
 Calendar → Manifest → Planner → Diff → Apply
+
+Calendar providers (including API-based providers) may be written to only via the Apply phase; no other layer may emit provider mutations.
 
 ---
 
@@ -96,6 +96,8 @@ The system does **not** support:
 - Per-calendar manifests
 
 There is **one authoritative manifest** at all times.
+
+Provider-specific identifiers, reverse mappings, and reconciliation metadata may exist, but they MUST all resolve against the single authoritative manifest.
 
 ---
 
@@ -143,6 +145,7 @@ The system does **not** maintain:
 - Hidden caches
 - Implicit memory of prior runs
 - Undocumented state transitions
+- Implicit authority tracking not represented in the Manifest or reconciliation records
 
 All state is explicit and observable.
 
@@ -150,7 +153,7 @@ All state is explicit and observable.
 
 ## 11. No Provider Lock-In
 
-While Google Calendar is supported initially, the system does **not**:
+While Google Calendar is supported initially via API-based integration, the system does **not**:
 
 - Encode Google-specific assumptions into core logic
 - Require Google UIDs outside provider adapters
@@ -167,6 +170,7 @@ This system intentionally avoids:
 - Repairing
 - Auto-correcting
 - Silently adapting
+- Implicit authority or adoption state not expressed through diff and reconciliation
 
 Its strength is **explicitness**, **determinism**, and **traceability**.
 
