@@ -12,13 +12,14 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
  * Responsibilities:
  *  - Read client_secret.json
  *  - Print consent URL
- *  - Read auth code from stdin
+ *  - Receive auth code via loopback HTTP listener
  *  - Exchange code for tokens
  *  - Persist token.json
  *
  * Notes:
  *  - This does NOT read/write calendar events.
  *  - This does NOT touch Manifest/Diff/Apply logic.
+ *  - Uses a loopback redirect URI at http://127.0.0.1:42813/oauth for OAuth consent.
  */
 final class GoogleOAuthBootstrap
 {
@@ -30,9 +31,8 @@ final class GoogleOAuthBootstrap
     private const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
-    // Use OOB for simple CLI consent (works for many projects; if Google blocks it in your project,
-    // switch to loopback http://127.0.0.1:<port>/ and add a tiny local listener).
-    private const REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob';
+    // Loopback redirect URI for OAuth consent
+    private const REDIRECT_URI = 'http://127.0.0.1:42813/oauth';
 
     // Calendar scope (read/write)
     private const SCOPE = 'https://www.googleapis.com/auth/calendar';
@@ -71,11 +71,12 @@ final class GoogleOAuthBootstrap
         fwrite(STDERR, "Token output: {$tokenPath}\n\n");
         fwrite(STDERR, "1) Open this URL in a browser and complete consent:\n\n");
         fwrite(STDERR, $authUrl . "\n\n");
-        fwrite(STDERR, "2) Paste the authorization code here, then press Enter:\n> ");
+        fwrite(STDERR, "Waiting for authorization response on http://127.0.0.1:42813/oauth ...\n");
 
-        $code = trim((string) fgets(STDIN));
+        $code = $this->waitForLoopbackAuthCode();
+
         if ($code === '') {
-            fwrite(STDERR, "ERROR: No authorization code provided.\n");
+            fwrite(STDERR, "ERROR: No authorization code received.\n");
             exit(1);
         }
 
@@ -266,5 +267,82 @@ final class GoogleOAuthBootstrap
             fwrite(STDERR, "ERROR: Could not move {$tmp} to {$path}\n");
             exit(1);
         }
+    }
+
+    private function waitForLoopbackAuthCode(): string
+    {
+        $address = '127.0.0.1';
+        $port = 42813;
+        $timeoutSeconds = 300; // 5 minutes
+
+        $socket = @stream_socket_server("tcp://{$address}:{$port}", $errno, $errstr);
+        if ($socket === false) {
+            fwrite(STDERR, "ERROR: Could not bind to {$address}:{$port} - {$errstr} ({$errno})\n");
+            exit(1);
+        }
+
+        // Set timeout for accepting connection
+        stream_set_timeout($socket, $timeoutSeconds);
+
+        $client = @stream_socket_accept($socket, $timeoutSeconds);
+        if ($client === false) {
+            fclose($socket);
+            fwrite(STDERR, "ERROR: Timeout waiting for OAuth authorization response.\n");
+            exit(1);
+        }
+
+        // Read the HTTP request headers
+        $request = '';
+        while (($line = fgets($client)) !== false) {
+            $request .= $line;
+            if (rtrim($line) === '') {
+                break; // End of headers
+            }
+        }
+
+        // Parse the request line
+        $matches = [];
+        if (!preg_match('#^GET\s+([^\s]+)\s+HTTP/1\.[01]#', $request, $matches)) {
+            fclose($client);
+            fclose($socket);
+            fwrite(STDERR, "ERROR: Invalid HTTP request received.\n");
+            exit(1);
+        }
+
+        $requestUri = $matches[1];
+        $urlParts = parse_url($requestUri);
+        if (!isset($urlParts['path']) || $urlParts['path'] !== '/oauth') {
+            // Respond with 404 Not Found
+            $response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+            fwrite($client, $response);
+            fclose($client);
+            fclose($socket);
+            fwrite(STDERR, "ERROR: Unexpected request path received: {$urlParts['path']}\n");
+            exit(1);
+        }
+
+        // Parse query parameters
+        $queryParams = [];
+        if (isset($urlParts['query'])) {
+            parse_str($urlParts['query'], $queryParams);
+        }
+
+        $code = $queryParams['code'] ?? '';
+
+        // Respond with success message
+        $body = "Authorization complete. You may close this window.";
+        $response = "HTTP/1.1 200 OK\r\n";
+        $response .= "Content-Type: text/plain; charset=utf-8\r\n";
+        $response .= "Content-Length: " . strlen($body) . "\r\n";
+        $response .= "Connection: close\r\n";
+        $response .= "\r\n";
+        $response .= $body;
+
+        fwrite($client, $response);
+
+        fclose($client);
+        fclose($socket);
+
+        return $code;
     }
 }
