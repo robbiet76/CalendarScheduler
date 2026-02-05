@@ -169,13 +169,38 @@ final class GoogleApiClient
 
     private function refreshAccessToken(string $refreshToken): array
     {
+        // Load client_id / client_secret from client_secret.json
+        $clientSecretPath = $this->config->getClientSecretPath();
+
+        $raw = @file_get_contents($clientSecretPath);
+        if ($raw === false) {
+            throw new \RuntimeException(
+                "Unable to read Google client_secret.json at {$clientSecretPath}"
+            );
+        }
+
+        $json = json_decode($raw, true);
+        if (!is_array($json)) {
+            throw new \RuntimeException("Invalid JSON in client_secret.json");
+        }
+
+        // Support both "web" and "installed" OAuth client types
+        $clientBlock = $json['web'] ?? $json['installed'] ?? null;
+        if (!is_array($clientBlock)) {
+            throw new \RuntimeException(
+                "client_secret.json missing 'web' or 'installed' OAuth block"
+            );
+        }
+
+        $clientId = $clientBlock['client_id'] ?? null;
+        $clientSecret = $clientBlock['client_secret'] ?? null;
         $oauth = $this->config->getOauth();
-        $clientId = $oauth['client_id'] ?? null;
-        $clientSecret = $oauth['client_secret'] ?? null;
         $tokenUri = $oauth['token_uri'] ?? 'https://oauth2.googleapis.com/token';
 
         if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
-            throw new \RuntimeException("Google OAuth client_id/client_secret missing in config.");
+            throw new \RuntimeException(
+                "Google OAuth client_id/client_secret missing in client_secret.json"
+            );
         }
 
         $post = http_build_query([
