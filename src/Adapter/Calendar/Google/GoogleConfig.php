@@ -43,4 +43,16 @@ final class GoogleConfig
         }
         return $oauth;
     }
+
+    public function getOauthRedirectUri(): string
+    {
+        $oauth = $this->getOauth();
+
+        $uri = $oauth['redirect_uri'] ?? null;
+        if (!is_string($uri) || $uri === '') {
+            throw new \RuntimeException("Google config missing oauth.redirect_uri: {$this->configPath}");
+        }
+
+        return $uri;
+    }
 }

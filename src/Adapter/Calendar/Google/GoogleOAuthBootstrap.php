@@ -12,14 +12,14 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
  * Responsibilities:
  *  - Read client_secret.json
  *  - Print consent URL
- *  - Receive auth code via user paste-back (OOB flow)
+ *  - Receive auth code via user paste-back (local web redirect flow)
  *  - Exchange code for tokens
  *  - Persist token.json
  *
  * Notes:
  *  - This does NOT read/write calendar events.
  *  - This does NOT touch Manifest/Diff/Apply logic.
- *  - Uses an out-of-band (OOB) paste-back flow for OAuth consent.
+ *  - Uses a local web redirect–based OAuth flow.
  */
 final class GoogleOAuthBootstrap
 {
@@ -30,22 +30,15 @@ final class GoogleOAuthBootstrap
     // OAuth endpoints (Google)
     private const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-
-    // Out-of-band redirect URI for OAuth consent
-    private const REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob';
-
-    // Calendar scope (read/write)
     private const SCOPE = 'https://www.googleapis.com/auth/calendar';
 
-    /**
-     * Keep signature stable even if we don't need config yet.
-     * (We may later use it for calendar_id selection / config.json coordination.)
-     */
     private GoogleConfig $config;
+    private string $redirectUri;
 
     public function __construct(GoogleConfig $config)
     {
         $this->config = $config;
+        $this->redirectUri = $config->getOauthRedirectUri();
     }
 
     public function run(): void
@@ -63,7 +56,7 @@ final class GoogleOAuthBootstrap
         $clientSecret = $this->loadJsonFile($clientSecretPath);
         [$clientId, $clientSecretValue] = $this->extractClientCredentials($clientSecret);
 
-        $authUrl = $this->buildAuthUrl($clientId);
+        $authUrl = $this->buildAuthUrl($clientId, $this->redirectUri);
 
         fwrite(STDERR, "\n=== Google OAuth Bootstrap (CLI) ===\n");
         fwrite(STDERR, "Config dir: {$configDir}\n");
@@ -71,7 +64,7 @@ final class GoogleOAuthBootstrap
         fwrite(STDERR, "Token output: {$tokenPath}\n\n");
         fwrite(STDERR, "1) Open this URL in a browser and complete consent:\n\n");
         fwrite(STDERR, $authUrl . "\n\n");
-        fwrite(STDERR, "2) Paste the authorization code here, then press Enter:\n> ");
+        fwrite(STDERR, "2) After completing consent, paste the `code` query parameter here, then press Enter:\n> ");
         $code = trim(fgets(STDIN) ?: '');
 
         if ($code === '') {
@@ -117,11 +110,11 @@ final class GoogleOAuthBootstrap
         exit(0);
     }
 
-    private function buildAuthUrl(string $clientId): string
+    private function buildAuthUrl(string $clientId, string $redirectUri): string
     {
         $params = [
             'client_id' => $clientId,
-            'redirect_uri' => self::REDIRECT_URI,
+            'redirect_uri' => $redirectUri,
             'response_type' => 'code',
             'scope' => self::SCOPE,
             'access_type' => 'offline',
@@ -163,7 +156,7 @@ final class GoogleOAuthBootstrap
             'code' => $code,
             'client_id' => $clientId,
             'client_secret' => $clientSecretValue,
-            'redirect_uri' => self::REDIRECT_URI,
+            'redirect_uri' => $this->redirectUri,
             'grant_type' => 'authorization_code',
         ];
 
