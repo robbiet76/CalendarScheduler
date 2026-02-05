@@ -101,6 +101,10 @@ final class GoogleOAuthBootstrap
     }
 
     /**
+     * Google Calendar API writes/refresh in this project rely on a **Web application** OAuth client.
+     * Desktop/"installed" clients do not support the redirect URI model we use on FPP and will
+     * cause `invalid_client` or HTTP 400/401 failures.
+     *
      * @return array<string,mixed>
      */
     private function loadClientSecrets(): array
@@ -111,11 +115,20 @@ final class GoogleOAuthBootstrap
         if (isset($clientSecret['web']) && is_array($clientSecret['web'])) {
             return $clientSecret['web'];
         }
+
         if (isset($clientSecret['installed']) && is_array($clientSecret['installed'])) {
-            return $clientSecret['installed'];
+            throw new \RuntimeException(
+                'client_secret.json contains an "installed" (Desktop) OAuth client. ' .
+                'This project requires a **Web application** OAuth client with an Authorized redirect URI ' .
+                'matching oauth.redirect_uri (e.g. http://127.0.0.1:8765/oauth2callback). ' .
+                'Create a Web OAuth client in Google Cloud Console and download its client_secret.json.'
+            );
         }
 
-        return $clientSecret;
+        throw new \RuntimeException(
+            'client_secret.json is missing a "web" OAuth client block. ' .
+            'Create a Web application OAuth client in Google Cloud Console and download its client_secret.json.'
+        );
     }
 
     private function exchangeCodeForToken(string $code): array
