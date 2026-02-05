@@ -22,10 +22,10 @@ use RuntimeException;
 final class GoogleEventMapper
 {
     /**
-     * Map an ApplyOp into a Google Calendar mutation instruction.
+     * Map a ReconciliationAction into a Google Calendar mutation instruction.
      *
-     * @param array $applyOp  Fully-resolved ApplyOp (Diff output)
-     * @param string $timezone FPP local timezone (e.g. "America/Chicago")
+     * @param ReconciliationAction $action
+     * @param GoogleConfig $config
      *
      * @return array {
      *   method: "create"|"update"|"delete",
@@ -34,107 +34,96 @@ final class GoogleEventMapper
      *   payload?: array
      * }
      */
-    public function mapApplyOp(array $applyOp, string $timezone): array
+    public function mapAction(object $action, object $config): array
     {
-        $op = $applyOp['op'] ?? null;
-
+        // $action is expected to be a ReconciliationAction instance
+        // $config is expected to be a GoogleConfig instance
+        $op = $action->op ?? null;
+        $timezone = $config->timezone ?? null;
         if (!in_array($op, ['create', 'update', 'delete'], true)) {
-            throw new RuntimeException("Invalid ApplyOp: unsupported op '{$op}'");
+            throw new RuntimeException("Invalid ReconciliationAction: unsupported op '{$op}'");
         }
-
         if ($op === 'delete') {
-            return $this->mapDelete($applyOp);
+            return $this->mapDeleteFromAction($action);
         }
-
-        return $this->mapCreateOrUpdate($applyOp, $timezone);
+        return $this->mapCreateOrUpdateFromAction($action, $timezone);
     }
 
     /**
      * DELETE mapping
      */
-    private function mapDelete(array $applyOp): array
+    private function mapDeleteFromAction(object $action): array
     {
-        if (empty($applyOp['providerEventId'])) {
-            throw new RuntimeException('Delete ApplyOp missing providerEventId');
+        if (empty($action->providerEventId)) {
+            throw new RuntimeException('Delete ReconciliationAction missing providerEventId');
         }
-
         return [
             'method'  => 'delete',
-            'eventId' => $applyOp['providerEventId'],
-            'etag'    => $applyOp['etag'] ?? null,
+            'eventId' => $action->providerEventId,
+            'etag'    => $action->etag ?? null,
         ];
     }
 
     /**
      * CREATE / UPDATE mapping
      */
-    private function mapCreateOrUpdate(array $applyOp, string $timezone): array
+    private function mapCreateOrUpdateFromAction(object $action, string $timezone): array
     {
-        $base = $applyOp['baseSubEvent'] ?? null;
-
+        $base = $action->baseSubEvent ?? null;
         if (!is_array($base)) {
-            throw new RuntimeException('ApplyOp missing baseSubEvent');
+            throw new RuntimeException('ReconciliationAction missing baseSubEvent');
         }
-
         $payload = [
-            'summary'     => $this->mapSummary($applyOp),
-            'description' => $this->mapDescription($applyOp),
+            'summary'     => $this->mapSummaryFromAction($action),
+            'description' => $this->mapDescriptionFromAction($action),
             'start'       => $this->mapDateTime($base['start'], $timezone),
             'end'         => $this->mapDateTime($base['end'], $timezone),
         ];
-
         // Recurrence
         if (!empty($base['rrule'])) {
             $payload['recurrence'] = [$base['rrule']];
         }
-
         // Exceptions → EXDATE
-        if (!empty($applyOp['exceptionSubEvents'])) {
+        if (!empty($action->exceptionSubEvents)) {
             $payload['recurrence'] ??= [];
             $payload['recurrence'][] = $this->mapExDates(
-                $applyOp['exceptionSubEvents'],
+                $action->exceptionSubEvents,
                 $timezone
             );
         }
-
         // Extended properties (machine-authoritative)
         $payload['extendedProperties'] = [
             'private' => [
-                'cs.manifestEventId' => $applyOp['manifestEventId'],
+                'cs.manifestEventId' => $action->manifestEventId,
                 'cs.provider'        => 'google',
                 'cs.schemaVersion'   => '1', // bump only via explicit migration
             ],
         ];
-
-        $method = match ((string)$applyOp['op']) {
+        $method = match ((string)$action->op) {
             'create' => 'create',
             'update' => 'update',
-            default  => throw new RuntimeException('Invalid ApplyOp: unsupported op for create/update'),
+            default  => throw new RuntimeException('Invalid ReconciliationAction: unsupported op for create/update'),
         };
-
         $result = [
             'method'  => $method,
             'payload' => $payload,
         ];
-
-        if ($applyOp['op'] === 'update') {
-            if (empty($applyOp['providerEventId'])) {
-                throw new RuntimeException('Update ApplyOp missing providerEventId');
+        if ($action->op === 'update') {
+            if (empty($action->providerEventId)) {
+                throw new RuntimeException('Update ReconciliationAction missing providerEventId');
             }
-
-            $result['eventId'] = $applyOp['providerEventId'];
-            $result['etag']    = $applyOp['etag'] ?? null;
+            $result['eventId'] = $action->providerEventId;
+            $result['etag']    = $action->etag ?? null;
         }
-
         return $result;
     }
 
     /**
      * Summary mapping
      */
-    private function mapSummary(array $applyOp): string
+    private function mapSummaryFromAction(object $action): string
     {
-        return (string)($applyOp['summary'] ?? '');
+        return (string)($action->summary ?? '');
     }
 
     /**
@@ -142,9 +131,9 @@ final class GoogleEventMapper
      *
      * Description is opaque; Apply already assembled it.
      */
-    private function mapDescription(array $applyOp): string
+    private function mapDescriptionFromAction(object $action): string
     {
-        return (string)($applyOp['description'] ?? '');
+        return (string)($action->description ?? '');
     }
 
     /**

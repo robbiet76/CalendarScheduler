@@ -226,6 +226,282 @@ Calendar I/O MUST treat ApplyOps as instructions, not proposals.
 
 ---
 
+## OAuth Setup and User Configuration (Google)
+
+This section defines the **required, supported, and proven** OAuth configuration
+for connecting Calendar Scheduler to Google Calendar via the Google Calendar API.
+
+This is a **one-time, user-performed bootstrap process**.
+It is infrastructure setup, not part of Manifest, Diff, or Apply semantics.
+
+---
+
+### Supported OAuth Client Type
+
+**Exactly one OAuth client type is supported:**
+
+- ✅ **Web Application**
+- ❌ Desktop App (NOT supported)
+
+Desktop App clients are explicitly unsupported because they do not reliably support
+redirect-based consent flows required by Calendar Scheduler.
+
+---
+
+### Google Cloud Console Configuration
+
+Create a new OAuth 2.0 Client ID with:
+
+- **Application type:** Web application
+
+#### Authorized Redirect URIs
+
+Exactly one redirect URI MUST be configured:
+
+```
+http://127.0.0.1:8765/oauth2callback
+```
+
+Rules:
+- `127.0.0.1` MUST be used (not `localhost`)
+- Port `8765` is required
+- Path `/oauth2callback` is required
+- Trailing slashes MUST NOT be added
+
+#### Authorized JavaScript Origins
+
+This field:
+- MAY be left empty
+- Is not used by Calendar Scheduler
+
+---
+
+### Client Secret File
+
+After creating the OAuth client:
+
+1. Download the client secret JSON from Google Cloud Console
+2. Place it on the FPP system at:
+
+```
+/home/fpp/media/config/calendar-scheduler/calendar/google/client_secret.json
+```
+
+Rules:
+- File MUST be valid JSON
+- File MUST contain a `"web"` OAuth client
+- File permissions MUST allow read access by the plugin
+
+---
+
+### Calendar Scheduler Configuration
+
+The Google calendar configuration file MUST exist at:
+
+```
+/home/fpp/media/config/calendar-scheduler/calendar/google/config.json
+```
+
+Minimum required structure:
+
+```json
+{
+  "provider": "google",
+  "calendar_id": "primary",
+  "oauth": {
+    "client_file": "client_secret.json",
+    "token_file": "token.json",
+    "redirect_uri": "http://127.0.0.1:8765/oauth2callback",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar"
+    ]
+  }
+}
+```
+
+---
+
+### OAuth Bootstrap (CLI Flow)
+
+OAuth authorization is initiated via CLI:
+
+```bash
+php bin/calendar-scheduler google:auth
+```
+
+This command will:
+
+1. Print a Google consent URL
+2. Pause execution awaiting authorization
+
+The user MUST:
+
+1. Open the printed URL in any browser
+2. Complete Google consent
+3. Observe the browser redirect to:
+
+```
+http://127.0.0.1:8765/oauth2callback?code=...
+```
+
+4. Copy the value of the `code` query parameter
+5. Paste the code back into the CLI prompt
+
+On success:
+- `token.json` is written to the config directory
+- A refresh token is persisted
+- No further OAuth interaction is required
+
+---
+
+### Token Storage
+
+OAuth tokens are written to:
+
+```
+/home/fpp/media/config/calendar-scheduler/calendar/google/token.json
+```
+
+Rules:
+- Tokens are infrastructure state
+- Tokens MUST NOT be stored in the Manifest
+- Tokens MUST NOT be embedded in calendar data
+
+---
+
+### Failure Semantics
+
+OAuth setup failures are **hard failures**.
+
+Calendar Scheduler MUST:
+- Fail loudly
+- Emit actionable error messages
+- Never silently fall back to alternative auth flows
+
+OAuth must succeed before any API-based Calendar I/O is permitted.
+
+---
+
+## OAuth Error 400 — Root Cause and Resolution
+
+Google OAuth Error 400 during consent is **always a configuration error**.
+It is never transient and never resolved by retries.
+
+Calendar Scheduler has proven exactly **one valid configuration**.
+
+---
+
+### Proven Working Configuration
+
+OAuth consent succeeds **only** when all of the following are true:
+
+1. OAuth client type is **Web Application**
+2. Redirect URI matches **exactly**:
+
+```
+http://127.0.0.1:8765/oauth2callback
+```
+
+3. The Google Calendar API is enabled for the project
+4. Consent is completed in a browser
+5. The `code` query parameter is pasted back into the CLI
+
+Any deviation results in a hard OAuth failure.
+
+---
+
+### Common Causes of Error 400
+
+| Cause | Result |
+|-----|------|
+| Desktop App OAuth client | Google rejects redirect-based flow |
+| Using `localhost` instead of `127.0.0.1` | Redirect URI mismatch |
+| Missing `/oauth2callback` path | Redirect URI mismatch |
+| Trailing slash differences | Redirect URI mismatch |
+| Google Calendar API not enabled | OAuth fails before consent |
+| Attempting OOB (`urn:ietf:wg:oauth:2.0:oob`) | Deprecated by Google |
+
+---
+
+### Architectural Clarification
+
+Although authorization is initiated from the CLI:
+
+- The **browser** is the OAuth user agent
+- The **OAuth client is a Web Application**
+- The CLI is **not** an OAuth client
+
+The CLI:
+- Prints the consent URL
+- Waits for the authorization code
+- Exchanges the code for tokens
+
+This architecture requires Web Application OAuth semantics.
+
+Desktop App OAuth is incompatible with this model.
+
+---
+
+## Google API Enablement
+
+OAuth consent **will not succeed** unless the Google Calendar API
+is explicitly enabled for the project.
+
+### Required API
+
+In Google Cloud Console:
+
+```
+APIs & Services → Library → Google Calendar API
+```
+
+The API MUST be:
+
+- Enabled
+- Enabled on the same project as the OAuth client
+
+Disabling the API after token issuance will break Apply and Refresh.
+
+---
+
+## OAuth Scopes
+
+Calendar Scheduler requires exactly one OAuth scope:
+
+```
+https://www.googleapis.com/auth/calendar
+```
+
+Rules:
+
+- Scope MUST be declared in:
+  - OAuth consent screen
+  - CLI-generated authorization URL
+  - `config.json`
+
+- No additional scopes are permitted
+- Reduced scopes (read-only) are not supported
+
+Scope mismatch results in:
+- Token issuance failure
+- Partial API failures during Apply
+
+---
+
+### Scope Declaration Locations
+
+Scope MUST be present in **all** of the following:
+
+1. Google Cloud Console → OAuth Consent Screen
+2. Calendar Scheduler `config.json`
+3. Authorization URL generated by `google:auth`
+
+Calendar Scheduler MUST treat scope mismatch as a hard failure.
+
+---
+
+---
+
 ## ApplyOp → Google API Mutation Mapping
 
 This section defines the **mechanical, provider-specific projection rules**
