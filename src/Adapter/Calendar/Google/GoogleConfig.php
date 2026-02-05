@@ -64,4 +64,17 @@ final class GoogleConfig
 
         return $uri;
     }
+
+    public function getClientSecretPath(): string
+    {
+        $oauth = $this->getOauth();
+        $clientFile = $oauth['client_file'] ?? 'client_secret.json';
+        if (!is_string($clientFile) || $clientFile === '') {
+            $clientFile = 'client_secret.json';
+        }
+
+        return rtrim($this->getConfigDir(), DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . $clientFile;
+    }
 }
