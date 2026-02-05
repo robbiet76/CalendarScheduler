@@ -44,6 +44,7 @@ require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
 require_once __DIR__ . '/src/Adapter/FppScheduleTranslator.php';
 require_once __DIR__ . '/src/Adapter/FppScheduleAdapter.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleConfig.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleOAuthBootstrap.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApiClient.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarProvider.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarTranslator.php';
