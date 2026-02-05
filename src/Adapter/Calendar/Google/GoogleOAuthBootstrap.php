@@ -32,7 +32,7 @@ final class GoogleOAuthBootstrap
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
     // Loopback redirect URI for OAuth consent
-    private const REDIRECT_URI = 'http://127.0.0.1:42813/';
+    private const REDIRECT_URI = 'http://127.0.0.1:42813';
 
     // Calendar scope (read/write)
     private const SCOPE = 'https://www.googleapis.com/auth/calendar';
