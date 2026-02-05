@@ -23,15 +23,8 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
  */
 final class GoogleOAuthBootstrap
 {
-    private const DEFAULT_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-    private const CLIENT_SECRET_FILE = 'client_secret.json';
-    private const TOKEN_FILE = 'token.json';
-
-    // OAuth endpoints (Google)
     private const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-    private const SCOPE = 'https://www.googleapis.com/auth/calendar';
-
     private GoogleConfig $config;
 
     public function __construct(GoogleConfig $config)
@@ -39,47 +32,137 @@ final class GoogleOAuthBootstrap
         $this->config = $config;
     }
 
-    public function run(): void
+    public function runCli(bool $printAuthUrl = false): void
     {
-        $configDir = getenv('CS_GOOGLE_CONFIG_DIR') ?: self::DEFAULT_CONFIG_DIR;
-        $clientSecretPath = rtrim($configDir, '/') . '/' . self::CLIENT_SECRET_FILE;
-        $tokenPath = rtrim($configDir, '/') . '/' . self::TOKEN_FILE;
+        $configDir = $this->config->getConfigDir();
+        $clientSecretPath = $this->config->getClientSecretPath();
+        $tokenPath = $this->config->getTokenPath();
 
-        if (!is_file($clientSecretPath)) {
-            fwrite(STDERR, "ERROR: Missing client secret: {$clientSecretPath}\n");
-            fwrite(STDERR, "Copy your Google OAuth client json to that path.\n");
-            exit(1);
+        fwrite(STDOUT, PHP_EOL);
+        fwrite(STDOUT, "=== Google OAuth Bootstrap (CLI) ===" . PHP_EOL);
+        fwrite(STDOUT, "Config dir: {$configDir}" . PHP_EOL);
+        fwrite(STDOUT, "Client secret: {$clientSecretPath}" . PHP_EOL);
+        fwrite(STDOUT, "Token output: {$tokenPath}" . PHP_EOL);
+        fwrite(STDOUT, PHP_EOL);
+
+        if ($printAuthUrl) {
+            $authUrl = $this->buildAuthUrl();
+            fwrite(STDOUT, "Auth URL (optional):" . PHP_EOL . PHP_EOL);
+            fwrite(STDOUT, $authUrl . PHP_EOL . PHP_EOL);
         }
 
-        $clientSecret = $this->loadJsonFile($clientSecretPath);
-        [$clientId, $clientSecretValue] = $this->extractClientCredentials($clientSecret);
+        fwrite(
+            STDOUT,
+            "Paste the authorization `code` here (you can generate it on any machine/browser), then press Enter:" . PHP_EOL
+        );
 
-        $redirectUri = null;
-        if (isset($clientSecret['web']['redirect_uris'][0])) {
-            $redirectUri = $clientSecret['web']['redirect_uris'][0];
-        } elseif (isset($clientSecret['installed']['redirect_uris'][0])) {
-            $redirectUri = $clientSecret['installed']['redirect_uris'][0];
-        } else {
-            $redirectUri = $this->config->getOauthRedirectUri();
-        }
-
-        $authUrl = $this->buildAuthUrl($clientId, $redirectUri);
-
-        fwrite(STDERR, "\n=== Google OAuth Bootstrap (CLI) ===\n");
-        fwrite(STDERR, "Config dir: {$configDir}\n");
-        fwrite(STDERR, "Client secret: {$clientSecretPath}\n");
-        fwrite(STDERR, "Token output: {$tokenPath}\n\n");
-        fwrite(STDERR, "1) Open this URL in a browser and complete consent:\n\n");
-        fwrite(STDERR, $authUrl . "\n\n");
-        fwrite(STDERR, "2) After completing consent, paste the `code` query parameter here, then press Enter:\n> ");
-        $code = trim(fgets(STDIN) ?: '');
-
+        fwrite(STDOUT, "> ");
+        $code = trim((string) fgets(STDIN));
         if ($code === '') {
-            fwrite(STDERR, "ERROR: No authorization code received.\n");
-            exit(1);
+            throw new \RuntimeException("No authorization code provided.");
         }
 
-        $token = $this->exchangeCodeForToken($clientId, $clientSecretValue, $code, $redirectUri);
+        $token = $this->exchangeCodeForToken($code);
+        $this->writeTokenFile($token);
+
+        fwrite(STDOUT, PHP_EOL . "SUCCESS: token.json written." . PHP_EOL);
+    }
+
+    private function buildAuthUrl(): string
+    {
+        $oauth = $this->config->getOauth();
+        $client = $this->loadClientSecrets();
+
+        $clientId = $client['client_id'] ?? null;
+        if (!is_string($clientId) || $clientId === '') {
+            throw new \RuntimeException("client_id missing in client_secret.json");
+        }
+
+        $redirectUri = $oauth['redirect_uri'] ?? null;
+        if (!is_string($redirectUri) || $redirectUri === '') {
+            throw new \RuntimeException("oauth.redirect_uri missing in config.json");
+        }
+
+        $scopes = $oauth['scopes'] ?? [];
+        if (!is_array($scopes) || count($scopes) === 0) {
+            throw new \RuntimeException("oauth.scopes missing in config.json");
+        }
+
+        $params = [
+            'client_id' => $clientId,
+            'redirect_uri' => $redirectUri,
+            'response_type' => 'code',
+            'scope' => implode(' ', $scopes),
+            'access_type' => 'offline',
+            'prompt' => 'consent',
+        ];
+
+        return self::AUTH_URL . '?' . http_build_query($params);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function loadClientSecrets(): array
+    {
+        $path = $this->config->getClientSecretPath();
+        $clientSecret = $this->loadJsonFile($path);
+
+        if (isset($clientSecret['web']) && is_array($clientSecret['web'])) {
+            return $clientSecret['web'];
+        }
+        if (isset($clientSecret['installed']) && is_array($clientSecret['installed'])) {
+            return $clientSecret['installed'];
+        }
+
+        return $clientSecret;
+    }
+
+    private function exchangeCodeForToken(string $code): array
+    {
+        $oauth = $this->config->getOauth();
+        $client = $this->loadClientSecrets();
+
+        $clientId = $client['client_id'] ?? null;
+        $clientSecretValue = $client['client_secret'] ?? null;
+        if (!is_string($clientId) || $clientId === '' || !is_string($clientSecretValue) || $clientSecretValue === '') {
+            throw new \RuntimeException("client_id/client_secret missing in client_secret.json");
+        }
+
+        $redirectUri = $oauth['redirect_uri'] ?? null;
+        if (!is_string($redirectUri) || $redirectUri === '') {
+            throw new \RuntimeException("oauth.redirect_uri missing in config.json");
+        }
+
+        $post = [
+            'code' => $code,
+            'client_id' => $clientId,
+            'client_secret' => $clientSecretValue,
+            'redirect_uri' => $redirectUri,
+            'grant_type' => 'authorization_code',
+        ];
+
+        $resp = $this->curlJson(self::TOKEN_URL, $post);
+        if (!is_array($resp)) {
+            throw new \RuntimeException("token endpoint did not return JSON.");
+        }
+
+        if (isset($resp['error'])) {
+            $msg = is_string($resp['error']) ? $resp['error'] : 'unknown_error';
+            $desc = isset($resp['error_description']) && is_string($resp['error_description']) ? $resp['error_description'] : '';
+            $suffix = $desc !== '' ? " ({$desc})" : '';
+            throw new \RuntimeException("token exchange failed: {$msg}{$suffix}");
+        }
+
+        return $resp;
+    }
+
+    private function writeTokenFile(array $token): void
+    {
+        $tokenPath = $this->config->getTokenPath();
+        $oauth = $this->config->getOauth();
+        $scopes = $oauth['scopes'] ?? [];
+        $scopeValue = is_array($scopes) ? implode(' ', $scopes) : '';
 
         // Normalize token payload for runtime usage
         $now = time();
@@ -88,16 +171,14 @@ final class GoogleOAuthBootstrap
             'access_token' => (string) ($token['access_token'] ?? ''),
             'refresh_token' => (string) ($token['refresh_token'] ?? ''),
             'token_type' => (string) ($token['token_type'] ?? 'Bearer'),
-            'scope' => (string) ($token['scope'] ?? self::SCOPE),
+            'scope' => (string) ($token['scope'] ?? $scopeValue),
             'expires_in' => $expiresIn,
             'expires_at' => $expiresIn > 0 ? ($now + $expiresIn - 30) : 0, // subtract small safety buffer
             'created_at' => $now,
         ];
 
         if ($normalized['access_token'] === '') {
-            fwrite(STDERR, "ERROR: Token exchange returned no access_token.\n");
-            fwrite(STDERR, json_encode($token, JSON_PRETTY_PRINT) . "\n");
-            exit(1);
+            throw new \RuntimeException("Token exchange returned no access_token.");
         }
 
         // refresh_token is often only returned the *first* time with prompt=consent.
@@ -111,79 +192,6 @@ final class GoogleOAuthBootstrap
 
         $this->writeJsonFileAtomic($tokenPath, $normalized);
         @chmod($tokenPath, 0600);
-
-        fwrite(STDERR, "\nSUCCESS: token.json written.\n");
-        fwrite(STDERR, "Next: run `php bin/calendar-scheduler --refresh-calendar`\n\n");
-        exit(0);
-    }
-
-    private function buildAuthUrl(string $clientId, string $redirectUri): string
-    {
-        $params = [
-            'client_id' => $clientId,
-            'redirect_uri' => $redirectUri,
-            'response_type' => 'code',
-            'scope' => self::SCOPE,
-            'access_type' => 'offline',
-            'prompt' => 'consent',
-        ];
-        return self::AUTH_URL . '?' . http_build_query($params);
-    }
-
-    /**
-     * Supports both "installed" and "web" client_secret.json shapes.
-     *
-     * @return array{0:string,1:string} [client_id, client_secret]
-     */
-    private function extractClientCredentials(array $clientSecret): array
-    {
-        $root = null;
-        if (isset($clientSecret['installed']) && is_array($clientSecret['installed'])) {
-            $root = $clientSecret['installed'];
-        } elseif (isset($clientSecret['web']) && is_array($clientSecret['web'])) {
-            $root = $clientSecret['web'];
-        } else {
-            $root = $clientSecret;
-        }
-
-        $clientId = (string) ($root['client_id'] ?? '');
-        $clientSecretValue = (string) ($root['client_secret'] ?? '');
-
-        if ($clientId === '' || $clientSecretValue === '') {
-            fwrite(STDERR, "ERROR: client_secret.json missing client_id/client_secret.\n");
-            exit(1);
-        }
-
-        return [$clientId, $clientSecretValue];
-    }
-
-    private function exchangeCodeForToken(string $clientId, string $clientSecretValue, string $code, string $redirectUri): array
-    {
-        $post = [
-            'code' => $code,
-            'client_id' => $clientId,
-            'client_secret' => $clientSecretValue,
-            'redirect_uri' => $redirectUri,
-            'grant_type' => 'authorization_code',
-        ];
-
-        $resp = $this->curlJson(self::TOKEN_URL, $post);
-        if (!is_array($resp)) {
-            fwrite(STDERR, "ERROR: token endpoint did not return JSON.\n");
-            exit(1);
-        }
-
-        if (isset($resp['error'])) {
-            $msg = is_string($resp['error']) ? $resp['error'] : 'unknown_error';
-            $desc = isset($resp['error_description']) && is_string($resp['error_description']) ? $resp['error_description'] : '';
-            fwrite(STDERR, "ERROR: token exchange failed: {$msg}\n");
-            if ($desc !== '') {
-                fwrite(STDERR, $desc . "\n");
-            }
-            exit(1);
-        }
-
-        return $resp;
     }
 
     /**

@@ -11,6 +11,9 @@ final class GoogleConfig
 
     public function __construct(string $configPath)
     {
+        if (is_dir($configPath)) {
+            $configPath = rtrim($configPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config.json';
+        }
         $this->configPath = $configPath;
         $raw = @file_get_contents($configPath);
         if ($raw === false) {
@@ -76,5 +79,18 @@ final class GoogleConfig
         return rtrim($this->getConfigDir(), DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR
             . $clientFile;
+    }
+
+    public function getTokenPath(): string
+    {
+        $oauth = $this->getOauth();
+        $tokenFile = $oauth['token_file'] ?? 'token.json';
+        if (!is_string($tokenFile) || $tokenFile === '') {
+            $tokenFile = 'token.json';
+        }
+
+        return rtrim($this->getConfigDir(), DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . $tokenFile;
     }
 }
