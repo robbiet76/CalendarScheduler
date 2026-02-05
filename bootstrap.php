@@ -31,8 +31,6 @@ define('GCS_VERSION', '2.0-dev');
 // -----------------------------------------------------------------------------
 
 require_once __DIR__ . '/src/Platform/IniMetadata.php';
-require_once __DIR__ . '/src/Platform/IcsFetcher.php';
-require_once __DIR__ . '/src/Platform/IcsParser.php';
 require_once __DIR__ . '/src/Platform/FppSemantics.php';
 require_once __DIR__ . '/src/Platform/HolidayResolver.php';
 require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
@@ -43,14 +41,17 @@ require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
 // Adapter
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Adapter/CalendarSnapshot.php';
-require_once __DIR__ . '/src/Adapter/CalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/FppScheduleTranslator.php';
 require_once __DIR__ . '/src/Adapter/FppScheduleAdapter.php';
-require_once __DIR__ . '/src/Adapter/Google/GoogleCalendarAdapter.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleConfig.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApiClient.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarProvider.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarTranslator.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMapper.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApplyExecutor.php';
 
 // -----------------------------------------------------------------------------
-// Intent — canonical, source-agnostic scheduling intent (Phase 3)
+// Intent
 // -----------------------------------------------------------------------------
 
 require_once __DIR__ . '/src/Intent/Intent.php';
@@ -58,8 +59,9 @@ require_once __DIR__ . '/src/Intent/IntentNormalizer.php';
 require_once __DIR__ . '/src/Intent/NormalizationContext.php';
 
 // -----------------------------------------------------------------------------
-// Planner  - TEMPORARILY DISABLED (will be re-enabled later)
+// Planner
 // -----------------------------------------------------------------------------
+
 require_once __DIR__ . '/src/Planner/ManifestPlanner.php';
 // require_once __DIR__ . '/src/Planner/OrderingKey.php';
 // require_once __DIR__ . '/src/Planner/PlannedEntry.php';
@@ -67,17 +69,14 @@ require_once __DIR__ . '/src/Planner/ManifestPlanner.php';
 // require_once __DIR__ . '/src/Planner/Planner.php';
 
 // -----------------------------------------------------------------------------
-// Diff - TEMPORARILY DISABLED (will be re-enabled later)
+// Diff & Reconciliation
 // -----------------------------------------------------------------------------
+
 require_once __DIR__ . '/src/Diff/DiffResult.php';
 require_once __DIR__ . '/src/Diff/Diff.php';
 require_once __DIR__ . '/src/Diff/ReconciliationAction.php';
 require_once __DIR__ . '/src/Diff/ReconciliationResult.php';
 require_once __DIR__ . '/src/Diff/Reconciler.php';
-
-// -----------------------------------------------------------------------------
-// Manifest
-// -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
 // Apply
