@@ -323,34 +323,43 @@ Minimum required structure:
 
 ### OAuth Bootstrap (CLI Flow)
 
-OAuth authorization is initiated via CLI:
+OAuth authorization is completed in **two distinct phases**.
+
+The CLI **does not act as a browser-based OAuth client** and must not be relied upon
+to generate a usable consent URL on constrained systems (e.g. FPP).
+
+Instead, the CLI performs **code exchange only**.
+
+#### Phase 1 — Authorization Code Generation (User Browser)
+
+The user MUST generate the authorization code manually using the Web OAuth client.
+
+A valid authorization URL has the form:
+
+https://accounts.google.com/o/oauth2/v2/auth?client_id=<CLIENT_ID>&redirect_uri=http://127.0.0.1:8765/oauth2callback&response_type=code&scope=https://www.googleapis.com/auth/calendar&access_type=offline&prompt=consent
+
+Rules:
+- `<CLIENT_ID>` MUST match the Web Application OAuth client
+- The redirect URI MUST exactly match the configured redirect URI
+- The browser may run on **any machine**
+- The redirect target does NOT need to be reachable
+
+After consent, Google will redirect to:
+
+http://127.0.0.1:8765/oauth2callback?code=...
+
+The user MUST copy the value of the `code` parameter.
+
+#### Phase 2 — Token Exchange (CLI)
+
+The authorization code is exchanged on FPP via:
 
 ```bash
 php bin/calendar-scheduler google:auth
 ```
 
-This command will:
-
-1. Print a Google consent URL
-2. Pause execution awaiting authorization
-
-The user MUST:
-
-1. Open the printed URL in any browser
-2. Complete Google consent
-3. Observe the browser redirect to:
-
-```
-http://127.0.0.1:8765/oauth2callback?code=...
-```
-
-4. Copy the value of the `code` query parameter
-5. Paste the code back into the CLI prompt
-
-On success:
-- `token.json` is written to the config directory
-- A refresh token is persisted
-- No further OAuth interaction is required
+The CLI will prompt for the authorization code.
+On success, `token.json` is written.
 
 ---
 
@@ -420,6 +429,7 @@ Any deviation results in a hard OAuth failure.
 | Trailing slash differences | Redirect URI mismatch |
 | Google Calendar API not enabled | OAuth fails before consent |
 | Attempting OOB (`urn:ietf:wg:oauth:2.0:oob`) | Deprecated by Google |
+| Attempting to use the CLI-generated URL instead of a manually constructed authorization URL | Authorization fails, Error 400 |
 
 ---
 
@@ -439,6 +449,19 @@ The CLI:
 This architecture requires Web Application OAuth semantics.
 
 Desktop App OAuth is incompatible with this model.
+
+### Proven Operational Model
+
+Calendar Scheduler operates using a **split OAuth model**:
+
+- Authorization UI → User browser (any machine)
+- Token exchange → FPP CLI
+- API access → FPP runtime
+
+This model is intentional and required to support headless systems.
+
+Any implementation that assumes the FPP device itself can complete
+a browser-based OAuth flow is invalid.
 
 ---
 
