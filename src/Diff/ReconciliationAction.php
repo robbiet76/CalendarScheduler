@@ -42,7 +42,12 @@ final class ReconciliationAction
     public string $reason;
 
     /**
-     * Winning event state (manifest event array) for create/update, or the event to delete for deletes.
+     * Winning Manifest Event state for create/update, or the event to delete for deletes.
+     *
+     * This payload ALWAYS represents the full Manifest Event envelope,
+     * including all embedded subevents. Apply layers MUST treat this
+     * as the authoritative event envelope and are responsible for
+     * collapsing subevents into provider-specific representations.
      *
      * @var array<string,mixed>|null
      */

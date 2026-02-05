@@ -30,8 +30,7 @@ This specification governs interaction with:
 - Google Calendar via **OAuth‑authenticated REST API**
 - (Legacy) Google Calendar via **ICS import/export**
 
-Both transports are considered **equivalent providers** that must emit and
-consume the same canonical `CalendarEvent` representation.
+Both transports MUST emit and consume the same canonical `CalendarEvent` representation.
 
 ---
 
@@ -165,7 +164,7 @@ Google Calendar supports **two complementary mechanisms**:
 Example (INI):
 
 ```ini
-[gcs]
+[cs]
 managed = true
 ```
 
@@ -180,8 +179,8 @@ managed = true
 ```json
 "extendedProperties": {
   "private": {
-    "gcsManaged": "true",
-    "gcsSource": "fpp"
+    "cs.managed": "true",
+    "cs.source": "fpp"
   }
 }
 ```
@@ -202,6 +201,346 @@ Rules:
 ---
 
 ## Outbound I/O (System → Google)
+
+## Apply → Google Event Projection
+
+This section defines the **authoritative mutation contract** used when the Apply phase
+projects Manifest execution geometry into Google Calendar via the API.
+
+Apply operates strictly at the **Manifest Event** level.
+
+- One Manifest Event maps to exactly one Google Calendar event
+- SubEvents are aggregated inputs and are never written independently
+
+---
+
+### ApplyOp Specification
+
+The Apply phase communicates with Google Calendar exclusively through
+**explicit, fully‑resolved mutation operations** called **ApplyOps**.
+
+ApplyOps are the sole input to Google Calendar I/O during mutation.
+They are produced by Diff and are authority‑final.
+
+Calendar I/O MUST treat ApplyOps as instructions, not proposals.
+
+---
+
+## ApplyOp → Google API Mutation Mapping
+
+This section defines the **mechanical, provider-specific projection rules**
+used to translate an ApplyOp into a concrete Google Calendar API mutation.
+
+These rules are **purely translational**.
+They introduce no new semantics, authority, or reconciliation logic.
+
+---
+
+### Mapping Scope
+
+- Apply operates at the **Manifest Event** level
+- Exactly **one Google Calendar event** is addressed per ApplyOp
+- Manifest SubEvents are **inputs**, not write targets
+
+Calendar I/O MUST NOT:
+- Inspect Manifest state
+- Perform Diff logic
+- Infer authority
+- Expand recurrence
+- Synthesize SubEvents
+
+---
+
+### Operation Mapping
+
+#### CREATE
+
+- Google API: `events.insert`
+- `providerEventId` MUST be absent
+- `etag` MUST be absent
+
+The created Google event MUST:
+- Encode execution geometry from the base SubEvent
+- Include recurrence (RRULE) if present
+- Attach CS managed markers
+- Persist reverse-mapping metadata
+
+---
+
+#### UPDATE
+
+- Google API: `events.update`
+- `providerEventId` MUST be present
+- `etag` SHOULD be supplied
+
+Rules:
+- Full event replacement (no patch semantics)
+- If `etag` is present, it MUST be enforced
+- `412 Precondition Failed` is a hard failure
+
+---
+
+#### DELETE
+
+- Google API: `events.delete`
+- `providerEventId` MUST be present
+- Content-based matching is forbidden
+
+Deleting a non-existent event MUST surface as a hard failure.
+
+---
+
+### Execution Geometry Projection
+
+The **base SubEvent** defines:
+
+- `DTSTART`
+- `DTEND`
+- `RRULE`
+
+Rules:
+- Timezone is always FPP local timezone
+- All-day semantics are preserved exactly
+- `24:00:00` end-time semantics MUST NOT be normalized
+
+Exception SubEvents MUST NOT alter base timing.
+
+---
+
+### Recurrence Rules (RRULE)
+
+- Derived exclusively from the base SubEvent
+- Written verbatim as provided by Resolution
+- No provider-side interpretation or expansion
+
+`UNTIL` values are written exactly as supplied.
+
+---
+
+### Exceptions (EXDATE)
+
+Each exception SubEvent maps to exactly one `EXDATE`.
+
+Rules:
+- Timestamp-exact
+- Same timezone as `DTSTART`
+- No deduplication or inference
+
+---
+
+### Metadata and Reverse Mapping
+
+Outbound Apply MUST write machine-authoritative metadata using
+Google `extendedProperties.private`:
+
+```json
+{
+  "cs.manifestEventId": "<manifestEventId>",
+  "cs.provider": "google",
+  "cs.schemaVersion": "1"
+}
+```
+
+These fields:
+- Are not user-editable
+- Are never interpreted semantically
+- Exist solely for addressing and safety
+
+---
+
+### Explicit Non-Support
+
+Calendar I/O MUST NOT:
+
+- Retry failed mutations with relaxed constraints
+- Perform partial updates
+- Expand recurrence
+- Merge or split events
+- Coerce unsupported constructs
+
+Failure is correct behavior.
+
+---
+
+#### ApplyOp Shape
+
+```ts
+ApplyOp {
+  op: "create" | "update" | "delete"
+  manifestEventId: string
+  provider: "google"
+  providerEventId?: string
+  etag?: string
+  baseSubEvent: SubEvent
+  exceptionSubEvents: SubEvent[]
+}
+```
+
+---
+
+#### Field Semantics
+
+- `op`  
+  The mutation type to apply.
+
+- `manifestEventId`  
+  Stable identifier of the Manifest Event being projected.
+  Used for reverse mapping and metadata attachment only.
+
+- `provider`  
+  Target provider identifier. For this spec, always `"google"`.
+
+- `providerEventId`  
+  Required for `update` and `delete`.  
+  Forbidden for `create`.
+
+- `etag`  
+  Optional concurrency guard retrieved during ingestion.
+  When present, MUST be enforced.
+
+- `baseSubEvent`  
+  The authoritative execution geometry source:
+  - Defines DTSTART
+  - Defines DTEND
+  - Defines RRULE
+
+- `exceptionSubEvents`  
+  Zero or more SubEvents representing explicit exclusions.
+  Each exception SubEvent maps to exactly one EXDATE.
+
+---
+
+#### Structural Rules
+
+- Exactly one `baseSubEvent` MUST be present
+- `exceptionSubEvents` MAY be empty
+- Apply MUST NOT infer or synthesize SubEvents
+- Apply MUST NOT expand recurrence
+- Apply MUST NOT collapse or merge exceptions
+
+ApplyOps are **complete, self‑contained**, and **non‑derivable**.
+
+Calendar I/O MUST NOT:
+- Inspect Manifest state
+- Perform Diff logic
+- Resolve symbolic constructs
+- Apply authority rules
+
+---
+
+#### Directional Authority
+
+ApplyOps are directional by construction.
+
+Calendar I/O MUST assume:
+- Authority has already been resolved
+- Conflicts have already been decided
+- Mutation is safe to execute or fail
+
+---
+
+#### Failure Rules
+
+- Invalid ApplyOp shapes cause immediate failure
+- Missing `providerEventId` on update/delete is fatal
+- ETag mismatch MUST surface as a hard failure
+- Partial execution is forbidden
+
+Apply is atomic per run.
+
+- Google `start` and `end` are derived **exclusively** from the base SubEvent
+- Exception SubEvents MUST NOT alter `DTSTART` or `DTEND`
+- All‑day semantics are preserved exactly
+- Timezone is the FPP local timezone
+
+---
+
+### Recurrence (RRULE)
+
+- RRULE is derived from the base SubEvent only
+- `FREQ`, `INTERVAL`, and `BYDAY` are projected verbatim
+- `UNTIL` is written exactly as provided by Resolution
+- No recurrence interpretation or expansion occurs during Apply
+
+---
+
+### Exceptions (EXDATE)
+
+Each exception SubEvent is projected as a single `EXDATE`.
+
+Rules:
+
+- One exception SubEvent → one `EXDATE`
+- EXDATE values are:
+  - In the DTSTART timezone
+  - Timestamp‑exact (date‑only for all‑day events)
+- No deduplication, collapsing, or inference is permitted
+
+---
+
+### Summary and Description
+
+Apply MUST:
+
+- Write `summary` derived from the Manifest Event target
+- Write `description` containing:
+  - Calendar Description Metadata (INI)
+  - CS managed marker ([cs] INI block)
+  - Provider provenance block
+
+Apply MUST NOT interpret or normalize description metadata.
+
+---
+
+### Extended Properties (Reverse Mapping)
+
+Outbound Apply MUST write machine‑authoritative identifiers:
+
+```json
+"extendedProperties": {
+  "private": {
+    "cs.manifestEventId": "<id>",
+    "cs.provider": "google",
+    "cs.schemaVersion": "1"
+  }
+}
+```
+
+These fields are:
+- Not user‑editable
+- Used exclusively for addressing and reconciliation safety
+- Never used for semantic interpretation
+
+---
+
+### Deletes
+
+- Deletes are addressed strictly by `googleEventId`
+- Content‑based matching is forbidden
+- Missing target events cause explicit failure
+
+---
+
+### Idempotency and Concurrency
+
+- Updates and deletes SHOULD include `etag`
+- `412 Precondition Failed` MUST surface as a hard failure
+- Apply MUST NOT retry with relaxed constraints
+
+Conflict resolution is outside the scope of Apply.
+
+---
+
+### Explicit Non‑Support
+
+The following are intentionally unsupported during Apply:
+
+- Partial SubEvent writes
+- Provider‑side recurrence expansion
+- Silent coercion of unsupported constructs
+- Multi‑calendar mutation in a single Apply run
+
+Failures are correct behavior.
 
 ### Export Granularity
 

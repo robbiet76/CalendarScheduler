@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace CalendarScheduler\Adapter;
+namespace CalendarScheduler\Adapter\Calendar;
 
 use CalendarScheduler\Platform\IcsFetcher;
 use CalendarScheduler\Platform\IcsParser;

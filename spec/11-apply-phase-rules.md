@@ -34,7 +34,7 @@ The Apply phase accepts:
 
 - `DiffResult` (creates / updates / deletes)
 - Provider target configuration (which single calendar account/calendar is connected; which provider is authoritative is determined upstream)
-- Diff operations are event-atomic units (e.g., `PlannedEvent`), each of which may expand to multiple scheduler entries via SubEvents
+- Diff operations are event-atomic units (e.g., `PlannedEvent`), each of which may expand to multiple scheduler entries via SubEvents (scheduler entries correspond to SubEvents, e.g., FPP schedule rows)
 - Runtime flags:
   - `dry_run`
   - `debug`
@@ -68,6 +68,8 @@ All reconciliation decisions are finalized before Apply begins.
 
 If Apply needs to interpret provider content to decide what to do, that is a design error upstream.
 
+Note that for scheduler-style providers (e.g., FPP), Apply expands Manifest Events into multiple SubEvents (scheduler entries) for writing, whereas for Google Calendar provider, writes operate at the Manifest Event level without SubEvent expansion.
+
 ---
 
 ## Execution Order
@@ -89,14 +91,16 @@ Rationale:
 - Creates introduce new entries cleanly
 - Ordering is applied last to avoid transient instability
 
+Note that Apply operates on Manifest Events as atomic units, but writes execution via SubEvents (scheduler entries).
+
 ---
 
 ## Managed Boundary and Adoption
 
 Apply MUST only mutate objects that are within the **CS-managed set**.
 
-- “Managed” is an **internal implementation concept**, not a user-facing feature.
-- On first sync/adoption, existing provider objects that participate in scheduling are **adopted** into the managed set.
+- “Managed” is a **steady-state internal implementation concept**, not a user-facing feature, representing the set of objects under control after initial adoption.
+- On first sync/adoption, existing provider objects that participate in scheduling are **adopted** into the managed set, representing a one-time boundary transition.
 - After adoption, the expected steady state is: **all schedulable objects in the connected scope are managed**.
 
 Enforcement:
@@ -164,7 +168,7 @@ Violations of idempotency are critical defects.
 Apply MUST use provider-safe mechanisms to ensure updates are precise and repeatable:
 
 - Google Calendar API:
-  - Updates/deletes MUST be addressed by provider event ID
+  - Updates/deletes MUST be addressed by provider event ID at the Manifest Event level
   - If available, writes SHOULD use `etag` (or equivalent) to prevent overwriting concurrent changes
 - FPP scheduler:
   - Writes MUST be deterministic and derived only from the DiffResult

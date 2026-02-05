@@ -10,6 +10,12 @@ This section defines how **calendar events**, **manifest events**, and **FPP sch
 
 It establishes the atomic execution model used throughout the system and replaces the earlier term *bundle* with clearer, domain-aligned language.
 
+**Terminology Note (Intentional):**  
+The term **SubEvent** refers to a single, executable scheduler entry.  
+In scheduler backends such as FPP, a SubEvent maps 1:1 to what users typically call a *schedule entry*.  
+The name *SubEvent* is historical and reflects its derivation from a higher‑level Manifest Event.  
+A future major revision may rename this concept to *ScheduleEntry* for clarity.
+
 The canonical relationship is:
 
 ```
@@ -17,9 +23,9 @@ Calendar Event
         ↓
 Manifest Event
         ↓
-{ SubEvents }
+{ SubEvents }   (execution units)
         ↓
-FPP Scheduler Entries
+Scheduler Entries (FPP, etc.)
 ```
 
 ---
@@ -65,7 +71,7 @@ A Manifest Event contains:
 
 ### SubEvents
 
-A **SubEvent** is a deterministic, executable component derived from a Manifest Event.
+A **SubEvent** is a deterministic, executable scheduling unit derived from a Manifest Event.
 
 SubEvents are introduced only after calendar import and resolution.  
 SubEvents receive fully normalized timing boundaries.  
@@ -77,8 +83,9 @@ occurs beyond the single base SubEvent derived directly from a
 scheduler entry.
 
 SubEvents exist because:
-- Not all scheduling intent can be expressed as a single FPP scheduler entry
-- Exceptions, unsupported day masks, or date patterns require decomposition
+- Scheduler backends operate on discrete execution entries
+- Some calendar intent cannot be expressed as a single scheduler entry
+- Exceptions, unsupported day masks, or date patterns may require decomposition
 
 Rules:
 - SubEvents **always live inside** the Manifest Event
@@ -157,6 +164,7 @@ Characteristics:
 
 - **IdentityObject exists at the Manifest Event level**
 - **SubEvents never have identity**
+- SubEvents correspond to scheduler execution entries but are never treated as first‑class semantic objects
 - Identity comparison, hashing, and reconciliation operate on Manifest Events only
 
 This guarantees:
@@ -411,8 +419,7 @@ Rules:
 ### Non‑Goals
 
 SubEvents are not a semantic unit and must never be treated as such.  
-Any design that attempts to diff, hash, or persist SubEvents independently  
-is invalid by definition.
+They exist solely as executable artifacts required by scheduler backends.
 
 ---
 
