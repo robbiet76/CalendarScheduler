@@ -5,78 +5,42 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
 
 final class GoogleConfig
 {
-    /** @var array<string,mixed> */
+    private string $calendarId;
+    private string $configPath;
     private array $data;
-    private string $path;
 
-    /**
-     * @param array<string,mixed> $data
-     */
-    public function __construct(string $path, array $data)
+    public function __construct(string $configPath)
     {
-        $this->path = $path;
-        $this->data = $data;
-    }
-
-    public function getPath(): string
-    {
-        return $this->path;
-    }
-
-    public static function load(string $path): self
-    {
-        $raw = @file_get_contents($path);
+        $this->configPath = $configPath;
+        $raw = @file_get_contents($configPath);
         if ($raw === false) {
-            throw new \RuntimeException("GoogleConfig: failed to read config: {$path}");
+            throw new \RuntimeException("Google config not found: {$configPath}");
         }
-
         $data = json_decode($raw, true);
         if (!is_array($data)) {
-            throw new \RuntimeException('GoogleConfig: invalid json');
+            throw new \RuntimeException("Google config invalid JSON: {$configPath}");
         }
-        return new self($path, $data);
-    }
+        $this->data = $data;
 
-    public function save(): void
-    {
-        $json = json_encode($this->data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            throw new \RuntimeException('GoogleConfig: failed to encode json');
+        // Accept either calendar_id (preferred) or calendarId (legacy).
+        $calendarId = $data['calendar_id'] ?? $data['calendarId'] ?? null;
+        if (!is_string($calendarId) || $calendarId === '') {
+            $calendarId = 'primary';
         }
-        if (@file_put_contents($this->path, $json . "\n") === false) {
-            throw new \RuntimeException('GoogleConfig: failed to write config: ' . $this->path);
-        }
-    }
-
-    public function getClientId(): string
-    {
-        return (string) ($this->data['client_id'] ?? '');
-    }
-
-    public function getClientSecret(): string
-    {
-        return (string) ($this->data['client_secret'] ?? '');
+        $this->calendarId = $calendarId;
     }
 
     public function getCalendarId(): string
     {
-        // single-calendar-at-a-time model; user can switch which calendar is active
-        return (string) ($this->data['calendar_id'] ?? 'primary');
+        return $this->calendarId;
     }
 
-    /**
-     * @return array<string,mixed>
-     */
-    public function getTokens(): array
+    public function getOauth(): array
     {
-        return (array) ($this->data['tokens'] ?? []);
-    }
-
-    /**
-     * @param array<string,mixed> $tokens
-     */
-    public function setTokens(array $tokens): void
-    {
-        $this->data['tokens'] = $tokens;
+        $oauth = $this->data['oauth'] ?? null;
+        if (!is_array($oauth)) {
+            throw new \RuntimeException("Google config missing oauth block: {$this->configPath}");
+        }
+        return $oauth;
     }
 }

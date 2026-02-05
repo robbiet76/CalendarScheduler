@@ -7,263 +7,237 @@ final class GoogleApiClient
 {
     private GoogleConfig $config;
 
-    /** @var string[] */
-    private array $scopes;
-
-    private const DEVICE_CODE_ENDPOINT = 'https://oauth2.googleapis.com/device/code';
-    private const TOKEN_ENDPOINT       = 'https://oauth2.googleapis.com/token';
-
-    private const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3';
-
-    /**
-     * @param string[] $scopes
-     */
-    public function __construct(GoogleConfig $config, array $scopes)
+    public function __construct(GoogleConfig $config)
     {
         $this->config = $config;
-        $this->scopes = $scopes;
-    }
-
-    // ---------------------------------------------------------------------
-    // Public: auth
-    // ---------------------------------------------------------------------
-
-    /**
-     * One-time interactive auth for headless FPP (device code flow).
-     * Prints instructions + polls until authorized, then persists refresh token.
-     */
-    public function authorizeDeviceFlowInteractive(): void
-    {
-        $clientId = $this->config->getClientId();
-        $clientSecret = $this->config->getClientSecret();
-
-        if ($clientId === '' || $clientSecret === '') {
-            throw new \RuntimeException('GoogleApiClient: client_id/client_secret missing in config.json');
-        }
-
-        $device = $this->httpForm(self::DEVICE_CODE_ENDPOINT, [
-            'client_id' => $clientId,
-            'scope' => implode(' ', $this->scopes),
-        ]);
-
-        $userCode = (string) ($device['user_code'] ?? '');
-        $verificationUrl = (string) ($device['verification_url'] ?? '');
-        $deviceCode = (string) ($device['device_code'] ?? '');
-        $interval = (int) ($device['interval'] ?? 5);
-
-        if ($userCode === '' || $verificationUrl === '' || $deviceCode === '') {
-            throw new \RuntimeException('GoogleApiClient: device code response missing fields');
-        }
-
-        // CLI output only — ok for setup command
-        fwrite(STDERR, "\nGoogle OAuth authorization required.\n");
-        fwrite(STDERR, "1) On another device, open: {$verificationUrl}\n");
-        fwrite(STDERR, "2) Enter code: {$userCode}\n\n");
-        fwrite(STDERR, "Waiting for authorization...\n");
-
-        $grantType = 'urn:ietf:params:oauth:grant-type:device_code';
-        $started = time();
-
-        while (true) {
-            // Poll token endpoint
-            try {
-                $token = $this->httpForm(self::TOKEN_ENDPOINT, [
-                    'client_id' => $clientId,
-                    'client_secret' => $clientSecret,
-                    'device_code' => $deviceCode,
-                    'grant_type' => $grantType,
-                ], [200, 400, 401, 403, 428]);
-            } catch (\Throwable $e) {
-                // transient network error
-                sleep(max(1, $interval));
-                continue;
-            }
-
-            if (isset($token['access_token'])) {
-                $this->persistTokensFromTokenResponse($token);
-                fwrite(STDERR, "Authorized. Tokens saved to: " . $this->config->getPath() . "\n\n");
-                return;
-            }
-
-            $err = (string) ($token['error'] ?? '');
-            if ($err === 'authorization_pending') {
-                sleep(max(1, $interval));
-                continue;
-            }
-            if ($err === 'slow_down') {
-                $interval += 5;
-                sleep($interval);
-                continue;
-            }
-            if ($err === 'access_denied') {
-                throw new \RuntimeException('GoogleApiClient: access denied by user');
-            }
-            if ($started + 1800 < time()) {
-                throw new \RuntimeException('GoogleApiClient: device authorization timed out');
-            }
-
-            // Unknown error
-            throw new \RuntimeException('GoogleApiClient: token polling error: ' . json_encode($token));
-        }
     }
 
     /**
-     * Ensures a usable access token exists (refresh if needed).
+     * Ensures we have a valid access token (refresh if needed).
+     *
+     * For bootstrap (first-time auth), we intentionally fail hard and require the
+     * CLI auth flow to create token.json. (We’ll implement google:auth next.)
      */
-    public function ensureAccessToken(): string
+    public function ensureAuthenticated(): void
     {
-        $tokens = $this->config->getTokens();
-        $access = (string) ($tokens['access_token'] ?? '');
-        $refresh = (string) ($tokens['refresh_token'] ?? '');
-        $expiresAt = (int) ($tokens['access_token_expires_at'] ?? 0);
-
-        // 60s skew
-        if ($access !== '' && $expiresAt > (time() + 60)) {
-            return $access;
+        $token = $this->loadToken();
+        if ($token === null) {
+            throw new \RuntimeException(
+                "Google OAuth token missing. Run the CLI auth bootstrap to generate token.json."
+            );
         }
 
-        if ($refresh === '') {
-            throw new \RuntimeException('GoogleApiClient: no refresh token; run device auth');
+        $expiresAt = $token['expires_at'] ?? null;
+        if (is_int($expiresAt) && $expiresAt > time() + 60) {
+            return; // still valid
         }
 
-        $clientId = $this->config->getClientId();
-        $clientSecret = $this->config->getClientSecret();
+        $refreshToken = $token['refresh_token'] ?? null;
+        if (!is_string($refreshToken) || $refreshToken === '') {
+            throw new \RuntimeException("Google OAuth refresh_token missing; re-auth is required.");
+        }
 
-        $token = $this->httpForm(self::TOKEN_ENDPOINT, [
+        $newToken = $this->refreshAccessToken($refreshToken);
+        $this->saveToken($newToken);
+    }
+
+    /**
+     * Create a Google Calendar event.
+     * Returns the new Google eventId.
+     */
+    public function createEvent(string $calendarId, array $payload): string
+    {
+        $this->ensureAuthenticated();
+        $res = $this->requestJson(
+            'POST',
+            "/calendars/" . rawurlencode($calendarId) . "/events",
+            $payload
+        );
+        $id = $res['id'] ?? null;
+        if (!is_string($id) || $id === '') {
+            throw new \RuntimeException("Google createEvent: missing id in response.");
+        }
+        return $id;
+    }
+
+    public function updateEvent(string $calendarId, string $eventId, array $payload): void
+    {
+        $this->ensureAuthenticated();
+        $this->requestJson(
+            'PATCH',
+            "/calendars/" . rawurlencode($calendarId) . "/events/" . rawurlencode($eventId),
+            $payload
+        );
+    }
+
+    public function deleteEvent(string $calendarId, string $eventId): void
+    {
+        $this->ensureAuthenticated();
+        $this->requestJson(
+            'DELETE',
+            "/calendars/" . rawurlencode($calendarId) . "/events/" . rawurlencode($eventId),
+            null
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Token handling
+    // ---------------------------------------------------------------------
+
+    private function getTokenFilePath(): string
+    {
+        $oauth = $this->config->getOauth();
+        $tokenFile = $oauth['token_file'] ?? 'token.json';
+        if (!is_string($tokenFile) || $tokenFile === '') {
+            $tokenFile = 'token.json';
+        }
+        // token_file is relative to config.json directory
+        $dir = dirname((new \ReflectionClass($this->config))->getFileName());
+        // ^ fallback not ideal, but keeps this patch minimal. If you already have
+        // a config-dir helper, swap it in.
+        return $dir . DIRECTORY_SEPARATOR . $tokenFile;
+    }
+
+    private function loadToken(): ?array
+    {
+        $path = $this->getTokenFilePath();
+        $raw = @file_get_contents($path);
+        if ($raw === false) {
+            return null;
+        }
+        $data = json_decode($raw, true);
+        return is_array($data) ? $data : null;
+    }
+
+    private function saveToken(array $token): void
+    {
+        $path = $this->getTokenFilePath();
+        $json = json_encode($token, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            throw new \RuntimeException("Unable to encode token JSON.");
+        }
+        if (@file_put_contents($path, $json) === false) {
+            throw new \RuntimeException("Unable to write token file: {$path}");
+        }
+    }
+
+    private function refreshAccessToken(string $refreshToken): array
+    {
+        $oauth = $this->config->getOauth();
+        $clientId = $oauth['client_id'] ?? null;
+        $clientSecret = $oauth['client_secret'] ?? null;
+        $tokenUri = $oauth['token_uri'] ?? 'https://oauth2.googleapis.com/token';
+
+        if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
+            throw new \RuntimeException("Google OAuth client_id/client_secret missing in config.");
+        }
+
+        $post = http_build_query([
             'client_id' => $clientId,
             'client_secret' => $clientSecret,
-            'refresh_token' => $refresh,
+            'refresh_token' => $refreshToken,
             'grant_type' => 'refresh_token',
         ]);
 
-        if (!isset($token['access_token'])) {
-            throw new \RuntimeException('GoogleApiClient: refresh failed: ' . json_encode($token));
-        }
-
-        // refresh response might not include refresh_token; preserve existing
-        $token['refresh_token'] = $refresh;
-        $this->persistTokensFromTokenResponse($token);
-
-        return (string) $token['access_token'];
-    }
-
-    // ---------------------------------------------------------------------
-    // Public: Calendar API helpers (low-level)
-    // ---------------------------------------------------------------------
-
-    /**
-     * @param array<string,string> $query
-     * @param array<string,mixed>|null $json
-     * @return array<string,mixed>
-     */
-    public function request(string $method, string $path, array $query = [], ?array $json = null): array
-    {
-        $token = $this->ensureAccessToken();
-        $url = rtrim(self::CALENDAR_BASE, '/') . '/' . ltrim($path, '/');
-        if (!empty($query)) {
-            $url .= '?' . http_build_query($query);
-        }
-
-        $headers = [
-            'Authorization: Bearer ' . $token,
-            'Accept: application/json',
-        ];
-        $body = null;
-        if ($json !== null) {
-            $headers[] = 'Content-Type: application/json';
-            $body = json_encode($json);
-            if ($body === false) {
-                throw new \RuntimeException('GoogleApiClient: failed to encode json body');
-            }
-        }
-
-        return $this->httpRaw($method, $url, $headers, $body);
-    }
-
-    // ---------------------------------------------------------------------
-    // Internals
-    // ---------------------------------------------------------------------
-
-    /**
-     * @param array<string,mixed> $token
-     */
-    private function persistTokensFromTokenResponse(array $token): void
-    {
-        $access = (string) ($token['access_token'] ?? '');
-        $refresh = (string) ($token['refresh_token'] ?? '');
-        $expiresIn = (int) ($token['expires_in'] ?? 0);
-
-        $tokens = $this->config->getTokens();
-        $tokens['access_token'] = $access;
-        if ($refresh !== '') {
-            $tokens['refresh_token'] = $refresh;
-        }
-        if ($expiresIn > 0) {
-            $tokens['access_token_expires_at'] = time() + $expiresIn;
-        }
-        $this->config->setTokens($tokens);
-        $this->config->save();
-    }
-
-    /**
-     * @param array<string,string> $params
-     * @param int[] $allowedStatus
-     * @return array<string,mixed>
-     */
-    private function httpForm(string $url, array $params, array $allowedStatus = [200]): array
-    {
-        $body = http_build_query($params);
-        $headers = [
-            'Content-Type: application/x-www-form-urlencoded',
-            'Accept: application/json',
-        ];
-        return $this->httpRaw('POST', $url, $headers, $body, $allowedStatus);
-    }
-
-    /**
-     * @param string[] $headers
-     * @param int[] $allowedStatus
-     * @return array<string,mixed>
-     */
-    private function httpRaw(
-        string $method,
-        string $url,
-        array $headers,
-        ?string $body = null,
-        array $allowedStatus = [200]
-    ): array {
-        $ch = curl_init($url);
-        if ($ch === false) {
-            throw new \RuntimeException('GoogleApiClient: curl init failed');
-        }
-
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+        $ch = curl_init($tokenUri);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
 
-        if ($body !== null) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if ($body === false) {
+            $err = curl_error($ch);
+            curl_close($ch);
+            throw new \RuntimeException("Google OAuth refresh failed: {$err}");
         }
-
-        $resp = curl_exec($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        $err = curl_error($ch);
         curl_close($ch);
 
-        if ($resp === false) {
-            throw new \RuntimeException('GoogleApiClient: curl error: ' . $err);
+        $data = json_decode($body, true);
+        if (!is_array($data)) {
+            throw new \RuntimeException("Google OAuth refresh: invalid JSON response (HTTP {$code}).");
+        }
+        if ($code < 200 || $code >= 300) {
+            $msg = $data['error_description'] ?? $data['error'] ?? 'unknown';
+            throw new \RuntimeException("Google OAuth refresh error (HTTP {$code}): {$msg}");
         }
 
-        $decoded = json_decode($resp, true);
-        if (!is_array($decoded)) {
-            $decoded = ['raw' => $resp];
+        $accessToken = $data['access_token'] ?? null;
+        $expiresIn = $data['expires_in'] ?? null;
+        if (!is_string($accessToken) || $accessToken === '' || !is_int($expiresIn)) {
+            throw new \RuntimeException("Google OAuth refresh: missing access_token/expires_in.");
         }
 
-        if (!in_array($status, $allowedStatus, true)) {
-            throw new \RuntimeException("GoogleApiClient: HTTP {$status} {$url} -> " . json_encode($decoded));
+        // Preserve refresh_token from prior token.
+        return [
+            'access_token' => $accessToken,
+            'refresh_token' => $refreshToken,
+            'expires_at' => time() + $expiresIn,
+        ];
+    }
+
+    // ---------------------------------------------------------------------
+    // Google Calendar REST helpers
+    // ---------------------------------------------------------------------
+
+    private function requestJson(string $method, string $path, ?array $payload): array
+    {
+        $token = $this->loadToken();
+        if ($token === null || !is_string($token['access_token'] ?? null)) {
+            throw new \RuntimeException("Missing access_token; OAuth bootstrap required.");
         }
 
-        return $decoded;
+        $base = 'https://www.googleapis.com/calendar/v3';
+        $url = $base . $path;
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+
+        $headers = [
+            'Authorization: Bearer ' . $token['access_token'],
+            'Accept: application/json',
+        ];
+
+        if ($payload !== null) {
+            $json = json_encode($payload, JSON_UNESCAPED_SLASHES);
+            if ($json === false) {
+                throw new \RuntimeException("Unable to encode Google payload JSON.");
+            }
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
+            $headers[] = 'Content-Type: application/json';
+        }
+
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+        $body = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if ($body === false) {
+            $err = curl_error($ch);
+            curl_close($ch);
+            throw new \RuntimeException("Google API request failed: {$err}");
+        }
+        curl_close($ch);
+
+        // DELETE may return empty body.
+        if ($body === '' || $body === null) {
+            if ($code >= 200 && $code < 300) {
+                return [];
+            }
+            throw new \RuntimeException("Google API error (HTTP {$code}) with empty body.");
+        }
+
+        $data = json_decode($body, true);
+        if (!is_array($data)) {
+            throw new \RuntimeException("Google API returned invalid JSON (HTTP {$code}).");
+        }
+
+        if ($code < 200 || $code >= 300) {
+            $msg = $data['error']['message'] ?? 'unknown';
+            throw new \RuntimeException("Google API error (HTTP {$code}): {$msg}");
+        }
+
+        return $data;
     }
 }

@@ -17,11 +17,8 @@ use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
-use CalendarScheduler\Platform\IcsParser;
-use CalendarScheduler\Adapter\Google\GoogleCalendarAdapter;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarProvider;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
-use CalendarScheduler\Adapter\CalendarTranslator;
-use CalendarScheduler\Adapter\CalendarSnapshot;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyMode;
 use CalendarScheduler\Apply\WritableTargets;
@@ -140,23 +137,6 @@ if ($afterEpoch <= $beforeEpoch) {
 }
 
 try {
-    // -------------------------------------------------------------------------
-    // Refresh calendar snapshot if requested
-    // -------------------------------------------------------------------------
-    if ($refreshCalendar) {
-        // Use the correct constructor for CalendarTranslator (with IcsParser and snapshot path)
-        $icsParser = new IcsParser();
-        $translator = new CalendarTranslator($icsParser, $DEFAULT_CALENDAR_SNAPSHOT_PATH);
-        $snapshot = new CalendarSnapshot($translator);
-
-        try {
-            $events = $snapshot->refreshFromIcs();
-            $snapshot->write($events);
-            fwrite(STDERR, "[INFO] Calendar snapshot refreshed\n");
-        } catch (\Throwable $e) {
-            throw new RuntimeException('Failed to refresh calendar snapshot: ' . $e->getMessage());
-        }
-    }
 
     // -------------------------------------------------------------------------
     // Normalization context
@@ -194,15 +174,33 @@ try {
     // Calendar → adapter → Intent (desired state)
     // -------------------------------------------------------------------------
 
-    $calendarAdapter = new GoogleCalendarAdapter();
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+
+    $googleConfig = new \CalendarScheduler\Adapter\Calendar\Google\GoogleConfig($googleConfigPath);
+    $googleClient = new \CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient($googleConfig);
+
+    $googleTranslator = new \CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator(
+        $googleConfig
+    );
+
+    $googleEventMapper = new \CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper(
+        $googleConfig
+    );
+
+    $googleApplyExecutor = new \CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor(
+        $googleClient,
+        $googleEventMapper
+    );
+
+    $calendarProvider = new \CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarProvider(
+        $googleTranslator,
+        $googleApplyExecutor
+    );
 
     $calendarIntents = [];
     $calendarAuthority = [];
 
-    $calendarEvents = $calendarAdapter->loadManifestEvents(
-        $context,
-        $DEFAULT_CALENDAR_SNAPSHOT_PATH
-    );
+    $calendarEvents = $calendarProvider->ingest($context);
 
     // === Calendar Adapter Events ===
     $debugIntents = (getenv('GCS_DEBUG_INTENTS') === '1');

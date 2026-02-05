@@ -15,6 +15,17 @@ use DateTimeZone;
 final class GoogleCalendarTranslator
 {
     /**
+     * Canonical entrypoint for Calendar I/O ingestion.
+     *
+     * @param array<int,array<string,mixed>> $googleEvents Raw Google "Event" resources (decoded JSON arrays)
+     * @param string $calendarId
+     * @return array<int,array<string,mixed>> Provider-neutral CalendarEvent records
+     */
+    public function ingest(array $googleEvents, string $calendarId): array
+    {
+        return $this->translateGoogleEvents($googleEvents, $calendarId);
+    }
+    /**
      * @param array<int,array<string,mixed>> $googleEvents Raw Google "Event" resources (decoded JSON arrays)
      * @return array<int,array<string,mixed>> Provider-neutral CalendarEvent records
      */
