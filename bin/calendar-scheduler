@@ -29,6 +29,18 @@ use CalendarScheduler\Apply\WritableTargets;
 
 require_once __DIR__ . '/../bootstrap.php';
 
+$argv = $_SERVER['argv'] ?? [];
+$command = $argv[1] ?? null;
+
+if ($command === 'google:auth') {
+    $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+
+    $config = new \CalendarScheduler\Adapter\Calendar\Google\GoogleConfig($configPath);
+    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($config);
+    $bootstrap->run();
+    exit(0);
+}
+
 // -----------------------------------------------------------------------------
 // Defaults
 // -----------------------------------------------------------------------------
