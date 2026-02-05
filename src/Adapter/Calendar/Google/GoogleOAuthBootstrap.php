@@ -33,12 +33,10 @@ final class GoogleOAuthBootstrap
     private const SCOPE = 'https://www.googleapis.com/auth/calendar';
 
     private GoogleConfig $config;
-    private string $redirectUri;
 
     public function __construct(GoogleConfig $config)
     {
         $this->config = $config;
-        $this->redirectUri = $config->getOauthRedirectUri();
     }
 
     public function run(): void
@@ -56,7 +54,16 @@ final class GoogleOAuthBootstrap
         $clientSecret = $this->loadJsonFile($clientSecretPath);
         [$clientId, $clientSecretValue] = $this->extractClientCredentials($clientSecret);
 
-        $authUrl = $this->buildAuthUrl($clientId, $this->redirectUri);
+        $redirectUri = null;
+        if (isset($clientSecret['web']['redirect_uris'][0])) {
+            $redirectUri = $clientSecret['web']['redirect_uris'][0];
+        } elseif (isset($clientSecret['installed']['redirect_uris'][0])) {
+            $redirectUri = $clientSecret['installed']['redirect_uris'][0];
+        } else {
+            $redirectUri = $this->config->getOauthRedirectUri();
+        }
+
+        $authUrl = $this->buildAuthUrl($clientId, $redirectUri);
 
         fwrite(STDERR, "\n=== Google OAuth Bootstrap (CLI) ===\n");
         fwrite(STDERR, "Config dir: {$configDir}\n");
@@ -72,7 +79,7 @@ final class GoogleOAuthBootstrap
             exit(1);
         }
 
-        $token = $this->exchangeCodeForToken($clientId, $clientSecretValue, $code);
+        $token = $this->exchangeCodeForToken($clientId, $clientSecretValue, $code, $redirectUri);
 
         // Normalize token payload for runtime usage
         $now = time();
@@ -150,13 +157,13 @@ final class GoogleOAuthBootstrap
         return [$clientId, $clientSecretValue];
     }
 
-    private function exchangeCodeForToken(string $clientId, string $clientSecretValue, string $code): array
+    private function exchangeCodeForToken(string $clientId, string $clientSecretValue, string $code, string $redirectUri): array
     {
         $post = [
             'code' => $code,
             'client_id' => $clientId,
             'client_secret' => $clientSecretValue,
-            'redirect_uri' => $this->redirectUri,
+            'redirect_uri' => $redirectUri,
             'grant_type' => 'authorization_code',
         ];
 
