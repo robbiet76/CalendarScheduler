@@ -54,9 +54,12 @@ final class GoogleApplyExecutor
 
         switch ($method) {
             case 'create':
-                $this->client->createEvent(
-                    $mapped['payload'],
-                    $mapped['calendarId'] ?? null
+                $calendarId = (string) ($mapped['calendarId'] ?? 'primary');
+                $this->client->request(
+                    'POST',
+                    '/calendars/' . rawurlencode($calendarId) . '/events',
+                    [],
+                    $mapped['payload']
                 );
                 break;
 
@@ -64,10 +67,13 @@ final class GoogleApplyExecutor
                 if (empty($mapped['eventId'])) {
                     throw new RuntimeException('Update operation missing eventId');
                 }
-                $this->client->updateEvent(
-                    $mapped['eventId'],
-                    $mapped['payload'],
-                    $mapped['etag'] ?? null
+                $calendarId = (string) ($mapped['calendarId'] ?? 'primary');
+                $eventId = (string) $mapped['eventId'];
+                $this->client->request(
+                    'PUT',
+                    '/calendars/' . rawurlencode($calendarId) . '/events/' . rawurlencode($eventId),
+                    [],
+                    $mapped['payload']
                 );
                 break;
 
@@ -75,9 +81,11 @@ final class GoogleApplyExecutor
                 if (empty($mapped['eventId'])) {
                     throw new RuntimeException('Delete operation missing eventId');
                 }
-                $this->client->deleteEvent(
-                    $mapped['eventId'],
-                    $mapped['etag'] ?? null
+                $calendarId = (string) ($mapped['calendarId'] ?? 'primary');
+                $eventId = (string) $mapped['eventId'];
+                $this->client->request(
+                    'DELETE',
+                    '/calendars/' . rawurlencode($calendarId) . '/events/' . rawurlencode($eventId)
                 );
                 break;
 
