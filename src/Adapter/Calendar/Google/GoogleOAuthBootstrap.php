@@ -71,7 +71,7 @@ final class GoogleOAuthBootstrap
         fwrite(STDERR, "Token output: {$tokenPath}\n\n");
         fwrite(STDERR, "1) Open this URL in a browser and complete consent:\n\n");
         fwrite(STDERR, $authUrl . "\n\n");
-        fwrite(STDERR, "Waiting for authorization response on http://127.0.0.1:42813/oauth ...\n");
+        fwrite(STDERR, "Waiting for authorization response on http://127.0.0.1:42813 ...\n");
 
         $code = $this->waitForLoopbackAuthCode();
 
@@ -311,15 +311,6 @@ final class GoogleOAuthBootstrap
 
         $requestUri = $matches[1];
         $urlParts = parse_url($requestUri);
-        if (!isset($urlParts['path']) || $urlParts['path'] !== '/oauth') {
-            // Respond with 404 Not Found
-            $response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-            fwrite($client, $response);
-            fclose($client);
-            fclose($socket);
-            fwrite(STDERR, "ERROR: Unexpected request path received: {$urlParts['path']}\n");
-            exit(1);
-        }
 
         // Parse query parameters
         $queryParams = [];
