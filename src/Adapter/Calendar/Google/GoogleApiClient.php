@@ -132,15 +132,16 @@ final class GoogleApiClient
     private function getTokenFilePath(): string
     {
         $oauth = $this->config->getOauth();
+
         $tokenFile = $oauth['token_file'] ?? 'token.json';
         if (!is_string($tokenFile) || $tokenFile === '') {
             $tokenFile = 'token.json';
         }
-        // token_file is relative to config.json directory
-        $dir = dirname((new \ReflectionClass($this->config))->getFileName());
-        // ^ fallback not ideal, but keeps this patch minimal. If you already have
-        // a config-dir helper, swap it in.
-        return $dir . DIRECTORY_SEPARATOR . $tokenFile;
+
+        // token_file is relative to the Google config directory
+        return rtrim($this->config->getConfigDir(), DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . $tokenFile;
     }
 
     private function loadToken(): ?array

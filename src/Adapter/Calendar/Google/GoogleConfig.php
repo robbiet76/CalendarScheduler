@@ -35,6 +35,15 @@ final class GoogleConfig
         return $this->calendarId;
     }
 
+    /**
+     * Absolute directory containing config.json.
+     * This is the authoritative base for token.json and client files.
+     */
+    public function getConfigDir(): string
+    {
+        return dirname($this->configPath);
+    }
+
     public function getOauth(): array
     {
         $oauth = $this->data['oauth'] ?? null;
