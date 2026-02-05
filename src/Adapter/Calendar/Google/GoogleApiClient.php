@@ -85,6 +85,46 @@ final class GoogleApiClient
         );
     }
 
+    /**
+     * List calendars accessible by the authenticated user.
+     * Returns raw Google CalendarList entries.
+     */
+    public function listCalendars(): array
+    {
+        $this->ensureAuthenticated();
+        $res = $this->requestJson(
+            'GET',
+            '/users/me/calendarList',
+            null
+        );
+        return $res['items'] ?? [];
+    }
+
+    /**
+     * List events for a given calendar.
+     *
+     * @param string $calendarId
+     * @param array $params Optional query params (timeMin, timeMax, syncToken, pageToken, etc.)
+     * @return array Raw Google Event resources
+     */
+    public function listEvents(string $calendarId, array $params = []): array
+    {
+        $this->ensureAuthenticated();
+
+        $query = '';
+        if (!empty($params)) {
+            $query = '?' . http_build_query($params);
+        }
+
+        $res = $this->requestJson(
+            'GET',
+            '/calendars/' . rawurlencode($calendarId) . '/events' . $query,
+            null
+        );
+
+        return $res['items'] ?? [];
+    }
+
     // ---------------------------------------------------------------------
     // Token handling
     // ---------------------------------------------------------------------
