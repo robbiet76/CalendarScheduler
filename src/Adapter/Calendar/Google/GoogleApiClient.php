@@ -12,6 +12,11 @@ final class GoogleApiClient
         $this->config = $config;
     }
 
+    public function getConfig(): GoogleConfig
+    {
+        return $this->config;
+    }
+
     /**
      * Ensures we have a valid access token (refresh if needed).
      *

@@ -1,28 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace CalendarScheduler\Diff;
+namespace CalendarScheduler\Adapter\Calendar\Google;
 
-final class ReconciliationAction
+use CalendarScheduler\Diff\ReconciliationAction;
+
+final class GoogleApplyExecutor
 {
-    private string $op;
-    private $event;
-    private ?string $googleEventId;
-
-    // Existing constructor and other methods...
-
-    public function getOp(): string
-    {
-        return $this->op;
-    }
-
-    public function getEvent()
-    {
-        return $this->event;
-    }
-
-    public function getGoogleEventId(): ?string
-    {
-        return $this->googleEventId ?? null;
-    }
+    // Class implementation goes here
 }
