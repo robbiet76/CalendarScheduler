@@ -4,12 +4,11 @@ declare(strict_types=1);
 namespace CalendarScheduler\Adapter\Calendar;
 
 use CalendarScheduler\Adapter\Calendar\CalendarTranslator;
-use RuntimeException;
 
 /**
  * CalendarSnapshot
  *
- * Inbound snapshot ingestion from a calendar provider (currently ICS).
+ * Inbound snapshot ingestion from a calendar provider (provider-agnostic).
  *
  * HARD RULES:
  * - Snapshot only (no identity, no intent, no hashing, no normalization)
@@ -21,13 +20,7 @@ final class CalendarSnapshot
 {
     private const SNAPSHOT_PATH =
         '/home/fpp/media/config/calendar-scheduler/calendar/calendar-snapshot.json';
-    /**
-     * Temporary hard-coded ICS source (until OAuth phase).
-     */
-    private const ICS_SOURCE =
-        'https://calendar.google.com/calendar/ical/' .
-        'f6f834eec6b7e004bdbc070dbd860c076c7fc3e4df36e8eb8da3e80f8e2f21c4%40group.calendar.google.com/' .
-        'private-4cb0555e63adf571c353d0eb7b3c4bd3/basic.ics';
+
     private CalendarTranslator $translator;
 
     public function __construct(
@@ -37,17 +30,13 @@ final class CalendarSnapshot
     }
 
     /**
-     * Snapshot calendar source into the draft manifest.
+     * Snapshot already-translated calendar provider events into the manifest.
      *
-     * Only writes raw provider calendar events under `calendar_events`.
-     * No identity resolution, intent extraction, hashing, or normalization occurs here.
-     *
-     * @param string $icsSource URL (http/https) or local file path
+     * @param array $providerEvents Raw calendar provider events (post-translation)
      */
-    public function snapshot(string $icsSource): void
+    public function snapshot(array $providerEvents): void
     {
-        $events = $this->translator->translateIcsSourceToCalendarEvents($icsSource);
-        self::write($events);
+        self::write($providerEvents);
     }
     /**
      * Load the raw calendar snapshot from disk.
@@ -85,21 +74,5 @@ final class CalendarSnapshot
             self::SNAPSHOT_PATH,
             json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
-    }
-
-    /**
-     * Fetch calendar data from ICS source and write snapshot.
-     */
-    public static function refreshFromIcs(): array
-    {
-        $translator = new CalendarTranslator();
-
-        $events = $translator->translateIcsSourceToCalendarEvents(
-            self::ICS_SOURCE
-        );
-
-        self::write($events);
-
-        return $events;
     }
 }

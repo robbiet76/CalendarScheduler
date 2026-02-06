@@ -51,6 +51,7 @@ final class GoogleCalendarTranslator
             if (!is_string($description) && $description !== null) {
                 $description = null;
             }
+            $status = is_string($ev['status'] ?? null) ? $ev['status'] : 'confirmed';
 
             // Start / end
             [$dtstart, $dtend, $isAllDay] = $this->translateStartEnd($ev);
@@ -61,13 +62,18 @@ final class GoogleCalendarTranslator
             // Overrides
             $recurringEventId = $ev['recurringEventId'] ?? null;
             $isOverride       = is_string($recurringEventId) && $recurringEventId !== '';
-            $recurrenceId     = $isOverride ? $recurringEventId : null;
+            $parentUid        = $isOverride ? $recurringEventId : null;
+
+            $originalStartTime = is_array($ev['originalStartTime'] ?? null)
+                ? $ev['originalStartTime']
+                : null;
 
             $out[] = [
                 'source'       => $source,
 
                 'summary'      => $summary,
                 'description'  => $description,
+                'status'       => $status,
 
                 // ISO string (timed) or YYYY-MM-DD (all-day)
                 'dtstart'      => $dtstart,
@@ -77,7 +83,8 @@ final class GoogleCalendarTranslator
                 'exDates'      => $exDates,
 
                 'isAllDay'     => $isAllDay,
-                'recurrenceId' => $recurrenceId,
+                'parentUid'        => $parentUid,
+                'originalStartTime'=> $originalStartTime,
                 'isOverride'   => $isOverride,
 
                 // Convenience alias for historic callers (if any)
