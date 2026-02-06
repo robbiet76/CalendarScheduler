@@ -32,6 +32,8 @@ final class ResolutionEngine implements ResolutionEngineInterface
         foreach ($snapshotEvents as $snapshotEvent) {
             $segments = $this->buildDateSegments($snapshotEvent);
             foreach ($segments as $segmentScope) {
+                $bundleUid = $this->buildBundleUid($snapshotEvent, $segmentScope);
+
                 $segmentOverrides = $this->collectOverridesForSegment($snapshotEvent, $segmentScope);
                 $overrideSubevents = $this->collapseOverridesToResolvedSubevents($snapshotEvent, $segmentOverrides, $segmentScope);
 
@@ -41,6 +43,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
                 $subevents = array_merge($overrideSubevents, [$baseSubevent]);
 
                 $bundles[] = new ResolvedBundle(
+                    bundleUid: $bundleUid,
                     sourceEventUid: $snapshotEvent->sourceEventUid,
                     parentUid: $snapshotEvent->parentUid,
                     segmentScope: $segmentScope,
@@ -251,14 +254,10 @@ final class ResolutionEngine implements ResolutionEngineInterface
 
             $day = (new \DateTimeImmutable($anchor->format('Y-m-d'), $tz))->setTime(0, 0, 0);
 
-            // Geometry: time-of-day start/end for the override row
-            $ovStart = $this->extractStartEndDateTime($override->start, $tz, true);
-            $ovEnd = $this->extractStartEndDateTime($override->end, $tz, false);
-
+            // NOTE: Do not interpret start/end times here.
+            // Symbolic time is carried in payload and resolved by FPP at execution.
             $rows[] = [
                 'day' => $day,
-                'startTime' => $ovStart->format('H:i:s'),
-                'endTime' => $ovEnd->format('H:i:s'),
                 'payload' => $override->payload,
                 'enabled' => $override->enabled ?? true,
                 'stopType' => $override->stopType ?? null,
@@ -277,14 +276,14 @@ final class ResolutionEngine implements ResolutionEngineInterface
                 continue;
             }
 
-            $isNextDay = ($row['day'] == $current['endDayExclusive']);
+            // NOTE: Do not compare derived hard times. Payload must carry any symbolic-time intent.
             $sameGeometry = (
-                $row['startTime'] === $current['startTime'] &&
-                $row['endTime'] === $current['endTime'] &&
                 $row['enabled'] === $current['enabled'] &&
                 $row['stopType'] === $current['stopType'] &&
                 $row['payload'] == $current['payload']
             );
+
+            $isNextDay = ($row['day'] == $current['endDayExclusive']);
 
             if ($isNextDay && $sameGeometry) {
                 $current['endDayExclusive'] = $current['endDayExclusive']->modify('+1 day');
@@ -312,7 +311,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
         ResolutionScope $segmentScope,
         array $row
     ): ResolvedSubevent {
-        $bundleUid = $event->parentUid;
+        $bundleUid = $this->buildBundleUid($event, $segmentScope);
 
         // Stage 3 scope for override is day-range (date-level)
         $scope = new ResolutionScope($dayStart, $dayEndExclusive);
@@ -342,7 +341,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
 
     private function buildBaseSubeventForSegment(SnapshotEvent $event, ResolutionScope $segmentScope): ResolvedSubevent
     {
-        $bundleUid = $event->parentUid;
+        $bundleUid = $this->buildBundleUid($event, $segmentScope);
 
         return new ResolvedSubevent(
             bundleUid: $bundleUid,
@@ -362,6 +361,24 @@ final class ResolutionEngine implements ResolutionEngineInterface
                 'segmentStart' => $segmentScope->getStart()->format(\DateTimeInterface::ATOM),
                 'segmentEnd' => $segmentScope->getEnd()->format(\DateTimeInterface::ATOM),
             ]
+        );
+    }
+
+    /**
+     * Deterministic bundle identity.
+     * One bundle per (parentUid + segment scope).
+     */
+    private function buildBundleUid(
+        SnapshotEvent $event,
+        ResolutionScope $segmentScope
+    ): string {
+        return hash(
+            'sha256',
+            implode('|', [
+                $event->parentUid,
+                $segmentScope->getStart()->format('Y-m-d'),
+                $segmentScope->getEnd()->format('Y-m-d'),
+            ])
         );
     }
 }

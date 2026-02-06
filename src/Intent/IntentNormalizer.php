@@ -24,7 +24,7 @@ use CalendarScheduler\Platform\HolidayResolver;
  *
  * This is the ONLY place where:
  * - defaults are applied,
- * - symbolic → concrete expansion occurs,
+ * - holiday/date symbolics are applied (time symbolics are preserved),
  * - calendar/FPP semantic differences are reconciled.
  *
  * Resolution MUST NEVER see raw events.
@@ -53,6 +53,9 @@ final class IntentNormalizer
             $event['timing'],
             $context->holidayResolver
         );
+        // Symbolic times (dusk/dawn/etc.) must remain symbolic end-to-end.
+        // Any hard time present alongside a symbolic value is display-only and must be ignored.
+        $timingArr = $this->normalizeSymbolicTimes($timingArr);
 
         /**
          * Command timing normalization:
@@ -335,6 +338,57 @@ final class IntentNormalizer
         ];
     }
 
+
+    /**
+     * Normalize symbolic time fields.
+     *
+     * Rules:
+     * - If a time has a non-empty `symbolic` value, its `hard` value is display-only and MUST be set to null.
+     * - Both start_time and end_time may be hard or symbolic independently.
+     * - Offsets are always normalized to int.
+     * - Empty symbolic strings are treated as null.
+     */
+    private function normalizeSymbolicTimes(array $timing): array
+    {
+        foreach (['start_time', 'end_time'] as $k) {
+            if (!isset($timing[$k]) || $timing[$k] === null) {
+                continue;
+            }
+            if (!is_array($timing[$k])) {
+                // Unexpected shape; leave as-is and let later canonicalizers handle defaults.
+                continue;
+            }
+
+            $symbolic = $timing[$k]['symbolic'] ?? null;
+            if (is_string($symbolic)) {
+                $symbolic = trim($symbolic);
+                if ($symbolic === '') {
+                    $symbolic = null;
+                }
+            } else {
+                $symbolic = null;
+            }
+
+            // Normalize offset early so downstream hashing sees stable ints.
+            $timing[$k]['offset'] = (int)($timing[$k]['offset'] ?? 0);
+
+            if ($symbolic !== null) {
+                $timing[$k]['symbolic'] = $symbolic;
+                // Hard time is display-only when symbolic is present.
+                $timing[$k]['hard'] = null;
+            } else {
+                // No symbolic time; keep hard time if it is a non-empty string, else null.
+                $hard = $timing[$k]['hard'] ?? null;
+                if (!is_string($hard) || trim($hard) === '') {
+                    $hard = null;
+                }
+                $timing[$k]['hard'] = $hard;
+                $timing[$k]['symbolic'] = null;
+            }
+        }
+
+        return $timing;
+    }
 
     /**
      * Apply holiday symbolic resolution ONCE, in the shared flow, prior to hashing.

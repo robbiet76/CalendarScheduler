@@ -9,6 +9,7 @@ namespace CalendarScheduler\Resolution\Dto;
  */
 final class ResolvedBundle
 {
+    private string $bundleUid;
     private string $sourceEventUid;
     private string $parentUid;
     private ResolutionScope $segmentScope;
@@ -20,15 +21,22 @@ final class ResolvedBundle
      * @param ResolvedSubevent[] $subevents ordered top-down (most specific first), base last.
      */
     public function __construct(
+        string $bundleUid,
         string $sourceEventUid,
         string $parentUid,
         ResolutionScope $segmentScope,
         array $subevents
     ) {
+        $this->bundleUid = $bundleUid;
         $this->sourceEventUid = $sourceEventUid;
         $this->parentUid = $parentUid;
         $this->segmentScope = $segmentScope;
         $this->subevents = $subevents;
+    }
+
+    public function getBundleUid(): string
+    {
+        return $this->bundleUid;
     }
 
     public function getSourceEventUid(): string

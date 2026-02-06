@@ -68,28 +68,67 @@ final class GoogleCalendarTranslator
                 ? $ev['originalStartTime']
                 : null;
 
+            // Preserve Google start/end arrays verbatim for downstream (time may be hard or all-day).
+            $startRaw = is_array($ev['start'] ?? null) ? $ev['start'] : [];
+            $endRaw   = is_array($ev['end'] ?? null) ? $ev['end'] : [];
+
+            // Best-effort timezone hint (structural only). Google may provide per-start/per-end timeZone.
+            $tz = null;
+            if (is_string($startRaw['timeZone'] ?? null) && $startRaw['timeZone'] !== '') {
+                $tz = $startRaw['timeZone'];
+            } elseif (is_string($endRaw['timeZone'] ?? null) && $endRaw['timeZone'] !== '') {
+                $tz = $endRaw['timeZone'];
+            }
+
+            $uid = $provenance['uid'] ?? null;
+
             $out[] = [
-                'source'       => $source,
+                // Provider + calendar identity
+                'provider'        => 'google',
+                'calendar_id'     => $calendarId,
 
-                'summary'      => $summary,
-                'description'  => $description,
-                'status'       => $status,
+                // Stable identity anchors
+                'uid'             => $uid,
+                'sourceEventUid'  => $uid,
 
+                // Human fields (opaque here; do not parse)
+                'summary'         => $summary,
+                'description'     => $description,
+                'status'          => $status,
+
+                // Raw Google timing semantics (structural; downstream decides how to interpret)
+                // - All-day uses ['date']
+                // - Timed uses ['dateTime'] (+ optional ['timeZone'])
+                'start'           => $startRaw,
+                'end'             => $endRaw,
+                'timezone'        => $tz,
+                'isAllDay'        => $isAllDay,
+
+                // Legacy / convenience fields (kept for compatibility)
                 // ISO string (timed) or YYYY-MM-DD (all-day)
-                'dtstart'      => $dtstart,
-                'dtend'        => $dtend,
+                'dtstart'         => $dtstart,
+                'dtend'           => $dtend,
 
-                'rrule'        => $rrule,
-                'exDates'      => $exDates,
+                // Recurrence + exclusions (preserve; do not expand)
+                'rrule'           => $rrule,
+                'exDates'         => $exDates,
 
-                'isAllDay'     => $isAllDay,
-                'parentUid'        => $parentUid,
-                'originalStartTime'=> $originalStartTime,
-                'isOverride'   => $isOverride,
+                // Override linkage
+                'parentUid'       => $parentUid,
+                'originalStartTime' => $originalStartTime,
+                'isOverride'      => $isOverride,
 
-                // Convenience alias for historic callers (if any)
-                'uid'          => $provenance['uid'] ?? null,
-                'provenance'   => $provenance,
+                // Opaque payload (used by downstream intent/normalization)
+                'payload'         => [
+                    'summary'     => $summary,
+                    'description' => $description,
+                    'status'      => $status,
+                    'rrule'       => $rrule,
+                    'exDates'     => $exDates,
+                ],
+
+                // Provenance / raw metadata
+                'provenance'      => $provenance,
             ];
         }
 
