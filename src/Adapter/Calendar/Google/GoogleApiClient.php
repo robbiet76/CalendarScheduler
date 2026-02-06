@@ -119,6 +119,7 @@ final class GoogleApiClient
             'maxResults'   => 2500,
             // Explicitly force full snapshot (include inactive / past recurring masters)
             'timeMin'      => '1970-01-01T00:00:00Z',
+            'timeMax'      => '2100-01-01T00:00:00Z',
         ], $params);
 
         $query = '';
