@@ -4,23 +4,21 @@ declare(strict_types=1);
 namespace CalendarScheduler\Adapter\Calendar;
 
 use CalendarScheduler\Adapter\Calendar\CalendarTranslator;
+use RuntimeException;
 
 /**
  * CalendarSnapshot
  *
- * Inbound snapshot ingestion from a calendar provider (provider-agnostic).
+ * In-memory grouping boundary for calendar provider events (provider-agnostic).
  *
  * HARD RULES:
  * - Snapshot only (no identity, no intent, no hashing, no normalization)
  * - Preserve raw calendar semantics exactly as provided by the calendar source
  * - Replacement semantics for calendar-sourced records only
- * - Writes only `calendar_events` as raw provider records (no other manifest data is modified)
+ * - Groups translated provider rows into SnapshotEvent structures; does not write files
  */
 final class CalendarSnapshot
 {
-    private const SNAPSHOT_PATH =
-        '/home/fpp/media/config/calendar-scheduler/calendar/calendar-snapshot.json';
-
     private CalendarTranslator $translator;
 
     public function __construct(
@@ -30,49 +28,60 @@ final class CalendarSnapshot
     }
 
     /**
-     * Snapshot already-translated calendar provider events into the manifest.
+     * Snapshot already-translated calendar provider events into grouped SnapshotEvent objects.
      *
      * @param array $providerEvents Raw calendar provider events (post-translation)
+     * @return SnapshotEvent[]
      */
-    public function snapshot(array $providerEvents): void
+    public function snapshot(array $providerEvents): array
     {
-        self::write($providerEvents);
-    }
-    /**
-     * Load the raw calendar snapshot from disk.
-     *
-     * @return array Raw calendar provider events
-     */
-    public static function load(): array
-    {
-        if (!file_exists(self::SNAPSHOT_PATH)) {
-            return [];
+        $eventsByUid = [];
+        $cancelledRows = [];
+        $overrideRows = [];
+
+        // First pass: create SnapshotEvent instances for rows where parentUid is null
+        foreach ($providerEvents as $row) {
+            if (isset($row['parentUid']) && $row['parentUid'] !== null) {
+                // This is either an override or a cancellation, handle later
+                if (isset($row['status']) && $row['status'] === 'cancelled') {
+                    $cancelledRows[] = $row;
+                } else {
+                    $overrideRows[] = $row;
+                }
+                continue;
+            }
+            $uid = $row['uid'] ?? null;
+            if ($uid === null) {
+                continue;
+            }
+            $eventsByUid[$uid] = new SnapshotEvent($row);
         }
 
-        $json = file_get_contents(self::SNAPSHOT_PATH);
-        if ($json === false || $json === '') {
-            return [];
+        // Second pass: collect cancelled rows into cancelledDates on the parent SnapshotEvent
+        foreach ($cancelledRows as $row) {
+            $parentUid = $row['parentUid'] ?? null;
+            if ($parentUid === null || !isset($eventsByUid[$parentUid])) {
+                throw new RuntimeException("Cancelled event references missing parent UID: " . var_export($parentUid, true));
+            }
+            $originalStartTime = $row['originalStartTime'] ?? null;
+            if ($originalStartTime === null) {
+                throw new RuntimeException("Cancelled event missing originalStartTime");
+            }
+            $eventsByUid[$parentUid]->addCancelledDate($originalStartTime);
+            $eventsByUid[$parentUid]->addSourceRow($row);
         }
 
-        $data = json_decode($json, true);
-        return is_array($data) ? $data : [];
-    }
-
-    /**
-     * Write raw calendar events to the snapshot on disk.
-     *
-     * @param array $events Raw calendar provider events
-     */
-    public static function write(array $events): void
-    {
-        $dir = dirname(self::SNAPSHOT_PATH);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
+        // Third pass: collect override rows into OverrideIntent objects attached to the parent SnapshotEvent
+        foreach ($overrideRows as $row) {
+            $parentUid = $row['parentUid'] ?? null;
+            if ($parentUid === null || !isset($eventsByUid[$parentUid])) {
+                throw new RuntimeException("Override event references missing parent UID: " . var_export($parentUid, true));
+            }
+            $overrideIntent = new OverrideIntent($row);
+            $eventsByUid[$parentUid]->addOverride($overrideIntent);
+            $eventsByUid[$parentUid]->addSourceRow($row);
         }
 
-        file_put_contents(
-            self::SNAPSHOT_PATH,
-            json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-        );
+        return array_values($eventsByUid);
     }
 }
