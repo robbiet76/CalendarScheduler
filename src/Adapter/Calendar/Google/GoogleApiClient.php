@@ -117,24 +117,38 @@ final class GoogleApiClient
             'singleEvents' => false,
             'showDeleted'  => false,
             'maxResults'   => 2500,
-            // Explicitly force full snapshot (include inactive / past recurring masters)
             'timeMin'      => '1970-01-01T00:00:00Z',
             'timeMax'      => '2100-01-01T00:00:00Z',
         ], $params);
 
-        $query = '';
-        if (!empty($params)) {
-            $params = $this->normalizeQueryParams($params);
-            $query = '?' . http_build_query($params);
-        }
+        $allItems = [];
+        $pageToken = null;
 
-        $res = $this->requestJson(
-            'GET',
-            '/calendars/' . rawurlencode($calendarId) . '/events' . $query,
-            null
-        );
+        do {
+            $pageParams = $params;
+            if ($pageToken !== null) {
+                $pageParams['pageToken'] = $pageToken;
+            }
 
-        return $res['items'] ?? [];
+            $query = '?' . http_build_query(
+                $this->normalizeQueryParams($pageParams)
+            );
+
+            $res = $this->requestJson(
+                'GET',
+                '/calendars/' . rawurlencode($calendarId) . '/events' . $query,
+                null
+            );
+
+            if (isset($res['items']) && is_array($res['items'])) {
+                $allItems = array_merge($allItems, $res['items']);
+            }
+
+            $pageToken = $res['nextPageToken'] ?? null;
+
+        } while ($pageToken !== null);
+
+        return $allItems;
     }
 
     // ---------------------------------------------------------------------
