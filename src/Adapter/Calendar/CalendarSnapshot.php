@@ -90,6 +90,10 @@ final class CalendarSnapshot
     }
 
     /**
+     * Returns the most recently generated snapshot events.
+     *
+     * Resolution consumes this to avoid passing arrays across layers.
+     *
      * @return SnapshotEvent[]
      */
     public function getSnapshotEvents(): array
