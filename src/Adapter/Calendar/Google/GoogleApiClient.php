@@ -111,6 +111,14 @@ final class GoogleApiClient
     {
         $this->ensureAuthenticated();
 
+        // Force full snapshot semantics (no incremental sync behavior)
+        // We want all recurring *masters*, not instance expansion and not delta-based filtering.
+        $params = array_merge([
+            'singleEvents' => false,
+            'showDeleted'  => false,
+            'maxResults'   => 2500,
+        ], $params);
+
         $query = '';
         if (!empty($params)) {
             $params = $this->normalizeQueryParams($params);
