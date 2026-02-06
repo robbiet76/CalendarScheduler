@@ -20,7 +20,7 @@ final class ResolvedSubevent
     private \DateTimeImmutable $end;
     private bool $allDay;
     private ?string $timezone;
-    private ResolutionRole $role; // ResolutionRole::BASE | ResolutionRole::OVERRIDE
+    private string $role; // ResolutionRole::BASE | ResolutionRole::OVERRIDE
     private ResolutionScope $scope;
 
     /**
@@ -47,7 +47,7 @@ final class ResolvedSubevent
         \DateTimeImmutable $end,
         bool $allDay,
         ?string $timezone,
-        ResolutionRole $role,
+        string $role,
         ResolutionScope $scope,
         int $priority,
         array $payload,
@@ -108,7 +108,7 @@ final class ResolvedSubevent
         return $this->timezone;
     }
 
-    public function getRole(): ResolutionRole
+    public function getRole(): string
     {
         return $this->role;
     }
