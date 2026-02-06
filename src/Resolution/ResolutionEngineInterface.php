@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Resolution;
 
-use CalendarScheduler\Adapter\Calendar\SnapshotEvent;
+use CalendarScheduler\Adapter\Calendar\CalendarSnapshot;
 use CalendarScheduler\Resolution\Dto\ResolvedSchedule;
 
 /**
@@ -14,8 +14,5 @@ use CalendarScheduler\Resolution\Dto\ResolvedSchedule;
  */
 interface ResolutionEngineInterface
 {
-    /**
-     * @param SnapshotEvent[] $snapshotEvents grouped snapshot events (provider-agnostic)
-     */
-    public function resolve(array $snapshotEvents): ResolvedSchedule;
+    public function resolve(CalendarSnapshot $snapshot): ResolvedSchedule;
 }
