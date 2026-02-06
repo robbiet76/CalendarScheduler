@@ -21,6 +21,9 @@ final class CalendarSnapshot
 {
     private CalendarTranslator $translator;
 
+    /** @var SnapshotEvent[] */
+    private array $snapshotEvents = [];
+
     public function __construct(
         CalendarTranslator $translator
     ) {
@@ -39,7 +42,7 @@ final class CalendarSnapshot
         $cancelledRows = [];
         $overrideRows = [];
 
-        // First pass: create SnapshotEvent instances for rows where parentUid is null
+        // First pass: create SnapshotEvent instances for rows where parentUid is null or not set
         foreach ($providerEvents as $row) {
             if (isset($row['parentUid']) && $row['parentUid'] !== null) {
                 // This is either an override or a cancellation, handle later
@@ -82,6 +85,15 @@ final class CalendarSnapshot
             $eventsByUid[$parentUid]->addSourceRow($row);
         }
 
-        return array_values($eventsByUid);
+        $this->snapshotEvents = array_values($eventsByUid);
+        return $this->snapshotEvents;
+    }
+
+    /**
+     * @return SnapshotEvent[]
+     */
+    public function getSnapshotEvents(): array
+    {
+        return $this->snapshotEvents;
     }
 }

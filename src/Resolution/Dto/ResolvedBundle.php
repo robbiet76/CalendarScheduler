@@ -53,4 +53,24 @@ final class ResolvedBundle
     {
         return $this->subevents;
     }
+
+    /**
+     * Base subevent (always last in evaluation order).
+     */
+    public function getBaseSubevent(): ResolvedSubevent
+    {
+        return $this->subevents[count($this->subevents) - 1];
+    }
+
+    /**
+     * @return ResolvedSubevent[] override subevents only (top-down order)
+     */
+    public function getOverrides(): array
+    {
+        if (count($this->subevents) <= 1) {
+            return [];
+        }
+
+        return array_slice($this->subevents, 0, -1);
+    }
 }
