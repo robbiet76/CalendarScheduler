@@ -113,6 +113,7 @@ final class GoogleApiClient
 
         $query = '';
         if (!empty($params)) {
+            $params = $this->normalizeQueryParams($params);
             $query = '?' . http_build_query($params);
         }
 
@@ -310,5 +311,19 @@ final class GoogleApiClient
         }
 
         return $data;
+    }
+
+    private function normalizeQueryParams(array $params): array
+    {
+        foreach ($params as $key => $value) {
+            if (is_bool($value)) {
+                $params[$key] = $value ? 'true' : 'false';
+            } elseif ($value === 0) {
+                $params[$key] = 'false';
+            } elseif ($value === 1) {
+                $params[$key] = 'true';
+            }
+        }
+        return $params;
     }
 }
