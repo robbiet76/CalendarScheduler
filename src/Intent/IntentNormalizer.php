@@ -1,3 +1,4 @@
+use CalendarScheduler\Intent\PlannerIntent;
 <?php
 declare(strict_types=1);
 
@@ -456,5 +457,90 @@ final class IntentNormalizer
             $fmtDate($timing['start_date'] ?? null),
             $fmtDate($timing['end_date'] ?? null),
         ));
+    }
+    /**
+     * Normalize a set of PlannerIntent objects into canonical Intents.
+     *
+     * Groups PlannerIntents by bundleUid, producing one Intent per group.
+     *
+     * @param PlannerIntent[] $plannerIntents
+     * @return Intent[]
+     */
+    public function normalizePlannerIntents(array $plannerIntents): array
+    {
+        // Group PlannerIntents by bundleUid
+        $byBundle = [];
+        foreach ($plannerIntents as $pi) {
+            $bundleUid = $pi->bundleUid ?? '';
+            if (!isset($byBundle[$bundleUid])) {
+                $byBundle[$bundleUid] = [];
+            }
+            $byBundle[$bundleUid][] = $pi;
+        }
+
+        $intents = [];
+        foreach ($byBundle as $bundleUid => $group) {
+            // Take first as representative for identity
+            $first = $group[0];
+            // Build identity array (type/target/timing from representative)
+            $identity = [
+                'type' => $first->type,
+                'target' => $first->target,
+                'timing' => [
+                    'all_day'    => $first->allDay ?? false,
+                    'start_date' => $first->startDate ?? null,
+                    'end_date'   => $first->endDate ?? null,
+                    'start_time' => $first->startTime ?? null,
+                    'end_time'   => $first->endTime ?? null,
+                    'days'       => $first->days ?? null,
+                ],
+            ];
+            // Compute identityHash as sha256 of bundleUid (stable)
+            $identityHash = hash('sha256', (string)$bundleUid);
+
+            // Build subEvents (one per PlannerIntent)
+            $subEvents = [];
+            foreach ($group as $pi) {
+                $subEvent = [
+                    'type'    => $pi->type,
+                    'target'  => $pi->target,
+                    'timing'  => [
+                        'all_day'    => $pi->allDay ?? false,
+                        'start_date' => $pi->startDate ?? null,
+                        'end_date'   => $pi->endDate ?? null,
+                        'start_time' => $pi->startTime ?? null,
+                        'end_time'   => $pi->endTime ?? null,
+                        'days'       => $pi->days ?? null,
+                    ],
+                    'payload' => $pi->payload ?? [],
+                ];
+                // Compute stateHash for subEvent
+                $shInput = [
+                    'type'   => $subEvent['type'],
+                    'target' => $subEvent['target'],
+                    'timing' => $subEvent['timing'],
+                    'payload' => $subEvent['payload'],
+                ];
+                $subEvent['stateHash'] = hash('sha256', json_encode($shInput, JSON_THROW_ON_ERROR));
+                $subEvents[] = $subEvent;
+            }
+            // Compute eventStateHash as hash of all subEvent stateHashes
+            $eventStateHash = hash(
+                'sha256',
+                json_encode(array_map(function($se) { return $se['stateHash']; }, $subEvents), JSON_THROW_ON_ERROR)
+            );
+            // Empty ownership/correlation for now
+            $ownership = [];
+            $correlation = [];
+            $intents[] = new Intent(
+                $identityHash,
+                $identity,
+                $ownership,
+                $correlation,
+                $subEvents,
+                $eventStateHash
+            );
+        }
+        return $intents;
     }
 }
