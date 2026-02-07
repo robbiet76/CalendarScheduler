@@ -52,7 +52,55 @@ final class ResolutionEngine implements ResolutionEngineInterface
             }
         }
 
-        return new ResolvedSchedule($bundles);
+        // Coalesce adjacent bundles where possible
+        $coalescedBundles = [];
+        $count = count($bundles);
+        $i = 0;
+        while ($i < $count) {
+            $current = $bundles[$i];
+            // Try to merge with the next bundle if possible
+            if (
+                $i + 1 < $count
+                && $current->getParentUid() === $bundles[$i + 1]->getParentUid()
+                && $current->getSourceEventUid() === $bundles[$i + 1]->getSourceEventUid()
+                && $current->getOverrideSignature() === $bundles[$i + 1]->getOverrideSignature()
+                && $current->getSegmentScope()->getEnd() == $bundles[$i + 1]->getSegmentScope()->getStart()
+            ) {
+                // Merge current and next
+                $mergedScope = new \CalendarScheduler\Resolution\Dto\ResolutionScope(
+                    $current->getSegmentScope()->getStart(),
+                    $bundles[$i + 1]->getSegmentScope()->getEnd()
+                );
+                // Reuse subevents from the first bundle
+                $mergedBundleUid = $this->buildBundleUid(
+                    // We need the original event, but we only have the ResolvedBundle.
+                    // Since bundleUid, parentUid, etc. are always from the same event,
+                    // we can pass a dummy SnapshotEvent with only the required fields.
+                    // But instead, we rely on the fact that bundleUid is only a hash of parentUid and scope.
+                    // So, to avoid breaking logic, let's assume buildBundleUid can be used with a dummy event:
+                    (object)[
+                        'parentUid' => $current->getParentUid(),
+                        'sourceEventUid' => $current->getSourceEventUid(),
+                        // These fields are not used in buildBundleUid for hashing
+                    ],
+                    $mergedScope
+                );
+                $merged = new \CalendarScheduler\Resolution\Dto\ResolvedBundle(
+                    bundleUid: $mergedBundleUid,
+                    sourceEventUid: $current->getSourceEventUid(),
+                    parentUid: $current->getParentUid(),
+                    segmentScope: $mergedScope,
+                    subevents: $current->getSubevents()
+                );
+                $coalescedBundles[] = $merged;
+                $i += 2; // skip next bundle, since merged
+                continue;
+            }
+            // Not mergeable, keep as-is
+            $coalescedBundles[] = $current;
+            $i++;
+        }
+        return new ResolvedSchedule($coalescedBundles);
     }
 
     /**

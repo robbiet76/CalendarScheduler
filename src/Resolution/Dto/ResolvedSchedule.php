@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 namespace CalendarScheduler\Resolution\Dto;
+use CalendarScheduler\Planner\Dto\PlannerIntent;
 
 /**
  * Top-level output of Resolution.
@@ -27,6 +28,39 @@ final class ResolvedSchedule
     public function getBundles(): array
     {
         return $this->bundles;
+    }
+
+    /**
+     * Flatten resolved bundles into planner-ready intents.
+     *
+     * Ordering rules:
+     * - Bundles are atomic
+     * - Overrides first, base last (already enforced in bundle)
+     * - Bundle order preserved
+     *
+     * @return PlannerIntent[]
+     */
+    public function toPlannerIntents(): array
+    {
+        $intents = [];
+
+        foreach ($this->bundles as $bundle) {
+            foreach ($bundle->getSubevents() as $subevent) {
+                $intents[] = new PlannerIntent(
+                    bundleUid: $subevent->getBundleUid(),
+                    parentUid: $subevent->getParentUid(),
+                    sourceEventUid: $subevent->getSourceEventUid(),
+                    provider: $subevent->getProvider(),
+                    role: $subevent->getRole(),
+                    scope: $subevent->getScope(),
+                    priority: $subevent->getPriority(),
+                    payload: $subevent->getPayload(),
+                    sourceTrace: $subevent->getSourceTrace()
+                );
+            }
+        }
+
+        return $intents;
     }
 
     /**

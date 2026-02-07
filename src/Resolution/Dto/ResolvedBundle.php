@@ -81,4 +81,17 @@ final class ResolvedBundle
 
         return array_slice($this->subevents, 0, -1);
     }
+
+    /**
+     * Canonical override signature for bundle comparison.
+     *
+     * This exposes override subevents in their evaluation order and is used
+     * by Resolution to determine whether adjacent bundles can be safely merged.
+     *
+     * @return ResolvedSubevent[]
+     */
+    public function getOverrideSignature(): array
+    {
+        return $this->getOverrides();
+    }
 }
