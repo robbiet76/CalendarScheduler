@@ -20,7 +20,7 @@ final class ResolvedSubevent
     private \DateTimeImmutable $end;
     private bool $allDay;
     private ?string $timezone;
-    private string $role; // ResolutionRole::BASE | ResolutionRole::OVERRIDE
+    private string $role;
     private ResolutionScope $scope;
 
     /**

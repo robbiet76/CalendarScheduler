@@ -290,18 +290,92 @@ final class ResolutionEngine implements ResolutionEngineInterface
                 continue;
             }
 
-            $subevents[] = $this->buildOverrideSubevent($event, $current['day'], $current['endDayExclusive'], $segmentScope, $current);
+            try {
+                $subevents[] = $this->buildOverrideSubevent($event, $current['day'], $current['endDayExclusive'], $segmentScope, $current);
+            } catch (\RuntimeException $e) {
+                // Skip overrides that do not intersect this segment.
+            }
             $current = $row + ['endDayExclusive' => $row['day']->modify('+1 day')];
         }
 
         if ($current !== null) {
-            $subevents[] = $this->buildOverrideSubevent($event, $current['day'], $current['endDayExclusive'], $segmentScope, $current);
+            try {
+                $subevents[] = $this->buildOverrideSubevent($event, $current['day'], $current['endDayExclusive'], $segmentScope, $current);
+            } catch (\RuntimeException $e) {
+                // Skip overrides that do not intersect this segment.
+            }
         }
 
-        // Highest priority first (still stable)
-        usort($subevents, fn(ResolvedSubevent $a, ResolvedSubevent $b) => $b->getPriority() <=> $a->getPriority());
+        // Highest priority first, then stable tie-breakers
+        usort($subevents, fn(ResolvedSubevent $a, ResolvedSubevent $b) => $this->compareSubevents($a, $b));
 
         return $subevents;
+    }
+
+    /**
+     * Clip [start,end) to the segment scope.
+     * Returns null if there is no intersection.
+     */
+    private function clipToSegment(
+        \DateTimeImmutable $start,
+        \DateTimeImmutable $end,
+        ResolutionScope $segmentScope
+    ): ?array {
+        $segStart = $segmentScope->getStart();
+        $segEnd = $segmentScope->getEnd();
+
+        $clippedStart = ($start < $segStart) ? $segStart : $start;
+        $clippedEnd = ($end > $segEnd) ? $segEnd : $end;
+
+        if ($clippedEnd <= $clippedStart) {
+            return null;
+        }
+
+        return [$clippedStart, $clippedEnd];
+    }
+
+    /**
+     * Deterministic priority:
+     * - Overrides always outrank base.
+     * - Narrower scopes outrank wider scopes within the same role.
+     */
+    private function computePriority(string $role, ResolutionScope $scope): int
+    {
+        $roleBase = ($role === ResolutionRole::OVERRIDE) ? 100000 : 0;
+
+        // Narrower scope => higher boost. Work in whole days because Stage 3/4.1 uses date-level scopes.
+        $seconds = $scope->getEnd()->getTimestamp() - $scope->getStart()->getTimestamp();
+        $days = (int) max(1, (int) ceil($seconds / 86400));
+
+        // 1-day => 9999, 2-day => 9998, ... floor at 0
+        $narrowBoost = max(0, 10000 - $days);
+
+        return $roleBase + $narrowBoost;
+    }
+
+    /**
+     * Stable ordering for overrides within a bundle.
+     */
+    private function compareSubevents(ResolvedSubevent $a, ResolvedSubevent $b): int
+    {
+        $p = $b->getPriority() <=> $a->getPriority();
+        if ($p !== 0) {
+            return $p;
+        }
+
+        // Earlier scope first for stability.
+        $s = $a->getScope()->getStart() <=> $b->getScope()->getStart();
+        if ($s !== 0) {
+            return $s;
+        }
+
+        $e = $a->getScope()->getEnd() <=> $b->getScope()->getEnd();
+        if ($e !== 0) {
+            return $e;
+        }
+
+        // Final stable tiebreaker: payload hash.
+        return hash('sha256', json_encode($a->getPayload())) <=> hash('sha256', json_encode($b->getPayload()));
     }
 
     private function buildOverrideSubevent(
@@ -312,6 +386,16 @@ final class ResolutionEngine implements ResolutionEngineInterface
         array $row
     ): ResolvedSubevent {
         $bundleUid = $this->buildBundleUid($event, $segmentScope);
+
+        $clipped = $this->clipToSegment($dayStart, $dayEndExclusive, $segmentScope);
+        if ($clipped === null) {
+            // No intersection with segment; do not emit.
+            // Caller expects only emitted subevents, so return an empty scope via exception is worse.
+            // We handle by returning a zero-length scope would violate ResolutionScope.
+            throw new \RuntimeException('Override subevent scope does not intersect segment scope.');
+        }
+
+        [$dayStart, $dayEndExclusive] = $clipped;
 
         // Stage 3 scope for override is day-range (date-level)
         $scope = new ResolutionScope($dayStart, $dayEndExclusive);
@@ -329,7 +413,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
             timezone: $event->timezone,
             role: ResolutionRole::OVERRIDE,
             scope: $scope,
-            priority: 100,
+            priority: $this->computePriority(ResolutionRole::OVERRIDE, $scope),
             payload: $row['payload'] ?? [],
             sourceTrace: [
                 'kind' => 'override',
@@ -354,7 +438,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
             timezone: $event->timezone,
             role: ResolutionRole::BASE,
             scope: $segmentScope,
-            priority: 0,
+            priority: $this->computePriority(ResolutionRole::BASE, $segmentScope),
             payload: $event->payload ?? [],
             sourceTrace: [
                 'kind' => 'base',
