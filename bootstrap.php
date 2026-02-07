@@ -84,10 +84,11 @@ require_once __DIR__ . '/src/Resolution/ResolutionEngine.php';
 // -----------------------------------------------------------------------------
 
 require_once __DIR__ . '/src/Planner/Dto/PlannerIntent.php';
+require_once __DIR__ . '/src/Planner/ResolvedSchedulePlanner.php';
+require_once __DIR__ . '/src/Planner/ResolvedScheduleToIntentAdapter.php';
 require_once __DIR__ . '/src/Planner/OrderingKey.php';
 require_once __DIR__ . '/src/Planner/PlannedEntry.php';
 require_once __DIR__ . '/src/Planner/PlannerResult.php';
-require_once __DIR__ . '/src/Planner/ResolvedSchedulePlanner.php';
 require_once __DIR__ . '/src/Planner/Planner.php';
 require_once __DIR__ . '/src/Planner/ManifestPlanner.php';
 
