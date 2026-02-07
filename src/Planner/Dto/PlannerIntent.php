@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CalendarScheduler\Planner\Dto;
 
 use CalendarScheduler\Resolution\Dto\ResolutionScope;
+use DateTimeImmutable;
 
 /**
  * PlannerIntent
@@ -12,6 +13,12 @@ use CalendarScheduler\Resolution\Dto\ResolutionScope;
  * This is NOT FPP-specific.
  *
  * Order matters: intents are evaluated top-down by the planner.
+ *
+ * @param string $role One of ResolutionRole::BASE | ResolutionRole::OVERRIDE
+ * @param array<string,mixed> $payload
+ * @param array $sourceTrace
+ * @param DateTimeImmutable $start Start time, may represent symbolic display time and is not execution-resolved here.
+ * @param DateTimeImmutable $end End time, may represent symbolic display time and is not execution-resolved here.
  */
 final class PlannerIntent
 {
@@ -19,6 +26,11 @@ final class PlannerIntent
     public string $parentUid;
     public string $sourceEventUid;
     public string $provider;
+
+    public DateTimeImmutable $start;
+    public DateTimeImmutable $end;
+    public bool $allDay;
+    public ?string $timezone;
 
     /**
      * Role of the intent within its bundle.
@@ -39,12 +51,18 @@ final class PlannerIntent
      * @param string $role One of ResolutionRole::BASE | ResolutionRole::OVERRIDE
      * @param array<string,mixed> $payload
      * @param array $sourceTrace
+     * @param DateTimeImmutable $start Start time, may represent symbolic display time and is not execution-resolved here.
+     * @param DateTimeImmutable $end End time, may represent symbolic display time and is not execution-resolved here.
      */
     public function __construct(
         string $bundleUid,
         string $parentUid,
         string $sourceEventUid,
         string $provider,
+        DateTimeImmutable $start,
+        DateTimeImmutable $end,
+        bool $allDay,
+        ?string $timezone,
         string $role,
         ResolutionScope $scope,
         int $priority,
@@ -55,6 +73,10 @@ final class PlannerIntent
         $this->parentUid = $parentUid;
         $this->sourceEventUid = $sourceEventUid;
         $this->provider = $provider;
+        $this->start = $start;
+        $this->end = $end;
+        $this->allDay = $allDay;
+        $this->timezone = $timezone;
         $this->role = $role;
         $this->scope = $scope;
         $this->priority = $priority;
