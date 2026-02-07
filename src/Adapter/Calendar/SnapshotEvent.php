@@ -20,7 +20,7 @@ final class SnapshotEvent
     public array $payload = [];
 
     // Exceptions
-    /** @var array<array> */
+    /** @var array<array|string> */
     public array $cancelledDates = [];     // originalStartTime values
 
     /** @var OverrideIntent[] */
@@ -28,6 +28,20 @@ final class SnapshotEvent
 
     // Optional: retained only for debugging / diffing
     public array $sourceRows = [];
+
+    public function __construct(array $row)
+    {
+        $this->sourceEventUid = $row['uid'];
+        $this->parentUid = $row['uid'];
+        $this->provider = $row['provider'] ?? 'unknown';
+        $this->start = $row['start'];
+        $this->end = $row['end'];
+        $this->rrule = $row['rrule'] ?? null;
+        $this->timezone = $row['timezone'] ?? null;
+        $this->isAllDay = $row['isAllDay'] ?? false;
+        $this->payload = $row['payload'] ?? [];
+        $this->sourceRows[] = $row;
+    }
 
     public function addCancelledDate(string|array $originalStartTime): void
     {
