@@ -29,7 +29,7 @@ final class SnapshotEvent
     // Optional: retained only for debugging / diffing
     public array $sourceRows = [];
 
-    public function addCancelledDate(string $originalStartTime): void
+    public function addCancelledDate(string|array $originalStartTime): void
     {
         $this->cancelledDates[] = $originalStartTime;
     }
