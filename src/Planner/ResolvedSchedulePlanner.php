@@ -36,6 +36,39 @@ use CalendarScheduler\Planner\OrderingKey;
  */
 final class ResolvedSchedulePlanner
 {
+    /**
+     * Convert a ResolvedSchedule into PlannerIntent objects.
+     *
+     * This is a pure transformation and does not perform ordering or planning.
+     *
+     * @return \CalendarScheduler\Planner\Dto\PlannerIntent[]
+     */
+    public function toPlannerIntents(ResolvedSchedule $schedule): array
+    {
+        $intents = [];
+
+        foreach ($schedule->getBundles() as $bundle) {
+            foreach ($bundle->getSubevents() as $subevent) {
+                $intents[] = new \CalendarScheduler\Planner\Dto\PlannerIntent(
+                    bundleUid:      $subevent->getBundleUid(),
+                    parentUid:      $subevent->getParentUid(),
+                    sourceEventUid: $subevent->getSourceEventUid(),
+                    provider:       $subevent->getProvider(),
+                    start:          $subevent->getStart(),
+                    end:            $subevent->getEnd(),
+                    allDay:         $subevent->isAllDay(),
+                    timezone:       $subevent->getTimezone(),
+                    role:           $subevent->getRole(),
+                    scope:          $subevent->getScope(),
+                    priority:       $subevent->getPriority(),
+                    payload:        $subevent->getPayload(),
+                    sourceTrace:    $subevent->getSourceTrace()
+                );
+            }
+        }
+
+        return $intents;
+    }
     public function plan(ResolvedSchedule $schedule): PlannerResult
     {
         $entries = [];
