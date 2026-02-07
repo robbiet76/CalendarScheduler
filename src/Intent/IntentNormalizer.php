@@ -1,4 +1,3 @@
-use CalendarScheduler\Intent\PlannerIntent;
 <?php
 declare(strict_types=1);
 
@@ -6,6 +5,7 @@ namespace CalendarScheduler\Intent;
 
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Planner\Dto\PlannerIntent;
 
 /**
  * IntentNormalizer
@@ -480,46 +480,38 @@ final class IntentNormalizer
 
         $intents = [];
         foreach ($byBundle as $bundleUid => $group) {
-            // Take first as representative for identity
-            $first = $group[0];
-            // Build identity array (type/target/timing from representative)
-            $identity = [
-                'type' => $first->type,
-                'target' => $first->target,
-                'timing' => [
-                    'all_day'    => $first->allDay ?? false,
-                    'start_date' => $first->startDate ?? null,
-                    'end_date'   => $first->endDate ?? null,
-                    'start_time' => $first->startTime ?? null,
-                    'end_time'   => $first->endTime ?? null,
-                    'days'       => $first->days ?? null,
-                ],
-            ];
             // Compute identityHash as sha256 of bundleUid (stable)
             $identityHash = hash('sha256', (string)$bundleUid);
+
+            // Build identity array using only fields that actually exist on PlannerIntent
+            $identity = [
+                'bundleUid' => $bundleUid,
+            ];
 
             // Build subEvents (one per PlannerIntent)
             $subEvents = [];
             foreach ($group as $pi) {
-                $subEvent = [
-                    'type'    => $pi->type,
-                    'target'  => $pi->target,
-                    'timing'  => [
-                        'all_day'    => $pi->allDay ?? false,
-                        'start_date' => $pi->startDate ?? null,
-                        'end_date'   => $pi->endDate ?? null,
-                        'start_time' => $pi->startTime ?? null,
-                        'end_time'   => $pi->endTime ?? null,
-                        'days'       => $pi->days ?? null,
-                    ],
-                    'payload' => $pi->payload ?? [],
+                // Construct timing from start/end/allDay/timezone
+                $timing = [
+                    'start'    => $pi->start,
+                    'end'      => $pi->end,
+                    'allDay'   => $pi->allDay,
+                    'timezone' => $pi->timezone,
                 ];
-                // Compute stateHash for subEvent
+                $subEvent = [
+                    'bundleUid' => $pi->bundleUid,
+                    'timing'    => $timing,
+                    'role'      => $pi->role,
+                    'scope'     => $pi->scope,
+                    'payload'   => $pi->payload,
+                ];
+                // Compute stateHash for subEvent (use only canonical fields)
                 $shInput = [
-                    'type'   => $subEvent['type'],
-                    'target' => $subEvent['target'],
-                    'timing' => $subEvent['timing'],
-                    'payload' => $subEvent['payload'],
+                    'bundleUid' => $subEvent['bundleUid'],
+                    'timing'    => $subEvent['timing'],
+                    'role'      => $subEvent['role'],
+                    'scope'     => $subEvent['scope'],
+                    'payload'   => $subEvent['payload'],
                 ];
                 $subEvent['stateHash'] = hash('sha256', json_encode($shInput, JSON_THROW_ON_ERROR));
                 $subEvents[] = $subEvent;
