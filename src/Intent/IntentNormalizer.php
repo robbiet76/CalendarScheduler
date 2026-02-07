@@ -516,21 +516,16 @@ final class IntentNormalizer
                 $subEvent['stateHash'] = hash('sha256', json_encode($shInput, JSON_THROW_ON_ERROR));
                 $subEvents[] = $subEvent;
             }
-            // Compute eventStateHash as hash of all subEvent stateHashes
-            $eventStateHash = hash(
-                'sha256',
-                json_encode(array_map(function($se) { return $se['stateHash']; }, $subEvents), JSON_THROW_ON_ERROR)
-            );
             // Empty ownership/correlation for now
             $ownership = [];
             $correlation = [];
-            $intents[] = new Intent(
+            // $eventStateHash is not needed; remove its calculation and do not pass it to Intent
+            $intents[$identityHash] = new Intent(
                 $identityHash,
                 $identity,
                 $ownership,
                 $correlation,
-                $subEvents,
-                $eventStateHash
+                $subEvents
             );
         }
         return $intents;
