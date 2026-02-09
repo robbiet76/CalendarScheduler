@@ -184,11 +184,7 @@ final class SchedulerEngine
         // ------------------------------------------------------------
 
         // CalendarSnapshot groups already-translated provider rows.
-        // Translator dependency is legacy; pass a no-op stub.
-        $snapshot = new CalendarSnapshot(
-            new class implements \CalendarScheduler\Adapter\Calendar\CalendarTranslator {}
-        );
-
+        $snapshot = new CalendarSnapshot();
         $snapshot->snapshot($calendarEvents);
 
         $resolver = new ResolutionEngine();
