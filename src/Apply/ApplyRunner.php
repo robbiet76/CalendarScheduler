@@ -7,6 +7,8 @@ use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Diff\ReconciliationResult;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
+use CalendarScheduler\Apply\FppScheduleMutator;
+use CalendarScheduler\Apply\FppScheduleWriter;
 
 /**
  * ApplyRunner
@@ -17,7 +19,9 @@ final class ApplyRunner
 {
     public function __construct(
         private readonly ManifestWriter $manifestWriter,
-        private readonly FppScheduleAdapter $fppAdapter
+        private readonly FppScheduleAdapter $fppAdapter,
+        private readonly FppScheduleMutator $fppMutator,
+        private readonly FppScheduleWriter $fppWriter
     ) {}
 
     public function evaluate(
@@ -63,6 +67,8 @@ final class ApplyRunner
                 throw new \RuntimeException('Apply blocked: ' . implode('; ', $messages));
             }
 
+            $schedule = $this->fppMutator->load();
+
             // Execute allowed FPP actions
             foreach ($evaluation->allowed as $action) {
                 if ($action->target !== ReconciliationAction::TARGET_FPP) {
@@ -82,16 +88,18 @@ final class ApplyRunner
                     // Convert manifest event to FPP schedule entry
                     $entry = $this->fppAdapter->toScheduleEntry($action->event);
 
-                    // TODO (Phase D2):
-                    // Write $entry into FPP schedule.json
-                    // For now this is intentionally a no-op placeholder
+                    $schedule = $this->fppMutator->upsert(
+                        $schedule,
+                        $entry
+                    );
                 }
 
                 if ($action->type === ReconciliationAction::TYPE_DELETE) {
-                    // TODO (Phase D2):
-                    // Remove schedule entry by identity
+                    $schedule = $this->fppMutator->delete($schedule, $action->identityHash);
                 }
             }
+
+            $this->fppWriter->write($schedule);
 
             // Persist the new canonical manifest
             $this->manifestWriter->applyTargetManifest($result->targetManifest());
