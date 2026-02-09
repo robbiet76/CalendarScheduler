@@ -45,7 +45,6 @@ require_once __DIR__ . '/src/Adapter/FppScheduleTranslator.php';
 require_once __DIR__ . '/src/Adapter/FppScheduleAdapter.php';
 
 // Calendar — provider-agnostic boundary
-require_once __DIR__ . '/src/Adapter/Calendar/CalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/Calendar/OverrideIntent.php';
 require_once __DIR__ . '/src/Adapter/Calendar/SnapshotEvent.php';
 require_once __DIR__ . '/src/Adapter/Calendar/CalendarSnapshot.php';
