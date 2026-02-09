@@ -192,18 +192,28 @@ $countUpdate = $totals['update'];
 $countDelete = $totals['delete'];
 
 if ($apply) {
-    $options = new ApplyOptions(
-        ApplyMode::APPLY,
-        WritableTargets::fppOnly(),
-        true // fail if calendar actions are blocked
-    );
+    // Determine writable targets (currently FPP only)
+    $writableTargets = [
+        ReconciliationAction::TARGET_FPP => true,
+    ];
+
+    if ($plan) {
+        $options = ApplyOptions::plan();
+    } elseif ($dryRun) {
+        $options = ApplyOptions::dryRun($writableTargets);
+    } else {
+        $options = ApplyOptions::apply(
+            $writableTargets,
+            true // fail if calendar actions are blocked
+        );
+    }
 
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath),
         new FppScheduleAdapter()
     );
 
-    $applier->apply($result, $options);
+    $applier->apply($runResult->reconciliationResult(), $options);
 }
 
 if ($format === 'json') {

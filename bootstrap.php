@@ -114,6 +114,9 @@ require_once __DIR__ . '/src/Engine/SchedulerEngine.php';
 
 require_once __DIR__ . '/src/Apply/ApplyRunner.php';
 require_once __DIR__ . '/src/Apply/ManifestWriter.php';
+require_once __DIR__ . '/src/Apply/ApplyOptions.php';
+require_once __DIR__ . '/src/Apply/ApplyEvaluation.php';
+require_once __DIR__ . '/src/Apply/ApplyTargets.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete
