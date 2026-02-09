@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CalendarScheduler\Apply;
 
 use CalendarScheduler\Diff\ReconciliationAction;
+use CalendarScheduler\Apply\ApplyTargets;
 
 /**
  * ApplyOptions
@@ -21,7 +22,7 @@ final class ApplyOptions
     /** @var bool */
     private bool $dryRun;
 
-    /** @var array<string,bool> */
+    /** @var array<ApplyTargets::*,bool> */
     private array $writableTargets;
 
     public bool $failOnBlockedActions;
@@ -95,6 +96,12 @@ final class ApplyOptions
 
     public function canWrite(string $target): bool
     {
+        if (!ApplyTargets::isValid($target)) {
+            throw new \RuntimeException(
+                "ApplyOptions::canWrite called with invalid target '{$target}'"
+            );
+        }
+
         return ($this->writableTargets[$target] ?? false) === true;
     }
 }
