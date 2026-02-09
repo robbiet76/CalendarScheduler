@@ -35,7 +35,6 @@ require_once __DIR__ . '/src/Platform/FppSemantics.php';
 require_once __DIR__ . '/src/Platform/HolidayResolver.php';
 require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
 require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
-// require_once __DIR__ . '/src/Platform/FppScheduleWriter.php';
 
 // -----------------------------------------------------------------------------
 // Adapter
@@ -117,6 +116,8 @@ require_once __DIR__ . '/src/Apply/ManifestWriter.php';
 require_once __DIR__ . '/src/Apply/ApplyOptions.php';
 require_once __DIR__ . '/src/Apply/ApplyEvaluation.php';
 require_once __DIR__ . '/src/Apply/ApplyTargets.php';
+require_once __DIR__ . '/src/Apply/FppScheduleWriter.php';
+require_once __DIR__ . '/src/Apply/FppScheduleMutator.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete
