@@ -33,18 +33,20 @@ This normalization is performed during Intent normalization and never during res
 
 #### What Defines Manifest Identity
 
-Manifest Identity is derived from the subset of execution geometry that defines a **logical execution slot** as perceived by the user at the Event level.
+Manifest Identity is derived from the subset of execution geometry that defines a **single calendar event** (a user-editable unit) as perceived at the Event level.
 
-Identity answers the question **"What is this scheduled thing?"**, not **"How or when does it execute?"**
+Identity answers the question **"What calendar event is this?"** (i.e., what would require creating a *new* calendar event), not **"What is its current configured run state?"**.
 
 Identity includes only the structural fields:
 
 - **Execution type** (`playlist`, `command`, `sequence`)
 - **Execution target** (playlist name, command name, etc.)
+- **All-day flag** (`all_day`)
 - **Weekly day selection** (`days`), which may be null meaning "Everyday"
 - **Start time** (`start_time`), including symbolic or hard value and offset
+- **End time** (`end_time`), including symbolic or hard value and offset
 
-Identity explicitly excludes timing details such as end_time, start_date, end_date, and DatePatterns, as well as any execution behavior, enablement, or payload.
+Identity explicitly excludes *date-range activation* details (`start_date`, `end_date`, DatePatterns) as well as execution behavior, enablement, and payload. Changing date range is treated as an UPDATE to the same calendar event, not a new identity.
 
 SubEvents inherit the Manifest Identity of their parent Event. Timing, date patterns, execution behavior, enablement, and payload differences are captured in the SubEvent-level StateHash.
 
@@ -64,7 +66,7 @@ StateHash encompasses all normalized timing details, including start_time, end_t
 
 The following fields affect *when* an entry is active or *how* it executes, but do **not** define logical identity and are therefore excluded from identity hashing:
 
-- Timing details excluding start_time (`end_time`, `start_date`, `end_date`, DatePatterns)
+- Date-range activation details (`start_date`, `end_date`, DatePatterns)
 - Enablement state (`enabled`)
 - Playback behavior (`repeat`, `stopType`)
 - Execution payload or command arguments
@@ -96,4 +98,4 @@ Symbolic times (e.g., `dawn`, `dusk`) are interpreted relative to the FPP local 
 
 #### Summary Rule
 
-> Two Manifest Events share the same identity if and only if their execution type, execution target, start time, and weekly day selection are equivalent. All other differences are state differences evaluated via SubEvent StateHash.
+> Scheduler intents are grouped into a single Manifest Event if and only if their execution type, execution target, all-day flag, start time, end time, and weekly day selection are equivalent.
