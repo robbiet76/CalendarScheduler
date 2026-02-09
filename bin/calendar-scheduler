@@ -22,6 +22,7 @@ use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyMode;
 use CalendarScheduler\Apply\WritableTargets;
+use CalendarScheduler\Engine\SchedulerRunResult;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -421,8 +422,18 @@ try {
         $fppSnapshotEpoch
     );
 
+    $runResult = new SchedulerRunResult(
+        $currentManifest,
+        $calendarManifest,
+        $fppManifest,
+        $diffPlan,
+        $result,
+        $calendarSnapshotEpoch,
+        $fppSnapshotEpoch
+    );
+
     if ($plan) {
-        foreach ($result->actions() as $action) {
+        foreach ($runResult->actions() as $action) {
             printf(
                 "[%s → %s] %-6s identity=%s reason=\"%s\"\n",
                 $action->authority,
@@ -433,7 +444,7 @@ try {
             );
         }
 
-        if ($result->actionCount() === 0) {
+        if ($runResult->isNoop()) {
             echo "No reconciliation actions required.\n";
         }
 
@@ -466,38 +477,22 @@ try {
 // Output
 // -----------------------------------------------------------------------------
 
- $countCreate = $diffPlan->createCount();
- $countUpdate = $diffPlan->updateCount();
- $countDelete = $diffPlan->deleteCount();
 
- $countCreateFpp = 0;
- $countUpdateFpp = 0;
- $countDeleteFpp = 0;
+$countsByTarget = $runResult->countsByTarget();
 
- $countCreateCalendar = 0;
- $countUpdateCalendar = 0;
- $countDeleteCalendar = 0;
+$countCreateFpp = $countsByTarget['fpp']['create'];
+$countUpdateFpp = $countsByTarget['fpp']['update'];
+$countDeleteFpp = $countsByTarget['fpp']['delete'];
 
- foreach ($result->actions() as $action) {
-     // ignore noop/block for counts
-     if ($action->type === ReconciliationAction::TYPE_NOOP || $action->type === ReconciliationAction::TYPE_BLOCK) {
-         continue;
-     }
+$countCreateCalendar = $countsByTarget['calendar']['create'];
+$countUpdateCalendar = $countsByTarget['calendar']['update'];
+$countDeleteCalendar = $countsByTarget['calendar']['delete'];
 
-     if ($action->target === ReconciliationAction::TARGET_FPP) {
-         if ($action->type === ReconciliationAction::TYPE_CREATE) $countCreateFpp++;
-         elseif ($action->type === ReconciliationAction::TYPE_UPDATE) $countUpdateFpp++;
-         elseif ($action->type === ReconciliationAction::TYPE_DELETE) $countDeleteFpp++;
-         continue;
-     }
+$totals = $runResult->totalCounts();
 
-     if ($action->target === ReconciliationAction::TARGET_CALENDAR) {
-         if ($action->type === ReconciliationAction::TYPE_CREATE) $countCreateCalendar++;
-         elseif ($action->type === ReconciliationAction::TYPE_UPDATE) $countUpdateCalendar++;
-         elseif ($action->type === ReconciliationAction::TYPE_DELETE) $countDeleteCalendar++;
-         continue;
-     }
- }
+$countCreate = $totals['create'];
+$countUpdate = $totals['update'];
+$countDelete = $totals['delete'];
 
 if ($apply) {
     $options = new ApplyOptions(
@@ -517,8 +512,7 @@ if ($apply) {
 if ($format === 'json') {
     if ($dryRun) {
         echo json_encode([
-            'noop'    => $countCreateFpp === 0 && $countUpdateFpp === 0 && $countDeleteFpp === 0 &&
-                         $countCreateCalendar === 0 && $countUpdateCalendar === 0 && $countDeleteCalendar === 0,
+            'noop'    => $runResult->isNoop(),
             'fpp' => [
                 'created' => $countCreateFpp,
                 'updated' => $countUpdateFpp,
@@ -535,7 +529,7 @@ if ($format === 'json') {
     }
 
     echo json_encode([
-        'noop'    => $countCreate === 0 && $countUpdate === 0 && $countDelete === 0,
+        'noop'    => $runResult->isNoop(),
         'created' => $countCreate,
         'updated' => $countUpdate,
         'deleted' => $countDelete,
@@ -560,7 +554,7 @@ if ($dryRun) {
     exit(0);
 }
 
-if ($countCreate === 0 && $countUpdate === 0 && $countDelete === 0) {
+if ($runResult->isNoop()) {
     echo "Scheduler run complete.\n";
     echo "No changes required.\n";
     exit(0);

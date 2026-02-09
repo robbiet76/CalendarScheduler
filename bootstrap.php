@@ -103,6 +103,13 @@ require_once __DIR__ . '/src/Diff/ReconciliationResult.php';
 require_once __DIR__ . '/src/Diff/Reconciler.php';
 
 // -----------------------------------------------------------------------------
+// Engine
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/src/Engine/SchedulerRunResult.php';
+require_once __DIR__ . '/src/Engine/SchedulerEngine.php';
+
+// -----------------------------------------------------------------------------
 // Apply
 // -----------------------------------------------------------------------------
 
