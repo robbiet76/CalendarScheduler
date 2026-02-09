@@ -12,11 +12,13 @@ namespace CalendarScheduler\Apply;
  */
 final class ApplyTargets
 {
+    /**
+     * Matches ReconciliationAction::TARGET_FPP
+     */
     public const FPP = 'fpp';
 
     /**
-     * Reserved for future use.
-     * Manifest writes are currently unconditional and not target-gated.
+     * Matches ReconciliationAction::TARGET_CALENDAR
      */
-    public const MANIFEST = 'manifest';
+    public const CALENDAR = 'calendar';
 }
