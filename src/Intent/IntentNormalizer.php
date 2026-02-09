@@ -505,12 +505,20 @@ final class IntentNormalizer
                 $target = null;
             }
 
-            // Compose timing
+            // Compose timing (REPLACED per instruction)
             $timing = [
-                'all_day'    => (bool)($pi->allDay ?? false),
-                'start_time' => $pi->startTime ?? null,
-                'end_time'   => $pi->endTime ?? null,
-                'days'       => isset($payload['days']) ? $payload['days'] : null,
+                'all_day' => (bool)$pi->allDay,
+                'start_time' => [
+                    'hard' => $pi->start->format('H:i:s'),
+                    'symbolic' => null,
+                    'offset' => 0,
+                ],
+                'end_time' => [
+                    'hard' => $pi->end->format('H:i:s'),
+                    'symbolic' => null,
+                    'offset' => 0,
+                ],
+                'days' => $payload['days'] ?? null,
             ];
 
             $identity = [
@@ -541,11 +549,20 @@ final class IntentNormalizer
             $subEvents = [];
             foreach ($group as $pi) {
                 $payload = is_array($pi->payload ?? null) ? $pi->payload : [];
+                // Compose timing (REPLACED per instruction)
                 $timing = [
-                    'all_day'    => (bool)($pi->allDay ?? false),
-                    'start_time' => $pi->startTime ?? null,
-                    'end_time'   => $pi->endTime ?? null,
-                    'days'       => isset($payload['days']) ? $payload['days'] : null,
+                    'all_day' => (bool)$pi->allDay,
+                    'start_time' => [
+                        'hard' => $pi->start->format('H:i:s'),
+                        'symbolic' => null,
+                        'offset' => 0,
+                    ],
+                    'end_time' => [
+                        'hard' => $pi->end->format('H:i:s'),
+                        'symbolic' => null,
+                        'offset' => 0,
+                    ],
+                    'days' => $payload['days'] ?? null,
                 ];
                 $subEvent = [
                     // bundleUid may remain in subEvent metadata only
