@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter\Calendar;
 
-use CalendarScheduler\Adapter\Calendar\CalendarTranslator;
 use RuntimeException;
 
 /**
@@ -19,15 +18,13 @@ use RuntimeException;
  */
 final class CalendarSnapshot
 {
-    private CalendarTranslator $translator;
 
     /** @var SnapshotEvent[] */
     private array $snapshotEvents = [];
 
-    public function __construct(
-        CalendarTranslator $translator
-    ) {
-        $this->translator = $translator;
+    public function __construct()
+    {
+        // Snapshot is provider-agnostic; translation occurs upstream.
     }
 
     /**
