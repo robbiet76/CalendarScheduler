@@ -50,6 +50,13 @@ final class IntentNormalizer
         array $event,
         NormalizationContext $context
     ): Intent {
+        if (!isset($event['timing']) || !is_array($event['timing'])) {
+            throw new \RuntimeException(
+                'IntentNormalizer::fromManifestEvent requires event[timing]; got keys: ' .
+                implode(',', array_keys($event))
+            );
+        }
+
         $timingArr = $this->applyHolidaySymbolics(
             $event['timing'],
             $context->holidayResolver
