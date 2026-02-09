@@ -17,11 +17,20 @@ class GoogleCalendarProvider
 
     /**
      * Ingest calendar data from Google into provider-neutral CalendarEvent records.
+     *
+     * IMPORTANT:
+     * This method is legacy and must NOT be used in the V2 scheduler pipeline.
+     * Calendar ingestion now flows through:
+     *   Google API → Translator → CalendarSnapshot → ResolutionEngine
+     *
+     * Any invocation here indicates a wiring error.
      */
-    public function ingest($context): array
+    public function ingest(mixed $context): array
     {
-        // GoogleCalendarTranslator::ingest expects (rawEvents, context)
-        return $this->translator->ingest($context['events'] ?? [], $context);
+        throw new \LogicException(
+            'GoogleCalendarProvider::ingest() is not supported in the V2 pipeline. '
+            . 'Calendar ingestion must occur via CalendarSnapshot + ResolutionEngine.'
+        );
     }
 
     /**
