@@ -5,6 +5,8 @@ namespace CalendarScheduler\Engine;
 
 use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
+use CalendarScheduler\Adapter\Calendar\CalendarSnapshot;
+use CalendarScheduler\Resolution\ResolutionEngine;
 use CalendarScheduler\Planner\ManifestPlanner;
 use CalendarScheduler\Diff\Diff;
 use CalendarScheduler\Diff\Reconciler;
@@ -178,15 +180,28 @@ final class SchedulerEngine
         $computedFppUpdatedAtById = [];
 
         // ------------------------------------------------------------
-        // Normalize calendar events → Intents
+        // Calendar events → Snapshot → Resolution → PlannerIntents → Intents
         // ------------------------------------------------------------
-        $calendarIntents = [];
-        foreach ($calendarEvents as $event) {
-            $intent = $this->normalizer->fromManifestEvent($event, $context);
-            $calendarIntents[$intent->identityHash] = $intent;
 
+        // CalendarSnapshot groups already-translated provider rows.
+        // Translator dependency is legacy; pass a no-op stub.
+        $snapshot = new CalendarSnapshot(
+            new class implements \CalendarScheduler\Adapter\Calendar\CalendarTranslator {}
+        );
+
+        $snapshot->snapshot($calendarEvents);
+
+        $resolver = new ResolutionEngine();
+        $resolvedSchedule = $resolver->resolve($snapshot);
+
+        $plannerIntents = $resolvedSchedule->toPlannerIntents();
+        $calendarIntents = $this->normalizer->normalizePlannerIntents($plannerIntents);
+
+        foreach ($calendarEvents as $event) {
             $ts = $event['updatedAtEpoch'] ?? $event['sourceUpdatedAt'] ?? 0;
-            $computedCalendarUpdatedAtById[$intent->identityHash] = is_int($ts) ? $ts : (int)$ts;
+            $computedCalendarUpdatedAtById[
+                $event['uid'] ?? $event['sourceEventUid'] ?? spl_object_id((object)$event)
+            ] = is_int($ts) ? $ts : (int) $ts;
         }
 
         // ------------------------------------------------------------
