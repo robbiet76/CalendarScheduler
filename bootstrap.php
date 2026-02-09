@@ -111,13 +111,13 @@ require_once __DIR__ . '/src/Engine/SchedulerEngine.php';
 // Apply
 // -----------------------------------------------------------------------------
 
-require_once __DIR__ . '/src/Apply/ApplyRunner.php';
-require_once __DIR__ . '/src/Apply/ManifestWriter.php';
+require_once __DIR__ . '/src/Apply/ApplyTargets.php';
 require_once __DIR__ . '/src/Apply/ApplyOptions.php';
 require_once __DIR__ . '/src/Apply/ApplyEvaluation.php';
-require_once __DIR__ . '/src/Apply/ApplyTargets.php';
-require_once __DIR__ . '/src/Apply/FppScheduleWriter.php';
 require_once __DIR__ . '/src/Apply/FppScheduleMutator.php';
+require_once __DIR__ . '/src/Apply/FppScheduleWriter.php';
+require_once __DIR__ . '/src/Apply/ManifestWriter.php';
+require_once __DIR__ . '/src/Apply/ApplyRunner.php';
 
 // -----------------------------------------------------------------------------
 // Bootstrap complete

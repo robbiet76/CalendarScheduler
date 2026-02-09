@@ -22,7 +22,7 @@ final class ApplyOptions
     /** @var bool */
     private bool $dryRun;
 
-    /** @var array<ApplyTargets::*,bool> */
+    /** @var array<string,bool> */
     private array $writableTargets;
 
     public bool $failOnBlockedActions;
@@ -43,12 +43,12 @@ final class ApplyOptions
     // Named constructors
     // ----------------------------
 
-    public static function plan(): self
+    public static function plan(array $writableTargets = []): self
     {
         return new self(
             self::MODE_PLAN,
             false,
-            [],
+            self::normalizeTargets($writableTargets),
             false
         );
     }
@@ -58,7 +58,7 @@ final class ApplyOptions
         return new self(
             self::MODE_APPLY,
             true,
-            $writableTargets,
+            self::normalizeTargets($writableTargets),
             false
         );
     }
@@ -70,7 +70,7 @@ final class ApplyOptions
         return new self(
             self::MODE_APPLY,
             false,
-            $writableTargets,
+            self::normalizeTargets($writableTargets),
             $failOnBlockedActions
         );
     }
@@ -103,5 +103,24 @@ final class ApplyOptions
         }
 
         return ($this->writableTargets[$target] ?? false) === true;
+    }
+
+    /**
+     * @param array<int,string> $targets
+     * @return array<string,bool>
+     */
+    private static function normalizeTargets(array $targets): array
+    {
+        $out = [];
+        foreach ($targets as $t) {
+            if (!is_string($t) || $t === '') {
+                continue;
+            }
+            if (!ApplyTargets::isValid($t)) {
+                throw new \RuntimeException("ApplyOptions: invalid writable target '{$t}'");
+            }
+            $out[$t] = true;
+        }
+        return $out;
     }
 }

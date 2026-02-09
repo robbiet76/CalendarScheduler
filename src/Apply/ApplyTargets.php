@@ -8,7 +8,7 @@ use CalendarScheduler\Diff\ReconciliationAction;
 /**
  * ApplyTargets
  *
- * Canonical list of writable targets for the Apply layer.
+ * Canonical list of writable external reconciliation targets for the Apply layer.
  *
  * IMPORTANT:
  * - These constants MUST align exactly with ReconciliationAction::TARGET_*
@@ -19,27 +19,51 @@ final class ApplyTargets
     /**
      * Matches ReconciliationAction::TARGET_FPP
      */
-    public const FPP = ReconciliationAction::TARGET_FPP;
+    public const TARGET_FPP = ReconciliationAction::TARGET_FPP;
 
     /**
      * Matches ReconciliationAction::TARGET_CALENDAR
      */
-    public const CALENDAR = ReconciliationAction::TARGET_CALENDAR;
+    public const TARGET_CALENDAR = ReconciliationAction::TARGET_CALENDAR;
 
     /**
-     * Literal 'manifest' target.
+     * Authoritative map of all valid targets.
+     *
+     * @var array<string, true>
      */
-    public const MANIFEST = 'manifest';
+    public const ALL = [
+        self::TARGET_FPP => true,
+        self::TARGET_CALENDAR => true,
+    ];
 
     /**
-     * Validate a reconciliation target.
+     * Convenience: only allow FPP writes.
+     *
+     * @return list<string>
+     */
+    public static function fppOnly(): array
+    {
+        return [self::TARGET_FPP];
+    }
+
+    /**
+     * Convenience: allow all writable external reconciliation targets.
+     *
+     * @return list<string>
+     */
+    public static function all(): array
+    {
+        return [
+            self::TARGET_FPP,
+            self::TARGET_CALENDAR,
+        ];
+    }
+
+    /**
+     * Returns true if the given target is a valid apply target.
      */
     public static function isValid(string $target): bool
     {
-        return in_array($target, [
-            self::FPP,
-            self::CALENDAR,
-            self::MANIFEST,
-        ], true);
+        return isset(self::ALL[$target]);
     }
 }

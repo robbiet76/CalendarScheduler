@@ -95,7 +95,10 @@ final class ApplyRunner
                 }
 
                 if ($action->type === ReconciliationAction::TYPE_DELETE) {
-                    $schedule = $this->fppMutator->delete($schedule, $action->identityHash);
+                    $schedule = $this->fppMutator->delete(
+                        $schedule,
+                        $action->identityHash
+                    );
                 }
             }
 

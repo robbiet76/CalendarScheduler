@@ -7,22 +7,14 @@ declare(strict_types=1);
 // CLI entrypoint for CalendarScheduler (V2)
 // -----------------------------------------------------------------------------
 
-use CalendarScheduler\Planner\ManifestPlanner;
-use CalendarScheduler\Diff\Diff;
 use CalendarScheduler\Apply\ApplyRunner;
 use CalendarScheduler\Apply\ManifestWriter;
-use CalendarScheduler\Diff\Reconciler;
 use CalendarScheduler\Diff\ReconciliationAction;
-use CalendarScheduler\Intent\IntentNormalizer;
-use CalendarScheduler\Intent\NormalizationContext;
-use CalendarScheduler\Platform\FPPSemantics;
-use CalendarScheduler\Platform\HolidayResolver;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarProvider;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Apply\ApplyOptions;
-use CalendarScheduler\Apply\ApplyMode;
-use CalendarScheduler\Apply\WritableTargets;
-use CalendarScheduler\Engine\SchedulerRunResult;
+use CalendarScheduler\Apply\ApplyTargets;
+use CalendarScheduler\Apply\FppScheduleMutator;
+use CalendarScheduler\Apply\FppScheduleWriter;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -192,25 +184,26 @@ $countUpdate = $totals['update'];
 $countDelete = $totals['delete'];
 
 if ($apply) {
-    // Determine writable targets (currently FPP only)
-    $writableTargets = [
-        ReconciliationAction::TARGET_FPP => true,
-    ];
+    // Writable targets are expressed via ApplyTargets (must align with ReconciliationAction::TARGET_*).
+    $targets = ApplyTargets::fppOnly();
 
     if ($plan) {
         $options = ApplyOptions::plan();
     } elseif ($dryRun) {
-        $options = ApplyOptions::dryRun($writableTargets);
+        $options = ApplyOptions::dryRun($targets);
     } else {
+        // Apply for real (still honors target allow-list).
         $options = ApplyOptions::apply(
-            $writableTargets,
+            $targets,
             true // fail if calendar actions are blocked
         );
     }
 
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath),
-        new FppScheduleAdapter()
+        new FppScheduleAdapter($schedulePath),
+        new FppScheduleMutator($schedulePath),
+        new FppScheduleWriter($schedulePath)
     );
 
     $applier->apply($runResult->reconciliationResult(), $options);
