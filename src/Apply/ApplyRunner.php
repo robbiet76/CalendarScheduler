@@ -119,9 +119,6 @@ final class ApplyRunner
                 $calendarApplied = true;
             }
 
-            if ($fppApplied !== $calendarApplied) {
-                throw new \RuntimeException('Apply failed: target symmetry violation between FPP and Calendar actions');
-            }
 
             // Persist the new canonical manifest
             $this->manifestWriter->applyTargetManifest($result->targetManifest());
