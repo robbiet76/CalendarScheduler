@@ -37,6 +37,17 @@ final class GoogleCalendarTranslator
             if (!is_array($ev)) {
                 continue;
             }
+            // Support on-disk snapshot rows (exported/translated shape) in addition to raw Google API events.
+            // Snapshot rows use dtstart/dtend/rrule/exDates rather than Google API start/end/recurrence.
+            if (
+                isset($ev['dtstart'])
+                && is_string($ev['dtstart'])
+                && $ev['dtstart'] !== ''
+                && !isset($ev['start'])
+            ) {
+                $out[] = $this->translateSnapshotRow($ev, $calendarId);
+                continue;
+            }
 
             $source = [
                 'provider'    => 'google',
@@ -336,5 +347,153 @@ final class GoogleCalendarTranslator
         } catch (\Throwable) {
             return null;
         }
+    }
+    /**
+     * Translate an already-exported snapshot row (array entry from calendar-snapshot.json).
+     * This preserves the snapshot semantics and rehydrates the provider-neutral CalendarEvent shape
+     * expected by the V2 pipeline.
+     *
+     * @param array<string,mixed> $ev
+     * @return array<string,mixed>
+     */
+    private function translateSnapshotRow(array $ev, string $calendarId): array
+    {
+        $summary     = is_string($ev['summary'] ?? null) ? $ev['summary'] : '';
+        $description = array_key_exists('description', $ev) ? ($ev['description'] ?? null) : null;
+        if (!is_string($description) && $description !== null) {
+            $description = null;
+        }
+        $status = is_string($ev['status'] ?? null) ? $ev['status'] : 'confirmed';
+
+        $isAllDay = (bool) ($ev['isAllDay'] ?? false);
+        $tz = is_string($ev['timezone'] ?? null) && $ev['timezone'] !== '' ? (string) $ev['timezone'] : null;
+
+        $dtstart = is_string($ev['dtstart'] ?? null) ? (string) $ev['dtstart'] : '';
+        $dtend   = is_string($ev['dtend'] ?? null) ? (string) $ev['dtend'] : '';
+
+        // Identity: snapshot rows use uid.
+        $uid = is_string($ev['uid'] ?? null) ? (string) $ev['uid'] : null;
+
+        // Recurrence + exclusions are already structural in snapshot rows.
+        $rrule = is_array($ev['rrule'] ?? null) ? $ev['rrule'] : null;
+        $exDates = is_array($ev['exDates'] ?? null) ? array_values(array_filter($ev['exDates'], 'is_string')) : [];
+
+        // Override linkage
+        $isOverride = (bool) ($ev['isOverride'] ?? false);
+        $parentUid = is_string($ev['parentUid'] ?? null) && $ev['parentUid'] !== '' ? (string) $ev['parentUid'] : null;
+        $originalStartTime = is_array($ev['originalStartTime'] ?? null) ? $ev['originalStartTime'] : null;
+
+        // Rehydrate Google-like start/end arrays for downstream consumers that expect them.
+        [$startRaw, $endRaw] = $this->rehydrateStartEndArrays($dtstart, $dtend, $isAllDay, $tz);
+
+        $provenance = [];
+        if (is_array($ev['provenance'] ?? null)) {
+            $provenance = $ev['provenance'];
+        }
+        // Ensure at least uid is present in provenance.
+        if (!isset($provenance['uid']) && $uid !== null) {
+            $provenance['uid'] = $uid;
+        }
+
+        return [
+            'provider'          => 'google',
+            'calendar_id'       => $calendarId,
+
+            'uid'               => $uid,
+            'sourceEventUid'    => $uid,
+
+            'summary'           => $summary,
+            'description'       => $description,
+            'status'            => $status,
+
+            'start'             => $startRaw,
+            'end'               => $endRaw,
+            'timezone'          => $tz,
+            'isAllDay'          => $isAllDay,
+
+            'dtstart'           => $dtstart,
+            'dtend'             => $dtend,
+
+            'rrule'             => $rrule,
+            'exDates'           => $exDates,
+
+            'parentUid'         => $parentUid,
+            'originalStartTime' => $originalStartTime,
+            'isOverride'        => $isOverride,
+
+            'payload'           => [
+                'summary'     => $summary,
+                'description' => $description,
+                'status'      => $status,
+                'rrule'       => $rrule,
+                'exDates'     => $exDates,
+            ],
+
+            'provenance'        => $provenance,
+        ];
+    }
+
+    /**
+     * @return array{0:array<string,mixed>,1:array<string,mixed>}
+     */
+    private function rehydrateStartEndArrays(string $dtstart, string $dtend, bool $isAllDay, ?string $tz): array
+    {
+        if ($isAllDay) {
+            // Snapshot all-day values may be YYYY-MM-DD or YYYY-MM-DD HH:MM:SS. Keep only the date.
+            $startDate = substr($dtstart, 0, 10);
+            $endDate   = substr($dtend, 0, 10);
+
+            return [
+                ['date' => $startDate],
+                ['date' => $endDate],
+            ];
+        }
+
+        $tzObj = null;
+        if ($tz !== null && $tz !== '') {
+            try {
+                $tzObj = new DateTimeZone($tz);
+            } catch (\Throwable) {
+                $tzObj = null;
+            }
+        }
+        if ($tzObj === null) {
+            $tzObj = new DateTimeZone(date_default_timezone_get());
+        }
+
+        $startIso = $this->formatLocalDateTimeToAtom($dtstart, $tzObj);
+        $endIso   = $this->formatLocalDateTimeToAtom($dtend, $tzObj);
+
+        $start = ['dateTime' => $startIso];
+        $end   = ['dateTime' => $endIso];
+
+        if ($tz !== null && $tz !== '') {
+            $start['timeZone'] = $tz;
+            $end['timeZone']   = $tz;
+        }
+
+        return [$start, $end];
+    }
+
+    private function formatLocalDateTimeToAtom(string $value, DateTimeZone $tz): string
+    {
+        // Accept both 'Y-m-d H:i:s' (our snapshot export) and RFC3339/ISO strings.
+        $dt = null;
+        try {
+            $dt = new DateTimeImmutable($value);
+        } catch (\Throwable) {
+            $dt = null;
+        }
+
+        if ($dt === null) {
+            $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $value, $tz);
+        }
+
+        if ($dt === false || $dt === null) {
+            // Last resort: now, but keep translator tolerant.
+            $dt = new DateTimeImmutable('now', $tz);
+        }
+
+        return $dt->setTimezone($tz)->format(DATE_ATOM);
     }
 }
