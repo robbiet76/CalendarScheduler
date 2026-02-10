@@ -40,13 +40,39 @@ final class SnapshotEvent
         $this->sourceEventUid = $row['uid'];
         $this->parentUid = $row['uid'];
         $this->provider = $row['provider'] ?? 'unknown';
-        $this->start = $row['start'];
-        $this->end = $row['end'];
-        $this->rrule = $row['rrule'] ?? null;
+
+        // Raw snapshot rows provide dtstart/dtend as strings
+        if (!isset($row['dtstart'], $row['dtend'])) {
+            throw new \RuntimeException('SnapshotEvent missing dtstart/dtend');
+        }
+
+        $this->isAllDay = (bool)($row['isAllDay'] ?? false);
         $this->timezone = $row['timezone'] ?? null;
-        $this->isAllDay = $row['isAllDay'] ?? false;
+
+        $this->start = $this->parseDateTime($row['dtstart'], $this->isAllDay);
+        $this->end   = $this->parseDateTime($row['dtend'], $this->isAllDay);
+
+        $this->rrule = $row['rrule'] ?? null;
         $this->payload = $row['payload'] ?? [];
         $this->sourceRows[] = $row;
+    }
+
+    private function parseDateTime(string $value, bool $allDay): array
+    {
+        if ($allDay) {
+            return [
+                'date' => substr($value, 0, 10),
+                'allDay' => true,
+            ];
+        }
+
+        [$date, $time] = explode(' ', $value, 2);
+
+        return [
+            'date' => $date,
+            'time' => $time,
+            'allDay' => false,
+        ];
     }
 
     public function addCancelledDate(string|array $originalStartTime): void
