@@ -109,8 +109,8 @@ final class SchedulerEngine
             $rawEvents = $calendarSnapshotRaw;
         }
 
-        $translator = new \CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator();
-        $calendarEvents = $translator->ingest($rawEvents, $calendarId);
+        // CalendarSnapshot expects raw provider rows.
+        $calendarEvents = $rawEvents;
 
         $calMtime = filemtime($calendarSnapshotPath);
         $calendarSnapshotEpoch = is_int($calMtime) ? $calMtime : time();
