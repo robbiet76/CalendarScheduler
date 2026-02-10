@@ -13,7 +13,6 @@ use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyTargets;
-use CalendarScheduler\Apply\FppScheduleMutator;
 use CalendarScheduler\Apply\FppScheduleWriter;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
@@ -220,7 +219,6 @@ if ($apply) {
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath),
         new FppScheduleAdapter($schedulePath),
-        new FppScheduleMutator($schedulePath),
         new FppScheduleWriter($schedulePath),
         $googleExecutor
     );

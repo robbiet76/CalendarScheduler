@@ -7,7 +7,6 @@ use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Diff\ReconciliationResult;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
-use CalendarScheduler\Apply\FppScheduleMutator;
 use CalendarScheduler\Apply\FppScheduleWriter;
 
 /**
@@ -21,7 +20,6 @@ final class ApplyRunner
     public function __construct(
         private readonly ManifestWriter $manifestWriter,
         private readonly ?FppScheduleAdapter $fppAdapter = null,
-        private readonly ?FppScheduleMutator $fppMutator = null,
         private readonly ?FppScheduleWriter $fppWriter = null,
         private readonly ?\CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor $googleExecutor = null
     ) {}
@@ -78,14 +76,36 @@ final class ApplyRunner
 
         try {
             if ($fppActions !== []) {
-                if ($this->fppMutator === null || $this->fppWriter === null) {
+                if ($this->fppAdapter === null || $this->fppWriter === null) {
                     throw new \RuntimeException(
-                        'FPP actions present but FppScheduleMutator and/or FppScheduleWriter not configured'
+                        'FPP actions present but FppScheduleAdapter and/or FppScheduleWriter not configured'
                     );
                 }
-                $schedule = $this->fppWriter->load();
-                $schedule = $this->fppMutator->apply($schedule, $fppActions);
-                $this->fppWriter->write($schedule);
+
+                $scheduleEntries = [];
+
+                foreach ($fppActions as $action) {
+                    if ($action->event === null) {
+                        throw new \RuntimeException(
+                            'ApplyRunner: FPP action missing manifest event for ' . $action->identityHash
+                        );
+                    }
+
+                    if (
+                        $action->type === ReconciliationAction::TYPE_CREATE ||
+                        $action->type === ReconciliationAction::TYPE_UPDATE
+                    ) {
+                        $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($action->event);
+                    }
+
+                    if ($action->type === ReconciliationAction::TYPE_DELETE) {
+                        // Deletes are handled by full schedule rewrite semantics;
+                        // absence from rendered entries implies deletion.
+                        continue;
+                    }
+                }
+
+                $this->fppWriter->write($scheduleEntries);
                 $fppApplied = true;
             }
 
