@@ -15,6 +15,10 @@ use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyTargets;
 use CalendarScheduler\Apply\FppScheduleMutator;
 use CalendarScheduler\Apply\FppScheduleWriter;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -166,7 +170,6 @@ try {
 // Output
 // -----------------------------------------------------------------------------
 
-
 $countsByTarget = $runResult->countsByTarget();
 
 $countCreateFpp = $countsByTarget['fpp']['create'];
@@ -199,11 +202,27 @@ if ($apply) {
         );
     }
 
+    $googleExecutor = null;
+
+    // Calendar writes are optional and only required if calendar actions exist.
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+    if (is_dir($googleConfigPath) || is_file($googleConfigPath)) {
+        $googleConfig = new GoogleConfig($googleConfigPath);
+        $googleClient = new GoogleApiClient($googleConfig);
+        $googleMapper = new GoogleEventMapper();
+
+        $googleExecutor = new GoogleApplyExecutor(
+            $googleClient,
+            $googleMapper
+        );
+    }
+
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath),
         new FppScheduleAdapter($schedulePath),
         new FppScheduleMutator($schedulePath),
-        new FppScheduleWriter($schedulePath)
+        new FppScheduleWriter($schedulePath),
+        $googleExecutor
     );
 
     $applier->apply($runResult->reconciliationResult(), $options);

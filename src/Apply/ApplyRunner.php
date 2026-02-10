@@ -20,9 +20,10 @@ final class ApplyRunner
 {
     public function __construct(
         private readonly ManifestWriter $manifestWriter,
-        private readonly FppScheduleAdapter $fppAdapter,
-        private readonly FppScheduleMutator $fppMutator,
-        private readonly FppScheduleWriter $fppWriter
+        private readonly ?FppScheduleAdapter $fppAdapter = null,
+        private readonly ?FppScheduleMutator $fppMutator = null,
+        private readonly ?FppScheduleWriter $fppWriter = null,
+        private readonly ?\CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor $googleExecutor = null
     ) {}
 
     public function apply(
@@ -33,8 +34,34 @@ final class ApplyRunner
         $executable = $result->executableActions();
         $blocked = $result->blockedActions();
 
-        if ($options->isPlan() || $options->isDryRun()) {
-            return;
+        $actionsByTarget = [
+            ReconciliationAction::TARGET_FPP => [],
+            ReconciliationAction::TARGET_CALENDAR => [],
+        ];
+
+        foreach ($executable as $action) {
+            if (isset($actionsByTarget[$action->target])) {
+                $actionsByTarget[$action->target][] = $action;
+            }
+        }
+
+
+        // Enforce per-target canWrite policy
+        foreach ($actionsByTarget as $target => $actions) {
+            if ($actions === []) {
+                continue;
+            }
+
+            if (!$options->canWrite($target)) {
+                if ($options->failOnBlockedActions) {
+                    throw new \RuntimeException(
+                        "Apply blocked: target '{$target}' is not writable by policy"
+                    );
+                }
+
+                // Skip execution for this target
+                $actionsByTarget[$target] = [];
+            }
         }
 
         if ($blocked !== [] && $options->failOnBlockedActions) {
@@ -45,14 +72,25 @@ final class ApplyRunner
             throw new \RuntimeException('Apply blocked: ' . implode('; ', $messages));
         }
 
-        $schedule = $this->fppWriter->load();
+        if ($actionsByTarget[ReconciliationAction::TARGET_FPP] !== []) {
+            if ($this->fppMutator === null || $this->fppWriter === null) {
+                throw new \RuntimeException(
+                    'FPP actions present but FppScheduleMutator and/or FppScheduleWriter not configured'
+                );
+            }
+            $schedule = $this->fppWriter->load();
+            $schedule = $this->fppMutator->apply($schedule, $actionsByTarget[ReconciliationAction::TARGET_FPP]);
+            $this->fppWriter->write($schedule);
+        }
 
-        $schedule = $this->fppMutator->apply(
-            $schedule,
-            $executable
-        );
-
-        $this->fppWriter->write($schedule);
+        if ($actionsByTarget[ReconciliationAction::TARGET_CALENDAR] !== []) {
+            if ($this->googleExecutor === null) {
+                throw new \RuntimeException(
+                    'Calendar actions present but no GoogleApplyExecutor configured'
+                );
+            }
+            $this->googleExecutor->apply($actionsByTarget[ReconciliationAction::TARGET_CALENDAR]);
+        }
 
         // Persist the new canonical manifest
         $this->manifestWriter->applyTargetManifest($result->targetManifest());
