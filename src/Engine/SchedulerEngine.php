@@ -10,6 +10,8 @@ use CalendarScheduler\Resolution\ResolutionEngine;
 use CalendarScheduler\Planner\ManifestPlanner;
 use CalendarScheduler\Diff\Diff;
 use CalendarScheduler\Diff\Reconciler;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 
 /**
  * SchedulerEngine
@@ -82,16 +84,30 @@ final class SchedulerEngine
         $calendarSnapshotPath = $opts['calendar-snapshot']
             ?? '/home/fpp/media/config/calendar-scheduler/calendar/calendar-snapshot.json';
 
-        if (!is_file($calendarSnapshotPath)) {
-            throw new \RuntimeException("Calendar snapshot not found: {$calendarSnapshotPath}");
+        // -----------------------------------------------------------------
+        // Calendar snapshot refresh (authoritative source)
+        //
+        // NOTE: This intentionally performs I/O. Stale calendar snapshot data
+        // is not acceptable for apply runs.
+        // -----------------------------------------------------------------
+
+        $refreshCalendar = array_key_exists('refresh-calendar', $opts);
+        $applyRequested  = array_key_exists('apply', $opts);
+
+        if ($refreshCalendar || $applyRequested) {
+            $this->refreshCalendarSnapshotFromGoogle($calendarSnapshotPath);
         }
 
-        $calendarSnapshotRaw = json_decode(
-            file_get_contents($calendarSnapshotPath),
-            true,
-            512,
-            JSON_THROW_ON_ERROR
-        );
+        $calendarSnapshotRaw = [];
+
+        if (is_file($calendarSnapshotPath)) {
+            $calendarSnapshotRaw = json_decode(
+                file_get_contents($calendarSnapshotPath),
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            );
+        }
 
         $rawEvents = [];
         $calendarId = 'default';
@@ -112,8 +128,9 @@ final class SchedulerEngine
         // CalendarSnapshot expects raw provider rows.
         $calendarEvents = $rawEvents;
 
-        $calMtime = filemtime($calendarSnapshotPath);
-        $calendarSnapshotEpoch = is_int($calMtime) ? $calMtime : time();
+        // Snapshot is treated as volatile per-run observational state
+        // Always advance epoch to ensure no stale reconciliation decisions
+        $calendarSnapshotEpoch = time();
 
         $calendarUpdatedAtById = [];
 
@@ -254,5 +271,47 @@ final class SchedulerEngine
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch
         );
+    }
+
+    /**
+     * Refresh the calendar snapshot by pulling directly from Google Calendar API.
+     *
+     * Writes a deterministic JSON wrapper to $calendarSnapshotPath:
+     *   { "calendar_id": "...", "events": [ ... ] }
+     *
+     * @throws \RuntimeException on any failure.
+     */
+    private function refreshCalendarSnapshotFromGoogle(string $calendarSnapshotPath): void
+    {
+        $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+        $config = new GoogleConfig($configDir);
+
+        $client = new GoogleApiClient($config);
+        $events = $client->listEvents($config->getCalendarId());
+
+        $payload = [
+            'calendar_id' => $config->getCalendarId(),
+            'events' => $events,
+            'generated_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format(DATE_ATOM),
+        ];
+
+        $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
+        $dir = dirname($calendarSnapshotPath);
+        if (!is_dir($dir)) {
+            if (!mkdir($dir, 0775, true) && !is_dir($dir)) {
+                throw new \RuntimeException("Failed to create snapshot directory: {$dir}");
+            }
+        }
+
+        $tmp = $calendarSnapshotPath . '.tmp';
+        if (file_put_contents($tmp, $json . PHP_EOL) === false) {
+            throw new \RuntimeException("Failed to write temp calendar snapshot: {$tmp}");
+        }
+
+        if (!rename($tmp, $calendarSnapshotPath)) {
+            @unlink($tmp);
+            throw new \RuntimeException("Failed to replace calendar snapshot: {$calendarSnapshotPath}");
+        }
     }
 }

@@ -145,6 +145,40 @@ if ($afterEpoch <= $beforeEpoch) {
     throw new RuntimeException('fpp-env.json was not refreshed (generatedAtEpoch did not advance)');
 }
 
+# -------------------------------------------------------------------------
+# Refresh Google Calendar snapshot (authoritative source)
+# -------------------------------------------------------------------------
+
+if ($refreshCalendar || $apply) {
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+
+    if (is_dir($googleConfigPath) || is_file($googleConfigPath)) {
+        $googleConfig = new GoogleConfig($googleConfigPath);
+        $googleClient = new GoogleApiClient($googleConfig);
+
+        // Ensure OAuth + token refresh
+        $googleClient->ensureAuthenticated();
+
+        // Fetch raw Google events
+        $calendarId = $googleConfig->getCalendarId();
+        $rawEvents = $googleClient->listEvents($calendarId);
+
+        // Translate into snapshot rows
+        $translator = new \CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator();
+        $snapshotRows = $translator->ingest($rawEvents, 'google');
+
+        // Persist snapshot (authoritative, overwrite)
+        $snapshotPath = $DEFAULT_CALENDAR_SNAPSHOT_PATH;
+        $json = json_encode($snapshotRows, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            throw new RuntimeException('Failed to encode calendar snapshot JSON');
+        }
+        if (file_put_contents($snapshotPath, $json) === false) {
+            throw new RuntimeException("Failed to write calendar snapshot: {$snapshotPath}");
+        }
+    }
+}
+
 try {
     $engine = new \CalendarScheduler\Engine\SchedulerEngine();
 
