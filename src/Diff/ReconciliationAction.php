@@ -18,6 +18,12 @@ final class ReconciliationAction
     public const TYPE_UPDATE = 'update';
     public const TYPE_DELETE = 'delete';
     public const TYPE_NOOP = 'noop';
+    /**
+     * Terminal planning result.
+     *
+     * TYPE_BLOCK actions represent unmanaged collisions or explicit policy
+     * refusals. They MUST NOT be forwarded to provider-specific Apply layers.
+     */
     public const TYPE_BLOCK = 'block'; // unmanaged/locked collision or policy refusal
 
     public const TARGET_FPP = 'fpp';
@@ -70,5 +76,14 @@ final class ReconciliationAction
         $this->identityHash = $identityHash;
         $this->reason = $reason;
         $this->event = $event;
+
+        if (
+            in_array($type, [self::TYPE_CREATE, self::TYPE_UPDATE, self::TYPE_DELETE], true)
+            && $event === null
+        ) {
+            throw new \InvalidArgumentException(
+                "ReconciliationAction '{$type}' requires a non-null event payload"
+            );
+        }
     }
 }
