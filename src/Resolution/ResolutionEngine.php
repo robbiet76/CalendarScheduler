@@ -475,13 +475,27 @@ final class ResolutionEngine implements ResolutionEngineInterface
     {
         $bundleUid = $this->buildBundleUid($event, $segmentScope);
 
+        // Preserve the true DTSTART/DTEND time geometry for the executable window.
+        // Segment scopes are DATE-level (midnight boundaries), but the subevent start/end
+        // must retain time-of-day to avoid collapsing distinct intents downstream.
+        [$eventStart, $eventEnd] = $this->extractEventBounds($event);
+
+        $clipped = $this->clipToSegment($eventStart, $eventEnd, $segmentScope);
+        if ($clipped === null) {
+            // Defensive fallback: use segment scope directly.
+            $start = $segmentScope->getStart();
+            $end = $segmentScope->getEnd();
+        } else {
+            [$start, $end] = $clipped;
+        }
+
         return new ResolvedSubevent(
             bundleUid: $bundleUid,
             sourceEventUid: $event->sourceEventUid,
             parentUid: $event->parentUid,
             provider: $event->provider,
-            start: $segmentScope->getStart(),
-            end: $segmentScope->getEnd(),
+            start: $start,
+            end: $end,
             allDay: $event->isAllDay,
             timezone: $event->timezone,
             role: ResolutionRole::BASE,

@@ -53,6 +53,10 @@ final class SnapshotEvent
         $this->end   = $this->parseDateTime($row['dtend'], $this->isAllDay);
 
         $this->rrule = $row['rrule'] ?? null;
+        if ($this->rrule !== null && !is_array($this->rrule)) {
+            // Some upstream sources may provide RRULE as a string; normalize to null here.
+            $this->rrule = null;
+        }
         $this->payload = $row['payload'] ?? [];
         $this->sourceRows[] = $row;
     }
