@@ -12,11 +12,13 @@ final class SnapshotEvent
     // Recurrence / timing
     public array $start;             // date or dateTime
     public array $end;
+
     /**
      * Structured RRULE (lossless, provider-neutral)
      * @var array<string,mixed>|null
      */
     public ?array $rrule = null;
+
     public ?string $timezone = null;
     public bool $isAllDay = false;
 
