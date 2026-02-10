@@ -48,29 +48,6 @@ final class ApplyRunner
             }
         }
 
-        // Enforce per-target canWrite policy
-        // NOTE: If a target has executable actions but policy disallows writes AND we are not failing,
-        // we MUST NOT commit the target manifest, because external state will not match.
-        $skippedTargetsDueToPolicy = [];
-
-        foreach ($actionsByTarget as $target => $actions) {
-            if ($actions === []) {
-                continue;
-            }
-
-            if (!$options->canWrite($target)) {
-                if ($options->failOnBlockedActions) {
-                    throw new \RuntimeException(
-                        "Apply blocked: target '{$target}' is not writable by policy"
-                    );
-                }
-
-                // Skip execution for this target (but do not commit manifest later)
-                $actionsByTarget[$target] = [];
-                $skippedTargetsDueToPolicy[$target] = true;
-            }
-        }
-
         if ($blocked !== [] && $options->failOnBlockedActions) {
             $messages = [];
             foreach ($blocked as $action) {
@@ -132,10 +109,8 @@ final class ApplyRunner
 
             // Persist the new canonical manifest.
             // This is a COMMIT RECORD: only write it when all executable actions were either applied
-            // or there were none. If we skipped any target due to policy, external state will not match.
-            if ($skippedTargetsDueToPolicy === []) {
-                $this->manifestWriter->applyTargetManifest($result->targetManifest());
-            }
+            // or there were none.
+            $this->manifestWriter->applyTargetManifest($result->targetManifest());
         } catch (\Throwable $e) {
             throw $e;
         }
