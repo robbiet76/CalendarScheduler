@@ -45,7 +45,6 @@ final class ApplyRunner
             }
         }
 
-
         // Enforce per-target canWrite policy
         foreach ($actionsByTarget as $target => $actions) {
             if ($actions === []) {
@@ -72,27 +71,42 @@ final class ApplyRunner
             throw new \RuntimeException('Apply blocked: ' . implode('; ', $messages));
         }
 
-        if ($actionsByTarget[ReconciliationAction::TARGET_FPP] !== []) {
-            if ($this->fppMutator === null || $this->fppWriter === null) {
-                throw new \RuntimeException(
-                    'FPP actions present but FppScheduleMutator and/or FppScheduleWriter not configured'
-                );
-            }
-            $schedule = $this->fppWriter->load();
-            $schedule = $this->fppMutator->apply($schedule, $actionsByTarget[ReconciliationAction::TARGET_FPP]);
-            $this->fppWriter->write($schedule);
-        }
+        $fppActions = $actionsByTarget[ReconciliationAction::TARGET_FPP];
+        $calendarActions = $actionsByTarget[ReconciliationAction::TARGET_CALENDAR];
+        $fppApplied = false;
+        $calendarApplied = false;
 
-        if ($actionsByTarget[ReconciliationAction::TARGET_CALENDAR] !== []) {
-            if ($this->googleExecutor === null) {
-                throw new \RuntimeException(
-                    'Calendar actions present but no GoogleApplyExecutor configured'
-                );
+        try {
+            if ($fppActions !== []) {
+                if ($this->fppMutator === null || $this->fppWriter === null) {
+                    throw new \RuntimeException(
+                        'FPP actions present but FppScheduleMutator and/or FppScheduleWriter not configured'
+                    );
+                }
+                $schedule = $this->fppWriter->load();
+                $schedule = $this->fppMutator->apply($schedule, $fppActions);
+                $this->fppWriter->write($schedule);
+                $fppApplied = true;
             }
-            $this->googleExecutor->apply($actionsByTarget[ReconciliationAction::TARGET_CALENDAR]);
-        }
 
-        // Persist the new canonical manifest
-        $this->manifestWriter->applyTargetManifest($result->targetManifest());
+            if ($calendarActions !== []) {
+                if ($this->googleExecutor === null) {
+                    throw new \RuntimeException(
+                        'Calendar actions present but no GoogleApplyExecutor configured'
+                    );
+                }
+                $this->googleExecutor->apply($calendarActions);
+                $calendarApplied = true;
+            }
+
+            if ($fppApplied !== $calendarApplied) {
+                throw new \RuntimeException('Apply failed: target symmetry violation between FPP and Calendar actions');
+            }
+
+            // Persist the new canonical manifest
+            $this->manifestWriter->applyTargetManifest($result->targetManifest());
+        } catch (\Throwable $e) {
+            throw $e;
+        }
     }
 }
