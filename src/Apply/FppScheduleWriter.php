@@ -31,6 +31,29 @@ final class FppScheduleWriter
     }
 
     /**
+     * @return array<int,array<string,mixed>>
+     */
+    public function load(): array
+    {
+        if (!file_exists($this->schedulePath)) {
+            return [];
+        }
+
+        $contents = file_get_contents($this->schedulePath);
+        if ($contents === false) {
+            throw new \RuntimeException('Failed to read schedule file: ' . $this->schedulePath);
+        }
+
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('Decoded schedule is not an array');
+        }
+
+        return array_values($decoded);
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $schedule
      */
     public function write(array $schedule): void

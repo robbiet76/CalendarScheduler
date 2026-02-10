@@ -12,37 +12,35 @@ use CalendarScheduler\Diff\ReconciliationAction;
  *
  * Responsibilities:
  * - Apply create / update / delete actions to a schedule array
- * - Enforce deterministic identity matching
+ * - Enforce deterministic identity matching by identityHash only
+ * - Entries are replaced atomically on update
+ * - Ordering is deterministic by identityHash after mutation
  *
  * Non-responsibilities:
  * - No file I/O
  * - No locking
  * - No JSON encoding
- * - No validation
+ * - No validation beyond identityHash presence
  */
 final class FppScheduleMutator
 {
-    private string $schedulePath;
-
-    public function __construct(string $schedulePath)
+    /**
+     * Index the schedule array by identityHash.
+     *
+     * @param array $schedule
+     * @return array<string, array>
+     * @throws \RuntimeException if any row is missing identityHash
+     */
+    private function indexByIdentityHash(array $schedule): array
     {
-        $this->schedulePath = $schedulePath;
-    }
-
-    public function load(): array
-    {
-        if (!is_file($this->schedulePath)) {
-            return [];
+        $index = [];
+        foreach ($schedule as $row) {
+            if (!isset($row['identityHash'])) {
+                throw new \RuntimeException('FppScheduleMutator: missing identityHash in schedule row');
+            }
+            $index[$row['identityHash']] = $row;
         }
-
-        $data = json_decode(
-            file_get_contents($this->schedulePath),
-            true,
-            512,
-            JSON_THROW_ON_ERROR
-        );
-
-        return is_array($data) ? $data : [];
+        return $index;
     }
 
     public function upsert(array $schedule, array $entry): array
@@ -51,12 +49,7 @@ final class FppScheduleMutator
             throw new \RuntimeException('FppScheduleMutator: missing identityHash on upsert');
         }
 
-        $index = [];
-        foreach ($schedule as $row) {
-            if (isset($row['identityHash'])) {
-                $index[$row['identityHash']] = $row;
-            }
-        }
+        $index = $this->indexByIdentityHash($schedule);
 
         $index[$entry['identityHash']] = $entry;
 
@@ -67,17 +60,52 @@ final class FppScheduleMutator
 
     public function delete(array $schedule, string $identityHash): array
     {
-        $index = [];
-        foreach ($schedule as $row) {
-            if (isset($row['identityHash'])) {
-                $index[$row['identityHash']] = $row;
-            }
-        }
+        $index = $this->indexByIdentityHash($schedule);
 
         unset($index[$identityHash]);
 
         ksort($index, SORT_STRING);
 
         return array_values($index);
+    }
+
+    /**
+     * Apply a list of reconciliation actions to an FPP schedule array.
+     *
+     * @param array $schedule
+     * @param ReconciliationAction[] $actions
+     * @return array
+     * @throws \RuntimeException on unexpected action types or missing event payloads
+     */
+    public function apply(array $schedule, array $actions): array
+    {
+        foreach ($actions as $action) {
+            if ($action->target !== ReconciliationAction::TARGET_FPP) {
+                continue;
+            }
+
+            if ($action->type === ReconciliationAction::TYPE_NOOP) {
+                continue;
+            }
+
+            if ($action->type === ReconciliationAction::TYPE_CREATE || $action->type === ReconciliationAction::TYPE_UPDATE) {
+                if (!is_array($action->event)) {
+                    throw new \RuntimeException(
+                        'FppScheduleMutator: missing event payload for ' . $action->identityHash
+                    );
+                }
+                $schedule = $this->upsert($schedule, $action->event);
+                continue;
+            }
+
+            if ($action->type === ReconciliationAction::TYPE_DELETE) {
+                $schedule = $this->delete($schedule, $action->identityHash);
+                continue;
+            }
+
+            throw new \RuntimeException('FppScheduleMutator: unexpected action type ' . $action->type);
+        }
+
+        return $schedule;
     }
 }

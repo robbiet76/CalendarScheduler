@@ -67,40 +67,12 @@ final class ApplyRunner
                 throw new \RuntimeException('Apply blocked: ' . implode('; ', $messages));
             }
 
-            $schedule = $this->fppMutator->load();
+            $schedule = $this->fppWriter->load();
 
-            // Execute allowed FPP actions
-            foreach ($evaluation->allowed as $action) {
-                if ($action->target !== ReconciliationAction::TARGET_FPP) {
-                    continue;
-                }
-
-                if (
-                    $action->type === ReconciliationAction::TYPE_CREATE ||
-                    $action->type === ReconciliationAction::TYPE_UPDATE
-                ) {
-                    if ($action->event === null) {
-                        throw new \RuntimeException(
-                            'ApplyRunner: FPP create/update missing event for ' . $action->identityHash
-                        );
-                    }
-
-                    // Convert manifest event to FPP schedule entry
-                    $entry = $this->fppAdapter->toScheduleEntry($action->event);
-
-                    $schedule = $this->fppMutator->upsert(
-                        $schedule,
-                        $entry
-                    );
-                }
-
-                if ($action->type === ReconciliationAction::TYPE_DELETE) {
-                    $schedule = $this->fppMutator->delete(
-                        $schedule,
-                        $action->identityHash
-                    );
-                }
-            }
+            $schedule = $this->fppMutator->apply(
+                $schedule,
+                $evaluation->allowed
+            );
 
             $this->fppWriter->write($schedule);
 
