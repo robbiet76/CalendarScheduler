@@ -1,191 +1,235 @@
 <?php
-
 declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
+use CalendarScheduler\Diff\ReconciliationAction;
 use RuntimeException;
 
 /**
- * GoogleEventMapper
+ * GoogleEventMapper (V2)
  *
- * NOTE:
- * - This mapper currently assumes a single base SubEvent per ManifestEvent.
- * - Multi-SubEvent collapse rules will be introduced in a future revision.
- * - Calendar ID selection is handled by the Apply executor / API client, not here.
- * - Description content is treated as fully-assembled opaque text and MUST NOT be modified here.
+ * Pure mapper from resolved ReconciliationAction → Google Calendar mutations.
  *
- * Pure mapper from ApplyOp → Google Calendar API mutation payload.
+ * IMPORTANT INVARIANTS:
+ * - Resolution output is authoritative.
+ * - Each resolved SubEvent is an atomic execution unit.
+ * - Grouping is conservative: default is 1 SubEvent → 1 Google event.
+ * - No I/O. No API calls. No normalization.
  *
- * No I/O. No authority. No normalization.
+ * ProviderState invariants:
+ * - providerState.googleEvents MUST be keyed by subEventHash
+ * - each entry MUST contain a valid Google event ID
+ * - missing or mismatched state triggers destructive replace
  */
 final class GoogleEventMapper
 {
     /**
-     * Map a ReconciliationAction into a Google Calendar mutation instruction.
+     * Map a reconciliation action into one or more Google mutations.
+     *
+     * @return list<GoogleMutation>
+     */
+    public function mapAction(ReconciliationAction $action, GoogleConfig $config): array
+    {
+        if ($action->target !== ReconciliationAction::TARGET_CALENDAR) {
+            throw new RuntimeException('GoogleEventMapper received non-calendar action');
+        }
+
+        $event = $action->event;
+        $subEvents = $event['subEvents'] ?? null;
+
+        if (!is_array($subEvents) || $subEvents === []) {
+            throw new RuntimeException('Manifest event has no resolved subEvents');
+        }
+
+        $calendarId = $config->getCalendarId();
+
+        return match ($action->type) {
+            ReconciliationAction::TYPE_CREATE =>
+                $this->mapCreate($action, $subEvents, $calendarId),
+
+            ReconciliationAction::TYPE_UPDATE =>
+                $this->mapUpdate($action, $subEvents, $calendarId),
+
+            ReconciliationAction::TYPE_DELETE =>
+                $this->mapDelete($action, $calendarId),
+
+            default =>
+                throw new RuntimeException('Unsupported reconciliation action type'),
+        };
+    }
+
+    /**
+     * CREATE semantics
+     *
+     * Default: one Google event per SubEvent.
      *
      * @param ReconciliationAction $action
-     * @param GoogleConfig $config
-     *
-     * @return array {
-     *   method: "create"|"update"|"delete",
-     *   eventId?: string,
-     *   etag?: string,
-     *   payload?: array
-     * }
+     * @param array<int, array<string,mixed>> $subEvents
+     * @param string $calendarId
+     * @return list<GoogleMutation>
      */
-    public function mapAction(object $action, object $config): array
+    private function mapCreate(ReconciliationAction $action, array $subEvents, string $calendarId): array
     {
-        // $action is expected to be a ReconciliationAction instance
-        // $config is expected to be a GoogleConfig instance
-        $op = $action->op ?? null;
-        $timezone = $config->timezone ?? null;
-        if (!in_array($op, ['create', 'update', 'delete'], true)) {
-            throw new RuntimeException("Invalid ReconciliationAction: unsupported op '{$op}'");
-        }
-        if ($op === 'delete') {
-            return $this->mapDeleteFromAction($action);
-        }
-        return $this->mapCreateOrUpdateFromAction($action, $timezone);
-    }
+        $mutations = [];
 
-    /**
-     * DELETE mapping
-     */
-    private function mapDeleteFromAction(object $action): array
-    {
-        if (empty($action->providerEventId)) {
-            throw new RuntimeException('Delete ReconciliationAction missing providerEventId');
-        }
-        return [
-            'method'  => 'delete',
-            'eventId' => $action->providerEventId,
-            'etag'    => $action->etag ?? null,
-        ];
-    }
+        foreach ($subEvents as $subEvent) {
+            if (!isset($subEvent['identityHash']) || !is_string($subEvent['identityHash'])) {
+                throw new RuntimeException('SubEvent missing valid identityHash');
+            }
 
-    /**
-     * CREATE / UPDATE mapping
-     */
-    private function mapCreateOrUpdateFromAction(object $action, string $timezone): array
-    {
-        $base = $action->baseSubEvent ?? null;
-        if (!is_array($base)) {
-            throw new RuntimeException('ReconciliationAction missing baseSubEvent');
-        }
-        $payload = [
-            'summary'     => $this->mapSummaryFromAction($action),
-            'description' => $this->mapDescriptionFromAction($action),
-            'start'       => $this->mapDateTime($base['start'], $timezone),
-            'end'         => $this->mapDateTime($base['end'], $timezone),
-        ];
-        // Recurrence
-        if (!empty($base['rrule'])) {
-            $payload['recurrence'] = [$base['rrule']];
-        }
-        // Exceptions → EXDATE
-        if (!empty($action->exceptionSubEvents)) {
-            $payload['recurrence'] ??= [];
-            $payload['recurrence'][] = $this->mapExDates(
-                $action->exceptionSubEvents,
-                $timezone
+            $mutations[] = new GoogleMutation(
+                op: GoogleMutation::OP_CREATE,
+                calendarId: $calendarId,
+                googleEventId: null,
+                payload: $this->buildPayload($action, $subEvent),
+                manifestEventId: $action->identityHash,
+                subEventHash: $subEvent['identityHash']
             );
         }
-        // Extended properties (machine-authoritative)
-        $payload['extendedProperties'] = [
-            'private' => [
-                'cs.manifestEventId' => $action->manifestEventId,
-                'cs.provider'        => 'google',
-                'cs.schemaVersion'   => '1', // bump only via explicit migration
+
+        return $mutations;
+    }
+
+    /**
+     * UPDATE semantics
+     *
+     * Updates are conservative:
+     * - If cardinality or identity does not match, fall back to delete + create.
+     *
+     * @param ReconciliationAction $action
+     * @param array<int, array<string,mixed>> $subEvents
+     * @param string $calendarId
+     * @return list<GoogleMutation>
+     */
+    private function mapUpdate(ReconciliationAction $action, array $subEvents, string $calendarId): array
+    {
+        $existing = $action->providerState['googleEvents'] ?? null;
+        if (!is_array($existing)) {
+            throw new RuntimeException('Update action missing providerState.googleEvents');
+        }
+
+        // Cardinality mismatch → destructive replace
+        if (count($existing) !== count($subEvents)) {
+            return [
+                ...$this->mapDelete($action, $calendarId),
+                ...$this->mapCreate($action, $subEvents, $calendarId),
+            ];
+        }
+
+        $mutations = [];
+
+        foreach ($subEvents as $subEvent) {
+            if (!isset($subEvent['identityHash']) || !is_string($subEvent['identityHash'])) {
+                throw new RuntimeException('SubEvent missing valid identityHash');
+            }
+            $hash = $subEvent['identityHash'];
+            $existingEvent = $existing[$hash] ?? null;
+
+            if (!is_array($existingEvent) || empty($existingEvent['id'])) {
+                // Identity mismatch → destructive replace
+                return [
+                    ...$this->mapDelete($action, $calendarId),
+                    ...$this->mapCreate($action, $subEvents, $calendarId),
+                ];
+            }
+
+            $mutations[] = new GoogleMutation(
+                op: GoogleMutation::OP_UPDATE,
+                calendarId: $calendarId,
+                googleEventId: $existingEvent['id'],
+                payload: $this->buildPayload($action, $subEvent),
+                manifestEventId: $action->identityHash,
+                subEventHash: $hash
+            );
+        }
+
+        return $mutations;
+    }
+
+    /**
+     * DELETE semantics
+     *
+     * @param ReconciliationAction $action
+     * @param string $calendarId
+     * @return list<GoogleMutation>
+     */
+    private function mapDelete(ReconciliationAction $action, string $calendarId): array
+    {
+        $existing = $action->providerState['googleEvents'] ?? null;
+        if (!is_array($existing) || $existing === []) {
+            return [];
+        }
+
+        $mutations = [];
+
+        foreach ($existing as $hash => $event) {
+            if (empty($event['id'])) {
+                continue;
+            }
+
+            $mutations[] = new GoogleMutation(
+                op: GoogleMutation::OP_DELETE,
+                calendarId: $calendarId,
+                googleEventId: $event['id'],
+                payload: [],
+                manifestEventId: $action->identityHash,
+                subEventHash: (string)$hash
+            );
+        }
+
+        return $mutations;
+    }
+
+    /**
+     * Build Google API payload from a single resolved SubEvent.
+     *
+     * @param ReconciliationAction $action
+     * @param array<string,mixed> $subEvent
+     * @return array<string,mixed>
+     */
+    private function buildPayload(ReconciliationAction $action, array $subEvent): array
+    {
+        $start = $subEvent['start'] ?? null;
+        $end   = $subEvent['end'] ?? null;
+        $tz    = $subEvent['timezone'] ?? null;
+
+        if (!is_array($start) || !is_array($end) || !is_string($tz)) {
+            throw new RuntimeException('Invalid SubEvent timing data');
+        }
+
+        $payload = [
+            'summary'     => (string)($action->summary ?? ''),
+            'description' => (string)($action->description ?? ''),
+            'start'       => $this->mapDateTime($start, $tz),
+            'end'         => $this->mapDateTime($end, $tz),
+            'extendedProperties' => [
+                'private' => [
+                    'cs.manifestEventId' => $action->identityHash,
+                    'cs.subEventHash'    => $subEvent['identityHash'],
+                    'cs.provider'        => 'google',
+                    'cs.schemaVersion'   => '2',
+                ],
             ],
         ];
-        $method = match ((string)$action->op) {
-            'create' => 'create',
-            'update' => 'update',
-            default  => throw new RuntimeException('Invalid ReconciliationAction: unsupported op for create/update'),
-        };
-        $result = [
-            'method'  => $method,
-            'payload' => $payload,
-        ];
-        if ($action->op === 'update') {
-            if (empty($action->providerEventId)) {
-                throw new RuntimeException('Update ReconciliationAction missing providerEventId');
-            }
-            $result['eventId'] = $action->providerEventId;
-            $result['etag']    = $action->etag ?? null;
-        }
-        return $result;
+
+        return $payload;
     }
 
     /**
-     * Summary mapping
-     */
-    private function mapSummaryFromAction(object $action): string
-    {
-        return (string)($action->summary ?? '');
-    }
-
-    /**
-     * Description mapping
-     *
-     * Description is opaque; Apply already assembled it.
-     */
-    private function mapDescriptionFromAction(object $action): string
-    {
-        return (string)($action->description ?? '');
-    }
-
-    /**
-     * Map start/end DateTime
-     *
-     * $dt shape expected:
-     * [
-     *   'date' => 'YYYY-MM-DD' | null,
-     *   'time' => 'HH:MM:SS' | null,
-     *   'allDay' => bool
-     * ]
+     * @param array<string,mixed> $dt
+     * @param string $timezone
+     * @return array<string,string>
      */
     private function mapDateTime(array $dt, string $timezone): array
     {
         if (!empty($dt['allDay'])) {
-            return [
-                'date' => $dt['date'],
-            ];
+            return ['date' => $dt['date']];
         }
 
         return [
             'dateTime' => $dt['date'] . 'T' . $dt['time'],
             'timeZone' => $timezone,
         ];
-    }
-
-    /**
-     * Map exception SubEvents → EXDATE RRULE fragment
-     */
-    private function mapExDates(array $exceptions, string $timezone): string
-    {
-        $values = [];
-
-        foreach ($exceptions as $ex) {
-            if (!isset($ex['start'])) {
-                continue;
-            }
-
-            if (!empty($ex['start']['allDay'])) {
-                $values[] = str_replace('-', '', $ex['start']['date']);
-            } else {
-                $values[] =
-                    str_replace('-', '', $ex['start']['date']) .
-                    'T' .
-                    str_replace(':', '', $ex['start']['time']);
-            }
-        }
-
-        if (empty($values)) {
-            return '';
-        }
-
-        return 'EXDATE;TZID=' . $timezone . ':' . implode(',', $values);
     }
 }

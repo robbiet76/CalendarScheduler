@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
-use CalendarScheduler\Diff\ReconciliationAction;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleMutation;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleMutationResult;
 
 final class GoogleApplyExecutor
 {
@@ -17,47 +18,47 @@ final class GoogleApplyExecutor
     }
 
     /**
-     * Apply a batch of reconciliation actions to Google Calendar.
-     *
-     * @param ReconciliationAction[] $applyOps
+     * @param GoogleMutation[] $mutations
+     * @return GoogleMutationResult[]
      */
-    public function apply(array $applyOps): void
+    public function apply(array $mutations): array
     {
-        foreach ($applyOps as $op) {
-            $this->applyOne($op);
+        $results = [];
+        foreach ($mutations as $mutation) {
+            $results[] = $this->applyOne($mutation);
         }
+        return $results;
     }
 
-    private function applyOne(ReconciliationAction $action): void
+    private function applyOne(GoogleMutation $mutation): GoogleMutationResult
     {
-        // Delegate full interpretation to the mapper
-        $mapped = $this->mapper->mapAction(
-            $action,
-            $this->client->getConfig()
-        );
-
-        switch ($mapped['op']) {
-            case 'create':
-                $this->client->createEvent(
-                    $mapped['calendarId'],
-                    $mapped['payload']
+        switch ($mutation->op) {
+            case GoogleMutation::OP_CREATE:
+                $eventId = $this->client->createEvent(
+                    $mutation->calendarId,
+                    $mutation->payload
                 );
-                break;
+                return new GoogleMutationResult($mutation->op, $mutation->calendarId, $eventId);
 
-            case 'update':
+            case GoogleMutation::OP_UPDATE:
                 $this->client->updateEvent(
-                    $mapped['calendarId'],
-                    $mapped['googleEventId'],
-                    $mapped['payload']
+                    $mutation->calendarId,
+                    $mutation->googleEventId,
+                    $mutation->payload
                 );
-                break;
+                return new GoogleMutationResult($mutation->op, $mutation->calendarId, $mutation->googleEventId);
 
-            case 'delete':
+            case GoogleMutation::OP_DELETE:
                 $this->client->deleteEvent(
-                    $mapped['calendarId'],
-                    $mapped['googleEventId']
+                    $mutation->calendarId,
+                    $mutation->googleEventId
                 );
-                break;
+                return new GoogleMutationResult($mutation->op, $mutation->calendarId, $mutation->googleEventId);
+
+            default:
+                throw new \RuntimeException(
+                    'GoogleApplyExecutor: unsupported mutation op ' . $mutation->op
+                );
         }
     }
 }
