@@ -70,30 +70,38 @@ final class ApplyRunner
                     );
                 }
 
+                /**
+                 * IMPORTANT:
+                 * FPP deletions are expressed by *absence* from the rewritten schedule.json.
+                 * Therefore, when there are any executable FPP actions (create/update/delete),
+                 * we must rewrite schedule.json from the *target manifest*, not from only the
+                 * create/update action list (which can be empty in a delete-only run).
+                 */
+                $target = $result->targetManifest();
+                $targetEvents = $target['events'] ?? [];
+                if (!is_array($targetEvents)) {
+                    $targetEvents = [];
+                }
+
                 $scheduleEntries = [];
-
-                foreach ($fppActions as $action) {
-                    if ($action->event === null) {
-                        throw new \RuntimeException(
-                            'ApplyRunner: FPP action missing manifest event for ' . $action->identityHash
-                        );
-                    }
-
-                    if (
-                        $action->type === ReconciliationAction::TYPE_CREATE ||
-                        $action->type === ReconciliationAction::TYPE_UPDATE
-                    ) {
-                        $entries = $this->fppAdapter->toScheduleEntries($action->event);
-                        foreach ($entries as $e) {
-                            $scheduleEntries[] = $e;
-                        }
-                    }
-
-                    if ($action->type === ReconciliationAction::TYPE_DELETE) {
-                        // Deletes are handled by full schedule rewrite semantics;
-                        // absence from rendered entries implies deletion.
+                foreach ($targetEvents as $event) {
+                    if (!is_array($event)) {
                         continue;
                     }
+
+                    // v2 events contain subEvents; adapter knows how to expand them.
+                    $expanded = $this->fppAdapter->toScheduleEntries($event);
+                    if ($expanded !== []) {
+                        foreach ($expanded as $entry) {
+                            if (is_array($entry)) {
+                                $scheduleEntries[] = $entry;
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Fallback: if a v1-style event slips through, map it as a single entry.
+                    $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($event);
                 }
 
                 $this->fppWriter->write($scheduleEntries);
@@ -106,13 +114,14 @@ final class ApplyRunner
                         'Calendar actions present but no GoogleApplyExecutor configured'
                     );
                 }
-                $this->googleExecutor->applyActions($calendarActions);
+                $this->googleExecutor->apply($calendarActions);
                 $calendarApplied = true;
             }
 
-            // Persist the new canonical manifest (COMMIT RECORD).
-            // Commit the reconciliation-planned manifest after side effects have been applied.
-            $this->manifestWriter->applyTargetManifest($result->plannedManifest());
+            // Persist the new canonical manifest.
+            // This is a COMMIT RECORD: only write it when all executable actions were either applied
+            // or there were none.
+            $this->manifestWriter->applyTargetManifest($result->targetManifest());
         } catch (\Throwable $e) {
             throw $e;
         }
