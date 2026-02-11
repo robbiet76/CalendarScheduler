@@ -253,7 +253,10 @@ if ($apply) {
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath),
         new FppScheduleAdapter($schedulePath),
-        new FppScheduleWriter($schedulePath),
+        new FppScheduleWriter(
+            $schedulePath,
+            '/home/fpp/media/config/calendar-scheduler/fpp'
+        ),
         $googleExecutor
     );
 

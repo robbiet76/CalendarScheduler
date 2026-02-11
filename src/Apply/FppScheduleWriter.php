@@ -19,15 +19,23 @@ namespace CalendarScheduler\Apply;
 final class FppScheduleWriter
 {
     private string $schedulePath;
+    private string $stagingDirectory;
 
-    public function __construct(string $schedulePath)
+    public function __construct(string $schedulePath, string $stagingDirectory)
     {
         $schedulePath = trim($schedulePath);
+        $stagingDirectory = rtrim(trim($stagingDirectory), '/');
+
         if ($schedulePath === '') {
             throw new \InvalidArgumentException('schedulePath must not be empty');
         }
 
+        if ($stagingDirectory === '') {
+            throw new \InvalidArgumentException('stagingDirectory must not be empty');
+        }
+
         $this->schedulePath = $schedulePath;
+        $this->stagingDirectory = $stagingDirectory;
     }
 
     /**
@@ -54,14 +62,13 @@ final class FppScheduleWriter
     }
 
     /**
+     * Always writes the staged schedule file.
+     * Does NOT touch live schedule.json.
+     *
      * @param array<int,array<string,mixed>> $schedule
      */
-    public function write(array $schedule): void
+    public function writeStaged(array $schedule): void
     {
-        // ---------------------------------------------------------------------
-        // 1) Pre-validate serialization (no I/O yet)
-        // ---------------------------------------------------------------------
-
         $json = json_encode(
             $schedule,
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
@@ -69,17 +76,37 @@ final class FppScheduleWriter
 
         $json = (string) $json;
         if (trim($json) === '') {
-            throw new \RuntimeException('Refusing to write empty schedule JSON');
+            throw new \RuntimeException('Refusing to write empty staged schedule JSON');
         }
 
-        if (!is_array($schedule)) {
-            // Defensive: signature guarantees array, but keep invariant explicit.
-            throw new \RuntimeException('Schedule must be an array');
+        if (!is_dir($this->stagingDirectory)) {
+            if (!@mkdir($this->stagingDirectory, 0775, true) && !is_dir($this->stagingDirectory)) {
+                throw new \RuntimeException('Failed to create staging directory: ' . $this->stagingDirectory);
+            }
         }
 
-        // ---------------------------------------------------------------------
-        // 2) Lock the target schedule file (exclusive)
-        // ---------------------------------------------------------------------
+        $stagedPath = $this->stagingDirectory . '/schedule.staged.json';
+
+        if (@file_put_contents($stagedPath, $json) === false) {
+            throw new \RuntimeException('Failed to write staged schedule: ' . $stagedPath);
+        }
+    }
+
+    /**
+     * Commits staged schedule to live schedule.json.
+     *
+     * Behavior:
+     * - Creates a single backup: schedule.backup.json (overwritten each run)
+     * - Atomically replaces live schedule.json
+     */
+    public function commitStaged(): void
+    {
+        $stagedPath = $this->stagingDirectory . '/schedule.staged.json';
+        $backupPath = $this->stagingDirectory . '/schedule.backup.json';
+
+        if (!file_exists($stagedPath)) {
+            throw new \RuntimeException('No staged schedule to commit: ' . $stagedPath);
+        }
 
         $hadExisting = file_exists($this->schedulePath);
 
@@ -93,31 +120,24 @@ final class FppScheduleWriter
                 throw new \RuntimeException('Unable to acquire schedule lock: ' . $this->schedulePath);
             }
 
-            // -----------------------------------------------------------------
-            // 3) Backup (only if schedule existed before we opened it)
-            // -----------------------------------------------------------------
-
             if ($hadExisting) {
-                $bakPath = $this->schedulePath . '.bak';
-
-                if (!@copy($this->schedulePath, $bakPath)) {
-                    throw new \RuntimeException('Failed to create schedule backup: ' . $bakPath);
+                if (!@copy($this->schedulePath, $backupPath)) {
+                    throw new \RuntimeException('Failed to create schedule backup: ' . $backupPath);
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 4) Atomic write: temp file then rename
-            // -----------------------------------------------------------------
-
             $tmpPath = $this->schedulePath . '.tmp';
 
-            // Ensure no stale temp file from previous crash.
             if (file_exists($tmpPath)) {
                 @unlink($tmpPath);
             }
 
-            $bytes = @file_put_contents($tmpPath, $json);
-            if ($bytes === false) {
+            $contents = file_get_contents($stagedPath);
+            if ($contents === false) {
+                throw new \RuntimeException('Failed to read staged schedule: ' . $stagedPath);
+            }
+
+            if (@file_put_contents($tmpPath, $contents) === false) {
                 @unlink($tmpPath);
                 throw new \RuntimeException('Failed to write temporary schedule file: ' . $tmpPath);
             }
@@ -127,7 +147,6 @@ final class FppScheduleWriter
                 throw new \RuntimeException('Failed to replace schedule file: ' . $this->schedulePath);
             }
         } finally {
-            // Always release lock and close.
             @flock($lockHandle, LOCK_UN);
             @fclose($lockHandle);
         }

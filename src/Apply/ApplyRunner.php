@@ -33,11 +33,6 @@ final class ApplyRunner
         $executable = $result->executableActions();
         $blocked = $result->blockedActions();
 
-        // Guard: prevent mutations or manifest writes during plan or dry-run modes
-        if ($options->isPlan() || $options->isDryRun()) {
-            return;
-        }
-
         $actionsByTarget = [
             ReconciliationAction::TARGET_FPP => [],
             ReconciliationAction::TARGET_CALENDAR => [],
@@ -70,13 +65,7 @@ final class ApplyRunner
                     );
                 }
 
-                /**
-                 * IMPORTANT:
-                 * FPP deletions are expressed by *absence* from the rewritten schedule.json.
-                 * Therefore, when there are any executable FPP actions (create/update/delete),
-                 * we must rewrite schedule.json from the *target manifest*, not from only the
-                 * create/update action list (which can be empty in a delete-only run).
-                 */
+                // Build full target schedule from manifest (deletes expressed by absence)
                 $target = $result->targetManifest();
                 $targetEvents = $target['events'] ?? [];
                 if (!is_array($targetEvents)) {
@@ -89,7 +78,7 @@ final class ApplyRunner
                         continue;
                     }
 
-                    // v2 events contain subEvents; adapter knows how to expand them.
+                    // v2 events contain subEvents; adapter expands them
                     $expanded = $this->fppAdapter->toScheduleEntries($event);
                     if ($expanded !== []) {
                         foreach ($expanded as $entry) {
@@ -100,12 +89,18 @@ final class ApplyRunner
                         continue;
                     }
 
-                    // Fallback: if a v1-style event slips through, map it as a single entry.
+                    // Fallback for legacy-style single event
                     $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($event);
                 }
 
-                $this->fppWriter->write($scheduleEntries);
-                $fppApplied = true;
+                // ALWAYS write staged schedule (even in plan/dry-run)
+                $this->fppWriter->writeStaged($scheduleEntries);
+
+                // Only commit to live schedule.json during real apply
+                if (!$options->isPlan() && !$options->isDryRun()) {
+                    $this->fppWriter->commitStaged();
+                    $fppApplied = true;
+                }
             }
 
             if ($calendarActions !== []) {
@@ -114,14 +109,17 @@ final class ApplyRunner
                         'Calendar actions present but no GoogleApplyExecutor configured'
                     );
                 }
-                $this->googleExecutor->apply($calendarActions);
-                $calendarApplied = true;
+
+                if (!$options->isPlan() && !$options->isDryRun()) {
+                    $this->googleExecutor->apply($calendarActions);
+                    $calendarApplied = true;
+                }
             }
 
-            // Persist the new canonical manifest.
-            // This is a COMMIT RECORD: only write it when all executable actions were either applied
-            // or there were none.
-            $this->manifestWriter->applyTargetManifest($result->targetManifest());
+            // Persist canonical manifest ONLY during real apply
+            if (!$options->isPlan() && !$options->isDryRun()) {
+                $this->manifestWriter->applyTargetManifest($result->targetManifest());
+            }
         } catch (\Throwable $e) {
             throw $e;
         }
