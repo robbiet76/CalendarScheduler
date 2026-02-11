@@ -218,21 +218,46 @@ final class ResolutionEngine implements ResolutionEngineInterface
 
         if ($until !== null) {
             $untilDt = $this->parseUntilToDateTime($until, $tz);
-            // Convert UNTIL into an exclusive midnight bound in the event timezone.
-            // Example:
-            //   until local date = 2025-11-26 (because 20251127T075959Z is 02:59:59 on 11/27 local,
-            //   but still fine—local date is derived from untilDt in $tz)
-            // We treat UNTIL as inclusive of its local date for range purposes.
-            $untilLocalDate = $untilDt->format('Y-m-d');
-            $endExclusiveFromUntil = (new \DateTimeImmutable($untilLocalDate, $tz))
-                ->setTime(0, 0, 0)
-                ->modify('+1 day');
 
-            // Only expand the range if it would extend beyond the base DTEND-derived range.
-            // (This keeps non-recurring events unchanged.)
-            if ($endExclusiveFromUntil > $end) {
-                $end = $endExclusiveFromUntil;
+            // Only handle DAILY and WEEKLY for now.
+            $freq = null;
+            if (is_array($event->rrule ?? null)) {
+                $freq = strtoupper((string)($event->rrule['freq'] ?? ''));
             }
+
+            if ($freq === 'DAILY' || $freq === 'WEEKLY') {
+
+                // Extract event start time-of-day
+                [$st, $_] = $this->extractEventTimeOfDay($event);
+                $startSecs = ($st['h'] * 3600) + ($st['m'] * 60) + $st['s'];
+
+                // UNTIL time-of-day (already converted to event timezone)
+                $untilSecs = ((int)$untilDt->format('H') * 3600)
+                           + ((int)$untilDt->format('i') * 60)
+                           + (int)$untilDt->format('s');
+
+                $untilDate = $untilDt->format('Y-m-d');
+
+                // Determine last valid occurrence date
+                if ($startSecs <= $untilSecs) {
+                    $lastDate = $untilDate;
+                } else {
+                    $lastDate = (new \DateTimeImmutable($untilDate, $tz))
+                        ->modify('-1 day')
+                        ->format('Y-m-d');
+                }
+
+                // Convert lastDate into exclusive midnight bound
+                $endExclusiveFromUntil = (new \DateTimeImmutable($lastDate, $tz))
+                    ->setTime(0, 0, 0)
+                    ->modify('+1 day');
+
+                if ($endExclusiveFromUntil > $end) {
+                    $end = $endExclusiveFromUntil;
+                }
+            }
+
+            // Other frequencies (e.g., MONTHLY) are intentionally ignored for now.
         }
 
         return [$start, $end];
