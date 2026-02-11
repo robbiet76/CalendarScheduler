@@ -489,6 +489,19 @@ final class ResolutionEngine implements ResolutionEngineInterface
             [$start, $end] = $clipped;
         }
 
+        // Option B:
+        // Do NOT perform instance-level RRULE expansion.
+        // However, each emitted subevent must carry a scope that is aligned to the
+        // *occurrence day* so downstream timing extraction does not collapse to
+        // midnight defaults.
+        //
+        // We keep bundle identity and segment trace based on the segmentScope (date-level),
+        // but set the executable scope to the day that contains the subevent start.
+        $tz = $start->getTimezone();
+        $dayStart = (new \DateTimeImmutable($start->format('Y-m-d'), $tz))->setTime(0, 0, 0);
+        $dayEndExclusive = $dayStart->modify('+1 day');
+        $executableScope = new ResolutionScope($dayStart, $dayEndExclusive);
+
         return new ResolvedSubevent(
             bundleUid: $bundleUid,
             sourceEventUid: $event->sourceEventUid,
@@ -499,7 +512,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
             allDay: $event->isAllDay,
             timezone: $event->timezone,
             role: ResolutionRole::BASE,
-            scope: $segmentScope,
+            scope: $executableScope,
             priority: $this->computePriority(ResolutionRole::BASE, $segmentScope),
             payload: $event->payload ?? [],
             sourceTrace: [
