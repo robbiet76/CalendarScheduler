@@ -435,28 +435,46 @@ final class ResolutionEngine implements ResolutionEngineInterface
     ): ResolvedSubevent {
         $bundleUid = $this->buildBundleUid($event, $segmentScope);
 
-        $clipped = $this->clipToSegment($dayStart, $dayEndExclusive, $segmentScope);
+        // Preserve true override time geometry (do NOT collapse to midnight).
+        // OverrideIntent rows originate from translated provider data and
+        // must retain hard start/end unless symbolic time is explicitly used.
+        $overrideIntent = $row['source'] ?? null;
+
+        $trueStart = $dayStart;
+        $trueEnd   = $dayEndExclusive;
+
+        if ($overrideIntent !== null) {
+            $tz = $event->timezone
+                ? new \DateTimeZone($event->timezone)
+                : $segmentScope->getStart()->getTimezone();
+
+            // Extract real start/end from override row if available
+            if (isset($overrideIntent->start) && is_array($overrideIntent->start)) {
+                $trueStart = $this->extractStartEndDateTime($overrideIntent->start, $tz, true);
+            }
+
+            if (isset($overrideIntent->end) && is_array($overrideIntent->end)) {
+                $trueEnd = $this->extractStartEndDateTime($overrideIntent->end, $tz, false);
+            }
+        }
+
+        $clipped = $this->clipToSegment($trueStart, $trueEnd, $segmentScope);
         if ($clipped === null) {
-            // No intersection with segment; do not emit.
-            // Caller expects only emitted subevents, so return an empty scope via exception is worse.
-            // We handle by returning a zero-length scope would violate ResolutionScope.
             throw new \RuntimeException('Override subevent scope does not intersect segment scope.');
         }
 
-        [$dayStart, $dayEndExclusive] = $clipped;
+        [$trueStart, $trueEnd] = $clipped;
 
-        // Stage 3 scope for override is day-range (date-level)
+        // Override scope remains date-level for bundle segmentation
         $scope = new ResolutionScope($dayStart, $dayEndExclusive);
 
-        // Start/end for executable entry: keep as dayStart/dayEndExclusive for now
-        // (Later stages may preserve exact times and/or symbolic time resolution.)
         return new ResolvedSubevent(
             bundleUid: $bundleUid,
             sourceEventUid: $event->sourceEventUid,
             parentUid: $event->parentUid,
             provider: $event->provider,
-            start: $dayStart,
-            end: $dayEndExclusive,
+            start: $trueStart,
+            end: $trueEnd,
             allDay: $event->isAllDay,
             timezone: $event->timezone,
             role: ResolutionRole::OVERRIDE,
