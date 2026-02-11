@@ -70,7 +70,19 @@ final class SnapshotEvent
             ];
         }
 
-        [$date, $time] = explode(' ', $value, 2);
+        // Accept both "YYYY-MM-DD HH:MM:SS" and ISO-8601 forms
+        if (str_contains($value, ' ')) {
+            [$date, $time] = explode(' ', $value, 2);
+        } elseif (str_contains($value, 'T')) {
+            [$date, $time] = explode('T', $value, 2);
+            $time = preg_replace('/Z$/', '', $time);
+        } else {
+            // Fallback: treat as date-only
+            return [
+                'date' => substr($value, 0, 10),
+                'allDay' => false,
+            ];
+        }
 
         return [
             'date' => $date,
