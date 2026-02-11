@@ -361,6 +361,74 @@ final class ResolutionEngine implements ResolutionEngineInterface
     }
 
     /**
+     * Extract event time-of-day from SnapshotEvent's normalized start/end arrays.
+     *
+     * SnapshotEvent normalizes into:
+     *   all-day: ['date' => 'YYYY-MM-DD', 'allDay' => true]
+     *   timed:   ['date' => 'YYYY-MM-DD', 'time' => 'HH:MM:SS', 'allDay' => false]
+     *
+     * @return array{0:array{h:int,m:int,s:int},1:array{h:int,m:int,s:int}}
+     */
+    private function extractEventTimeOfDay(SnapshotEvent $event): array
+    {
+        $startTime = is_array($event->start ?? null) ? $event->start : [];
+        $endTime   = is_array($event->end ?? null) ? $event->end : [];
+
+        $parse = function (array $dt): array {
+            $t = $dt['time'] ?? null;
+            if (!is_string($t) || trim($t) === '') {
+                return ['h' => 0, 'm' => 0, 's' => 0];
+            }
+            $t = substr(trim($t), 0, 8);
+            $parts = explode(':', $t);
+            $h = isset($parts[0]) ? (int) $parts[0] : 0;
+            $m = isset($parts[1]) ? (int) $parts[1] : 0;
+            $s = isset($parts[2]) ? (int) $parts[2] : 0;
+            return ['h' => $h, 'm' => $m, 's' => $s];
+        };
+
+        return [$parse($startTime), $parse($endTime)];
+    }
+
+    /**
+     * Apply SnapshotEvent time-of-day to a date-only [start,end) scope.
+     *
+     * Segment scopes are date-based (midnight). Execution needs real times.
+     *
+     * Rules:
+     * - execStart = scopeStartDate + DTSTART time
+     * - execEnd   = (scopeEndExclusive - 1 day) + DTEND time
+     * - If event crosses midnight (endTime <= startTime), execEnd = scopeEndExclusiveDate + endTime
+     *
+     * @return array{0:\DateTimeImmutable,1:\DateTimeImmutable}
+     */
+    private function executionWindowFromScope(
+        SnapshotEvent $event,
+        ResolutionScope $scope
+    ): array {
+        $tz = $event->timezone ? new \DateTimeZone($event->timezone) : $scope->getStart()->getTimezone();
+        [$st, $et] = $this->extractEventTimeOfDay($event);
+
+        $scopeStart = $scope->getStart()->setTimezone($tz);
+        $scopeEnd   = $scope->getEnd()->setTimezone($tz); // exclusive
+
+        $execStart = $scopeStart->setTime($st['h'], $st['m'], $st['s']);
+
+        // Default: end time applies to the last included day (endExclusive - 1 day)
+        $lastDay = $scopeEnd->modify('-1 day');
+        $execEnd = $lastDay->setTime($et['h'], $et['m'], $et['s']);
+
+        // Cross-midnight: end time is on the next day relative to the last start day
+        $startSecs = ($st['h'] * 3600) + ($st['m'] * 60) + $st['s'];
+        $endSecs   = ($et['h'] * 3600) + ($et['m'] * 60) + $et['s'];
+        if ($endSecs <= $startSecs) {
+            $execEnd = $scopeEnd->setTime($et['h'], $et['m'], $et['s']);
+        }
+
+        return [$execStart, $execEnd];
+    }
+
+    /**
      * Clip [start,end) to the segment scope.
      * Returns null if there is no intersection.
      */
@@ -448,15 +516,17 @@ final class ResolutionEngine implements ResolutionEngineInterface
         // Stage 3 scope for override is day-range (date-level)
         $scope = new ResolutionScope($dayStart, $dayEndExclusive);
 
-        // Start/end for executable entry: keep as dayStart/dayEndExclusive for now
-        // (Later stages may preserve exact times and/or symbolic time resolution.)
+        // Execution start/end MUST preserve time-of-day when available.
+        // Scope stays date-based; execution window derives from event time-of-day.
+        [$execStart, $execEnd] = $this->executionWindowFromScope($event, $scope);
+
         return new ResolvedSubevent(
             bundleUid: $bundleUid,
             sourceEventUid: $event->sourceEventUid,
             parentUid: $event->parentUid,
             provider: $event->provider,
-            start: $dayStart,
-            end: $dayEndExclusive,
+            start: $execStart,
+            end: $execEnd,
             allDay: $event->isAllDay,
             timezone: $event->timezone,
             role: ResolutionRole::OVERRIDE,
@@ -475,13 +545,16 @@ final class ResolutionEngine implements ResolutionEngineInterface
     {
         $bundleUid = $this->buildBundleUid($event, $segmentScope);
 
+        // Scope is date segmentation; execution window preserves DTSTART/DTEND time-of-day.
+        [$execStart, $execEnd] = $this->executionWindowFromScope($event, $segmentScope);
+
         return new ResolvedSubevent(
             bundleUid: $bundleUid,
             sourceEventUid: $event->sourceEventUid,
             parentUid: $event->parentUid,
             provider: $event->provider,
-            start: $segmentScope->getStart(),
-            end: $segmentScope->getEnd(),
+            start: $execStart,
+            end: $execEnd,
             allDay: $event->isAllDay,
             timezone: $event->timezone,
             role: ResolutionRole::BASE,
