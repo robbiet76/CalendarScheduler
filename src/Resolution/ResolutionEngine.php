@@ -192,7 +192,95 @@ final class ResolutionEngine implements ResolutionEngineInterface
         $start = $this->extractStartEndDateTime($event->start, $tz, true);
         $end   = $this->extractStartEndDateTime($event->end,   $tz, false);
 
+        // ------------------------------------------------------------
+        // RRULE UNTIL (range semantics, NO occurrence expansion)
+        //
+        // Goal:
+        // - Resolution operates on contiguous DATE segments.
+        // - For recurring events, we must derive the DATE RANGE end from RRULE UNTIL.
+        //
+        // Contract we want downstream:
+        // - segment scope is [startDateMidnight, endDateMidnightExclusive)
+        // - inclusive end date for FPP is endExclusive - 1 day
+        //
+        // Notes:
+        // - Google UNTIL is provided as UTC "Z" in the snapshot (e.g. 20251127T075959Z).
+        // - UNTIL is inclusive of the final occurrence. We convert it to local date
+        //   and then add +1 day midnight to create an exclusive bound.
+        // ------------------------------------------------------------
+        $until = null;
+        if (is_array($event->rrule ?? null)) {
+            $u = $event->rrule['until'] ?? null;
+            if (is_string($u) && trim($u) !== '') {
+                $until = trim($u);
+            }
+        }
+
+        if ($until !== null) {
+            $untilDt = $this->parseUntilToDateTime($until, $tz);
+            // Convert UNTIL into an exclusive midnight bound in the event timezone.
+            // Example:
+            //   until local date = 2025-11-26 (because 20251127T075959Z is 02:59:59 on 11/27 local,
+            //   but still fine—local date is derived from untilDt in $tz)
+            // We treat UNTIL as inclusive of its local date for range purposes.
+            $untilLocalDate = $untilDt->format('Y-m-d');
+            $endExclusiveFromUntil = (new \DateTimeImmutable($untilLocalDate, $tz))
+                ->setTime(0, 0, 0)
+                ->modify('+1 day');
+
+            // Only expand the range if it would extend beyond the base DTEND-derived range.
+            // (This keeps non-recurring events unchanged.)
+            if ($endExclusiveFromUntil > $end) {
+                $end = $endExclusiveFromUntil;
+            }
+        }
+
         return [$start, $end];
+    }
+
+    /**
+     * Parse an RRULE UNTIL value into a DateTimeImmutable.
+     *
+     * Supported:
+     * - "YYYYMMDDTHHMMSSZ" (UTC)
+     * - "YYYYMMDDTHHMMSS"  (assumed in $tz)
+     * - "YYYYMMDD"         (date-only, assumed midnight in $tz)
+     */
+    private function parseUntilToDateTime(string $until, \DateTimeZone $tz): \DateTimeImmutable
+    {
+        $until = trim($until);
+
+        // Common Google form: 20251127T075959Z
+        if (preg_match('/^\d{8}T\d{6}Z$/', $until) === 1) {
+            $dt = \DateTimeImmutable::createFromFormat('Ymd\\THis\\Z', $until, new \DateTimeZone('UTC'));
+            if ($dt instanceof \DateTimeImmutable) {
+                return $dt->setTimezone($tz);
+            }
+        }
+
+        // Floating local time: 20251127T075959
+        if (preg_match('/^\d{8}T\d{6}$/', $until) === 1) {
+            $dt = \DateTimeImmutable::createFromFormat('Ymd\\THis', $until, $tz);
+            if ($dt instanceof \DateTimeImmutable) {
+                return $dt;
+            }
+        }
+
+        // Date-only: 20251127
+        if (preg_match('/^\d{8}$/', $until) === 1) {
+            $dt = \DateTimeImmutable::createFromFormat('Ymd', $until, $tz);
+            if ($dt instanceof \DateTimeImmutable) {
+                return $dt->setTime(0, 0, 0);
+            }
+        }
+
+        // Last resort: let PHP try.
+        try {
+            return (new \DateTimeImmutable($until))->setTimezone($tz);
+        } catch (\Throwable $e) {
+            // Defensive fallback; should not happen with validated snapshots.
+            return (new \DateTimeImmutable('now', $tz));
+        }
     }
 
     /**

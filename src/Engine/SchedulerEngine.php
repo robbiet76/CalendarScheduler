@@ -217,6 +217,19 @@ final class SchedulerEngine
         $calendarIntents = [];
 
         foreach ($plannerIntents as $plannerIntent) {
+            // Date range comes from scope.
+            // FPP schedule entries are range-based and use an INCLUSIVE end date.
+            // Our ResolutionScope is [start, end) (end-exclusive), so inclusive end date
+            // is (scopeEnd - 1 day).
+            $scopeStart = $plannerIntent->scope->getStart();
+            $scopeEndExclusive = $plannerIntent->scope->getEnd();
+            $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');
+
+            // Guard: if somehow the scope is a single day [d, d+1), endInclusive == start day.
+            // If scope is malformed (shouldn't be), this still prevents null dates.
+            if ($scopeEndInclusive < $scopeStart) {
+                $scopeEndInclusive = $scopeStart;
+            }
 
             $manifestEvent = [
                 'type'   => $plannerIntent->payload['type'] ?? 'playlist',
@@ -224,11 +237,11 @@ final class SchedulerEngine
                 'timing' => [
                     'all_day'    => $plannerIntent->allDay,
                     'start_date' => [
-                        'hard'     => $plannerIntent->start->format('Y-m-d'),
+                        'hard'     => $scopeStart->format('Y-m-d'),
                         'symbolic' => null,
                     ],
                     'end_date'   => [
-                        'hard'     => $plannerIntent->end->format('Y-m-d'),
+                        'hard'     => $scopeEndInclusive->format('Y-m-d'),
                         'symbolic' => null,
                     ],
                     'start_time' => [
