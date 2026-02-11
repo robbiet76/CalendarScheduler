@@ -234,163 +234,86 @@ final class FppScheduleAdapter
     /**
      * Convert a canonical manifest-event back into an FPP schedule entry array.
      *
-     * V2 Manifest aware:
-     * - Root contains identity metadata
-     * - Real schedule entries live inside subEvents[]
-     */
-    public function toScheduleEntries(array $event): array
-    {
-        // ----------------------------
-        // v2 manifest shape detection
-        // ----------------------------
-        $identity = is_array($event['identity'] ?? null) ? (array) $event['identity'] : null;
-        $subEvents = is_array($event['subEvents'] ?? null) ? (array) $event['subEvents'] : null;
-
-        // Helper to render a single row
-        $renderOne = function (string $typeNorm, string $target, array $timing, array $payload): array {
-            $type = FPPSemantics::denormalizeType($typeNorm);
-
-            $entry = [
-                'enabled'  => FPPSemantics::denormalizeEnabled((bool) ($payload['enabled'] ?? true)),
-                'repeat'   => FPPSemantics::semanticToRepeat((string) ($payload['repeat'] ?? 'none')),
-                'stopType' => FPPSemantics::stopTypeToEnum($payload['stopType'] ?? null),
-                'day' => FPPSemantics::denormalizeDays(
-                    is_array($timing['days'] ?? null)
-                        && ($timing['days']['type'] ?? null) === 'weekly'
-                        ? ($timing['days']['value'] ?? null)
-                        : null
-                ),
-            ];
-
-            // --- Type-specific fields ---
-            if ($type === 'command') {
-                $cmd = is_array($payload['command'] ?? null) ? (array) $payload['command'] : [];
-                $entry['command'] = isset($cmd['name']) ? (string) $cmd['name'] : $target;
-
-                foreach ($cmd as $k => $v) {
-                    if ($k === 'name') {
-                        continue;
-                    }
-                    if (isset(self::COMMAND_EXCLUDE_KEYS[$k])) {
-                        continue;
-                    }
-                    $entry[$k] = $v;
-                }
-            } else {
-                $entry['playlist'] =
-                    ($type === 'sequence' && !str_ends_with($target, '.fseq'))
-                        ? $target . '.fseq'
-                        : $target;
-
-                $entry['sequence'] = ($type === 'sequence') ? 1 : 0;
-            }
-
-            // --- Timing ---
-            $allDay = (bool) ($timing['all_day'] ?? false);
-
-            if ($allDay) {
-                $entry['startTime'] = '00:00:00';
-                $entry['endTime']   = '24:00:00';
-                $entry['startTimeOffset'] = 0;
-                $entry['endTimeOffset']   = 0;
-            } else {
-                $startTime = is_array($timing['start_time'] ?? null) ? (array) $timing['start_time'] : [];
-                $endTime   = is_array($timing['end_time'] ?? null) ? (array) $timing['end_time'] : [];
-
-                $entry['startTime']       = $startTime['hard'] ?? null;
-                $entry['endTime']         = $endTime['hard']   ?? null;
-                $entry['startTimeOffset'] = (int) ($startTime['offset'] ?? 0);
-                $entry['endTimeOffset']   = (int) ($endTime['offset']   ?? 0);
-            }
-
-            $startDate = is_array($timing['start_date'] ?? null) ? (array) $timing['start_date'] : [];
-            $endDate   = is_array($timing['end_date'] ?? null) ? (array) $timing['end_date'] : [];
-
-            $entry['startDate'] = ($startDate['hard'] ?? null)
-                ?: (($startDate['symbolic'] ?? null) ?: null);
-
-            $entry['endDate']   = ($endDate['hard'] ?? null)
-                ?: (($endDate['symbolic'] ?? null) ?: null);
-
-            return $entry;
-        };
-
-        // ----------------------------
-        // v2 manifest: identity + subEvents
-        // ----------------------------
-        if ($identity !== null && is_array($subEvents)) {
-            $typeNorm = (string) ($identity['type'] ?? 'unknown');
-            $target   = (string) ($identity['target'] ?? '');
-
-            $rows = [];
-
-            foreach ($subEvents as $sub) {
-                if (!is_array($sub)) {
-                    continue;
-                }
-
-                $timing = is_array($sub['timing'] ?? null)
-                    ? (array) $sub['timing']
-                    : (is_array($identity['timing'] ?? null) ? (array) $identity['timing'] : []);
-
-                $payload = is_array($sub['payload'] ?? null) ? (array) $sub['payload'] : [];
-                $behavior = is_array($sub['behavior'] ?? null) ? (array) $sub['behavior'] : [];
-
-                if (!array_key_exists('enabled', $payload) && array_key_exists('enabled', $behavior)) {
-                    $payload['enabled'] = $behavior['enabled'];
-                }
-                if (!array_key_exists('repeat', $payload) && array_key_exists('repeat', $behavior)) {
-                    $payload['repeat'] = $behavior['repeat'];
-                }
-                if (!array_key_exists('stopType', $payload) && array_key_exists('stopType', $behavior)) {
-                    $payload['stopType'] = $behavior['stopType'];
-                }
-
-                $rows[] = $renderOne($typeNorm, $target, $timing, $payload);
-            }
-
-            if ($rows === []) {
-                $timing = is_array($identity['timing'] ?? null) ? (array) $identity['timing'] : [];
-                $rows[] = $renderOne($typeNorm, $target, $timing, []);
-            }
-
-            return $rows;
-        }
-
-        // ----------------------------
-        // Legacy flat event shape
-        // ----------------------------
-        $typeNorm = (string) ($event['type'] ?? 'unknown');
-        $target   = (string) ($event['target'] ?? '');
-        $payload  = is_array($event['payload'] ?? null) ? (array) $event['payload'] : [];
-        $timing   = is_array($event['timing'] ?? null) ? (array) $event['timing'] : [];
-
-        return [$renderOne($typeNorm, $target, $timing, $payload)];
-    }
-
-    /**
-     * Convert a single normalized event into FPP schedule format.
-     *
      * @param array<string,mixed> $event manifest-event
      * @return array<string,mixed> schedule.json entry
      */
     public function toScheduleEntry(array $event): array
     {
-        $entries = $this->toScheduleEntries($event);
+        $typeNorm = (string) ($event['type'] ?? '');
+        $target   = (string) ($event['target'] ?? '');
 
-        return $entries[0] ?? [
-            'enabled' => 1,
-            'repeat' => 0,
-            'stopType' => 0,
-            'day' => 7,
-            'playlist' => '',
-            'sequence' => 0,
-            'startTime' => null,
-            'endTime' => null,
-            'startTimeOffset' => 0,
-            'endTimeOffset' => 0,
-            'startDate' => null,
-            'endDate' => null,
+        // Denormalize type to FPP representation expectations
+        $type = FPPSemantics::denormalizeType($typeNorm);
+
+        $payload = is_array($event['payload'] ?? null) ? (array) $event['payload'] : [];
+        $timing  = is_array($event['timing'] ?? null) ? (array) $event['timing'] : [];
+
+        $entry = [
+            'enabled'  => FPPSemantics::denormalizeEnabled((bool) ($payload['enabled'] ?? true)),
+            'repeat'   => FPPSemantics::semanticToRepeat((string) ($payload['repeat'] ?? 'none')),
+            'stopType' => FPPSemantics::stopTypeToEnum($payload['stopType'] ?? null),
+            'day' => FPPSemantics::denormalizeDays(
+                is_array($timing['days'] ?? null)
+                    && ($timing['days']['type'] ?? null) === 'weekly'
+                    ? ($timing['days']['value'] ?? null)
+                    : null
+            ),
         ];
+
+        // --- Type-specific fields ---
+        if ($type === 'command') {
+            $cmd = is_array($payload['command'] ?? null) ? (array) $payload['command'] : [];
+
+            /**
+             * Reverse mapping symmetry:
+             * - command.name -> entry.command
+             * - all other command keys pass through to the schedule entry
+             */
+            $entry['command'] = isset($cmd['name']) ? (string) $cmd['name'] : $target;
+
+            foreach ($cmd as $k => $v) {
+                if ($k === 'name') {
+                    continue;
+                }
+                // Avoid stomping scheduler keys even if a payload contains them
+                if (isset(self::COMMAND_EXCLUDE_KEYS[$k])) {
+                    continue;
+                }
+                $entry[$k] = $v;
+            }
+        } else {
+            $entry['playlist'] =
+                ($type === 'sequence' && !str_ends_with($target, '.fseq'))
+                    ? $target . '.fseq'
+                    : $target;
+
+            $entry['sequence'] = ($type === 'sequence') ? 1 : 0;
+        }
+
+        // --- Timing ---
+        $allDay = (bool) ($timing['all_day'] ?? false);
+
+        if ($allDay) {
+            $entry['startTime'] = '00:00:00';
+            $entry['endTime']   = '24:00:00';
+            $entry['startTimeOffset'] = 0;
+            $entry['endTimeOffset']   = 0;
+        } else {
+            $startTime = is_array($timing['start_time'] ?? null) ? (array) $timing['start_time'] : [];
+            $endTime   = is_array($timing['end_time'] ?? null) ? (array) $timing['end_time'] : [];
+
+            $entry['startTime']       = $startTime['hard'] ?? null;
+            $entry['endTime']         = $endTime['hard']   ?? null;
+            $entry['startTimeOffset'] = (int) ($startTime['offset'] ?? 0);
+            $entry['endTimeOffset']   = (int) ($endTime['offset']   ?? 0);
+        }
+
+        $startDate = is_array($timing['start_date'] ?? null) ? (array) $timing['start_date'] : [];
+        $endDate   = is_array($timing['end_date'] ?? null) ? (array) $timing['end_date'] : [];
+
+        $entry['startDate'] = ($startDate['hard'] ?? null) ?: (($startDate['symbolic'] ?? null) ?: null);
+        $entry['endDate']   = ($endDate['hard'] ?? null)   ?: (($endDate['symbolic'] ?? null)   ?: null);
+
+        return $entry;
     }
 }

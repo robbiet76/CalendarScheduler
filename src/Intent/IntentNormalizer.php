@@ -5,7 +5,6 @@ namespace CalendarScheduler\Intent;
 
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Platform\HolidayResolver;
-use CalendarScheduler\Planner\Dto\PlannerIntent;
 
 /**
  * IntentNormalizer
@@ -50,13 +49,6 @@ final class IntentNormalizer
         array $event,
         NormalizationContext $context
     ): Intent {
-        if (!isset($event['timing']) || !is_array($event['timing'])) {
-            throw new \RuntimeException(
-                'IntentNormalizer::fromManifestEvent requires event[timing]; got keys: ' .
-                implode(',', array_keys($event))
-            );
-        }
-
         $timingArr = $this->applyHolidaySymbolics(
             $event['timing'],
             $context->holidayResolver
@@ -149,11 +141,10 @@ final class IntentNormalizer
      * Identity answers: “Does this intent already exist?”
      *
      * RULES:
-     * - Identity represents a single calendar event
      * - Identity is stable across time
-     * - Identity excludes date-range activation (start/end dates)
+     * - Identity excludes dates (start/end date)
      * - Identity excludes execution state (repeat, stopType, enabled)
-     * - Identity includes all-day flag, start_time, end_time, and weekly day selection
+     * - Identity includes start_time to prevent collapsing distinct daily intents
      *
      * Changing identity implies create/delete, never update.
      */
@@ -210,8 +201,9 @@ final class IntentNormalizer
             'target' => $identity['target'],
             'timing' => [
                 'all_day'    => (bool)$timing['all_day'],
+                'start_date' => $pickDate($timing['start_date'] ?? null),
+                'end_date'   => $pickDate($timing['end_date'] ?? null),
                 'start_time' => $pickTime($timing['start_time'] ?? null),
-                'end_time'   => $pickTime($timing['end_time'] ?? null),
                 'days'       => $timing['days'] ?? null,
             ],
         ];
@@ -464,157 +456,5 @@ final class IntentNormalizer
             $fmtDate($timing['start_date'] ?? null),
             $fmtDate($timing['end_date'] ?? null),
         ));
-    }
-    /**
-     * Normalize a set of PlannerIntent objects into canonical Intents.
-     *
-     * Groups PlannerIntents by computed identityHash, producing one Intent per group.
-     *
-     * @param PlannerIntent[] $plannerIntents
-     * @return Intent[]
-     */
-    public function normalizePlannerIntents(array $plannerIntents): array
-    {
-        // Group PlannerIntents by identityHash
-        $grouped = [];
-        $identities = [];
-        foreach ($plannerIntents as $pi) {
-            // Compute identity array matching calendar identity semantics:
-            // - type (from payload['type'] if present, else infer from payload['playlist']/['command'])
-            // - target (playlist / sequence / command name)
-            // - timing: all_day, start_time, end_time, days (weekly mask if present)
-
-            // Determine type
-            $payload = is_array($pi->payload ?? null) ? $pi->payload : [];
-            $type = $payload['type'] ?? null;
-            if ($type === null) {
-                if (isset($payload['playlist'])) {
-                    $type = 'playlist';
-                } elseif (isset($payload['command'])) {
-                    $type = 'command';
-                } elseif (isset($payload['sequence'])) {
-                    $type = 'sequence';
-                } else {
-                    $type = 'unknown';
-                }
-            }
-
-            // Determine target
-            if (isset($payload['playlist'])) {
-                $target = $payload['playlist'];
-            } elseif (isset($payload['sequence'])) {
-                $target = $payload['sequence'];
-            } elseif (isset($payload['command']) && is_array($payload['command']) && isset($payload['command']['name'])) {
-                $target = $payload['command']['name'];
-            } elseif (isset($payload['command']) && is_string($payload['command'])) {
-                $target = $payload['command'];
-            } else {
-                $target = null;
-            }
-
-            // Compose timing (REPLACED per instruction)
-            $timing = [
-                'all_day' => (bool)$pi->allDay,
-                'start_date' => [
-                    'hard' => $pi->scope->getStart()->format('Y-m-d'),
-                    'symbolic' => null,
-                ],
-                'end_date' => [
-                    'hard' => $pi->scope->getEnd()->format('Y-m-d'),
-                    'symbolic' => null,
-                ],
-                'start_time' => [
-                    'hard' => $pi->start->format('H:i:s'),
-                    'symbolic' => null,
-                    'offset' => 0,
-                ],
-                'end_time' => [
-                    'hard' => $pi->end->format('H:i:s'),
-                    'symbolic' => null,
-                    'offset' => 0,
-                ],
-                'days' => $payload['days'] ?? null,
-            ];
-
-            $identity = [
-                'type'   => $type,
-                'target' => $target,
-                'timing' => $timing,
-            ];
-
-            // Canonicalize and hash
-            $identityHashInput = $this->canonicalizeForIdentityHash($identity);
-            $identityHashJson = json_encode($identityHashInput, JSON_THROW_ON_ERROR);
-            $identityHash = hash('sha256', $identityHashJson);
-
-            // Save for later (for Intent identity)
-            $identities[$identityHash] = $identity;
-
-            // Group by identityHash
-            if (!isset($grouped[$identityHash])) {
-                $grouped[$identityHash] = [];
-            }
-            $grouped[$identityHash][] = $pi;
-        }
-
-        // Build Intents
-        $intents = [];
-        foreach ($grouped as $identityHash => $group) {
-            $identity = $identities[$identityHash];
-            $subEvents = [];
-            foreach ($group as $pi) {
-                $payload = is_array($pi->payload ?? null) ? $pi->payload : [];
-                // Compose timing (REPLACED per instruction)
-                $timing = [
-                    'all_day' => (bool)$pi->allDay,
-                    'start_date' => [
-                        'hard' => $pi->scope->getStart()->format('Y-m-d'),
-                        'symbolic' => null,
-                    ],
-                    'end_date' => [
-                        'hard' => $pi->scope->getEnd()->format('Y-m-d'),
-                        'symbolic' => null,
-                    ],
-                    'start_time' => [
-                        'hard' => $pi->start->format('H:i:s'),
-                        'symbolic' => null,
-                        'offset' => 0,
-                    ],
-                    'end_time' => [
-                        'hard' => $pi->end->format('H:i:s'),
-                        'symbolic' => null,
-                        'offset' => 0,
-                    ],
-                    'days' => $payload['days'] ?? null,
-                ];
-                $subEvent = [
-                    // bundleUid may remain in subEvent metadata only
-                    'bundleUid' => $pi->bundleUid,
-                    'timing'    => $timing,
-                    'role'      => $pi->role,
-                    'scope'     => $pi->scope,
-                    'payload'   => $payload,
-                ];
-                // Compute stateHash for subEvent (use canonicalizeForStateHash)
-                $shInput = $this->canonicalizeForStateHash([
-                    'type'    => $identity['type'],
-                    'target'  => $identity['target'],
-                    'timing'  => $timing,
-                    'payload' => $payload,
-                ]);
-                $subEvent['stateHash'] = hash('sha256', json_encode($shInput, JSON_THROW_ON_ERROR));
-                $subEvents[] = $subEvent;
-            }
-            $ownership = [];
-            $correlation = [];
-            $intents[$identityHash] = new Intent(
-                $identityHash,
-                $identity,
-                $ownership,
-                $correlation,
-                $subEvents
-            );
-        }
-        return $intents;
     }
 }

@@ -200,24 +200,6 @@ final class ResolutionEngine implements ResolutionEngineInterface
      */
     private function extractStartEndDateTime(array $arr, \DateTimeZone $tz, bool $isStart): \DateTimeImmutable
     {
-        // ------------------------------------------------------------
-        // v2 snapshot normalization shape:
-        //   ['date' => 'YYYY-MM-DD', 'time' => 'HH:MM:SS', 'allDay' => bool]
-        // ------------------------------------------------------------
-        if (isset($arr['date']) && is_string($arr['date'])) {
-            $isAllDay = (bool)($arr['allDay'] ?? false);
-
-            // If time is present and not all-day, preserve it.
-            if (!$isAllDay && isset($arr['time']) && is_string($arr['time']) && trim($arr['time']) !== '') {
-                // Construct in the event timezone (already normalized to FPP tz upstream)
-                return new \DateTimeImmutable($arr['date'] . ' ' . $arr['time'], $tz);
-            }
-
-            // All-day (or no explicit time): midnight boundary
-            $d = new \DateTimeImmutable($arr['date'], $tz);
-            return $d->setTime(0, 0, 0);
-        }
-
         if (isset($arr['dateTime'])) {
             return $this->parseCalendarDateTime($arr['dateTime'], $tz);
         }
@@ -453,46 +435,28 @@ final class ResolutionEngine implements ResolutionEngineInterface
     ): ResolvedSubevent {
         $bundleUid = $this->buildBundleUid($event, $segmentScope);
 
-        // Preserve true override time geometry (do NOT collapse to midnight).
-        // OverrideIntent rows originate from translated provider data and
-        // must retain hard start/end unless symbolic time is explicitly used.
-        $overrideIntent = $row['source'] ?? null;
-
-        $trueStart = $dayStart;
-        $trueEnd   = $dayEndExclusive;
-
-        if ($overrideIntent !== null) {
-            $tz = $event->timezone
-                ? new \DateTimeZone($event->timezone)
-                : $segmentScope->getStart()->getTimezone();
-
-            // Extract real start/end from override row if available
-            if (isset($overrideIntent->start) && is_array($overrideIntent->start)) {
-                $trueStart = $this->extractStartEndDateTime($overrideIntent->start, $tz, true);
-            }
-
-            if (isset($overrideIntent->end) && is_array($overrideIntent->end)) {
-                $trueEnd = $this->extractStartEndDateTime($overrideIntent->end, $tz, false);
-            }
-        }
-
-        $clipped = $this->clipToSegment($trueStart, $trueEnd, $segmentScope);
+        $clipped = $this->clipToSegment($dayStart, $dayEndExclusive, $segmentScope);
         if ($clipped === null) {
+            // No intersection with segment; do not emit.
+            // Caller expects only emitted subevents, so return an empty scope via exception is worse.
+            // We handle by returning a zero-length scope would violate ResolutionScope.
             throw new \RuntimeException('Override subevent scope does not intersect segment scope.');
         }
 
-        [$trueStart, $trueEnd] = $clipped;
+        [$dayStart, $dayEndExclusive] = $clipped;
 
-        // Override scope remains date-level for bundle segmentation
+        // Stage 3 scope for override is day-range (date-level)
         $scope = new ResolutionScope($dayStart, $dayEndExclusive);
 
+        // Start/end for executable entry: keep as dayStart/dayEndExclusive for now
+        // (Later stages may preserve exact times and/or symbolic time resolution.)
         return new ResolvedSubevent(
             bundleUid: $bundleUid,
             sourceEventUid: $event->sourceEventUid,
             parentUid: $event->parentUid,
             provider: $event->provider,
-            start: $trueStart,
-            end: $trueEnd,
+            start: $dayStart,
+            end: $dayEndExclusive,
             allDay: $event->isAllDay,
             timezone: $event->timezone,
             role: ResolutionRole::OVERRIDE,
@@ -511,44 +475,17 @@ final class ResolutionEngine implements ResolutionEngineInterface
     {
         $bundleUid = $this->buildBundleUid($event, $segmentScope);
 
-        // Preserve the true DTSTART/DTEND time geometry for the executable window.
-        // Segment scopes are DATE-level (midnight boundaries), but the subevent start/end
-        // must retain time-of-day to avoid collapsing distinct intents downstream.
-        [$eventStart, $eventEnd] = $this->extractEventBounds($event);
-
-        $clipped = $this->clipToSegment($eventStart, $eventEnd, $segmentScope);
-        if ($clipped === null) {
-            // Defensive fallback: use segment scope directly.
-            $start = $segmentScope->getStart();
-            $end = $segmentScope->getEnd();
-        } else {
-            [$start, $end] = $clipped;
-        }
-
-        // Option B:
-        // Do NOT perform instance-level RRULE expansion.
-        // However, each emitted subevent must carry a scope that is aligned to the
-        // *occurrence day* so downstream timing extraction does not collapse to
-        // midnight defaults.
-        //
-        // We keep bundle identity and segment trace based on the segmentScope (date-level),
-        // but set the executable scope to the day that contains the subevent start.
-        $tz = $start->getTimezone();
-        $dayStart = (new \DateTimeImmutable($start->format('Y-m-d'), $tz))->setTime(0, 0, 0);
-        $dayEndExclusive = $dayStart->modify('+1 day');
-        $executableScope = new ResolutionScope($dayStart, $dayEndExclusive);
-
         return new ResolvedSubevent(
             bundleUid: $bundleUid,
             sourceEventUid: $event->sourceEventUid,
             parentUid: $event->parentUid,
             provider: $event->provider,
-            start: $start,
-            end: $end,
+            start: $segmentScope->getStart(),
+            end: $segmentScope->getEnd(),
             allDay: $event->isAllDay,
             timezone: $event->timezone,
             role: ResolutionRole::BASE,
-            scope: $executableScope,
+            scope: $segmentScope,
             priority: $this->computePriority(ResolutionRole::BASE, $segmentScope),
             payload: $event->payload ?? [],
             sourceTrace: [
