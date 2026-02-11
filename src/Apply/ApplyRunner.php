@@ -83,7 +83,10 @@ final class ApplyRunner
                         $action->type === ReconciliationAction::TYPE_CREATE ||
                         $action->type === ReconciliationAction::TYPE_UPDATE
                     ) {
-                        $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($action->event);
+                        $entries = $this->fppAdapter->toScheduleEntries($action->event);
+                        foreach ($entries as $e) {
+                            $scheduleEntries[] = $e;
+                        }
                     }
 
                     if ($action->type === ReconciliationAction::TYPE_DELETE) {

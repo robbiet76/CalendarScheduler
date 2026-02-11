@@ -234,6 +234,46 @@ final class FppScheduleAdapter
     /**
      * Convert a canonical manifest-event back into an FPP schedule entry array.
      *
+     * V2 Manifest aware:
+     * - Root contains identity metadata
+     * - Real schedule entries live inside subEvents[]
+     */
+    public function toScheduleEntries(array $event): array
+    {
+        $entries = [];
+
+        if (!isset($event['subEvents']) || !is_array($event['subEvents'])) {
+            return [];
+        }
+
+        $identity = is_array($event['identity'] ?? null) ? $event['identity'] : [];
+        $typeNorm = (string) ($identity['type'] ?? '');
+        $target   = (string) ($identity['target'] ?? '');
+
+        foreach ($event['subEvents'] as $sub) {
+            if (!is_array($sub)) {
+                continue;
+            }
+
+            $subEvent = [
+                'type'    => $typeNorm,
+                'target'  => $target,
+                'timing'  => $sub['timing'] ?? [],
+                'payload' => array_merge(
+                    $sub['behavior'] ?? [],
+                    $sub['payload'] ?? []
+                ),
+            ];
+
+            $entries[] = $this->toScheduleEntry($subEvent);
+        }
+
+        return $entries;
+    }
+
+    /**
+     * Convert a single normalized event into FPP schedule format.
+     *
      * @param array<string,mixed> $event manifest-event
      * @return array<string,mixed> schedule.json entry
      */
@@ -245,7 +285,10 @@ final class FppScheduleAdapter
         // Denormalize type to FPP representation expectations
         $type = FPPSemantics::denormalizeType($typeNorm);
 
-        $payload = is_array($event['payload'] ?? null) ? (array) $event['payload'] : [];
+        $payload = is_array($event['payload'] ?? null)
+            ? (array) $event['payload']
+            : [];
+
         $timing  = is_array($event['timing'] ?? null) ? (array) $event['timing'] : [];
 
         $entry = [
@@ -294,11 +337,13 @@ final class FppScheduleAdapter
         $allDay = (bool) ($timing['all_day'] ?? false);
 
         if ($allDay) {
+            // FPP convention for all-day
             $entry['startTime'] = '00:00:00';
             $entry['endTime']   = '24:00:00';
             $entry['startTimeOffset'] = 0;
             $entry['endTimeOffset']   = 0;
         } else {
+            // Proper hard time mapping
             $startTime = is_array($timing['start_time'] ?? null) ? (array) $timing['start_time'] : [];
             $endTime   = is_array($timing['end_time'] ?? null) ? (array) $timing['end_time'] : [];
 
@@ -311,8 +356,11 @@ final class FppScheduleAdapter
         $startDate = is_array($timing['start_date'] ?? null) ? (array) $timing['start_date'] : [];
         $endDate   = is_array($timing['end_date'] ?? null) ? (array) $timing['end_date'] : [];
 
-        $entry['startDate'] = ($startDate['hard'] ?? null) ?: (($startDate['symbolic'] ?? null) ?: null);
-        $entry['endDate']   = ($endDate['hard'] ?? null)   ?: (($endDate['symbolic'] ?? null)   ?: null);
+        $entry['startDate'] = ($startDate['hard'] ?? null)
+            ?: (($startDate['symbolic'] ?? null) ?: null);
+
+        $entry['endDate']   = ($endDate['hard'] ?? null)
+            ?: (($endDate['symbolic'] ?? null) ?: null);
 
         return $entry;
     }
