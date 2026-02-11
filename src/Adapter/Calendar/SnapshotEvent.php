@@ -12,7 +12,7 @@ final class SnapshotEvent
     // Recurrence / timing
     public array $start;             // date or dateTime
     public array $end;
-    public ?string $rrule = null;
+    public ?array $rrule = null;
     public ?string $timezone = null;
     public bool $isAllDay = false;
 
