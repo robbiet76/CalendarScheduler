@@ -12,13 +12,7 @@ final class SnapshotEvent
     // Recurrence / timing
     public array $start;             // date or dateTime
     public array $end;
-
-    /**
-     * Structured RRULE (lossless, provider-neutral)
-     * @var array<string,mixed>|null
-     */
-    public ?array $rrule = null;
-
+    public ?string $rrule = null;
     public ?string $timezone = null;
     public bool $isAllDay = false;
 
@@ -40,55 +34,37 @@ final class SnapshotEvent
         $this->sourceEventUid = $row['uid'];
         $this->parentUid = $row['uid'];
         $this->provider = $row['provider'] ?? 'unknown';
-
-        // Raw snapshot rows provide dtstart/dtend as strings
-        if (!isset($row['dtstart'], $row['dtend'])) {
-            throw new \RuntimeException('SnapshotEvent missing dtstart/dtend');
-        }
-
-        $this->isAllDay = (bool)($row['isAllDay'] ?? false);
-        $this->timezone = $row['timezone'] ?? null;
-
-        $this->start = $this->parseDateTime($row['dtstart'], $this->isAllDay);
-        $this->end   = $this->parseDateTime($row['dtend'], $this->isAllDay);
-
+        $this->start = is_array($row['start'] ?? null) ? $row['start'] : [];
+        $this->end = is_array($row['end'] ?? null) ? $row['end'] : [];
         $this->rrule = $row['rrule'] ?? null;
-        if ($this->rrule !== null && !is_array($this->rrule)) {
-            // Some upstream sources may provide RRULE as a string; normalize to null here.
-            $this->rrule = null;
-        }
+        $this->timezone = $row['timezone'] ?? null;
+        $this->isAllDay = $row['isAllDay'] ?? false;
         $this->payload = $row['payload'] ?? [];
         $this->sourceRows[] = $row;
-    }
 
-    private function parseDateTime(string $value, bool $allDay): array
-    {
-        if ($allDay) {
-            return [
-                'date' => substr($value, 0, 10),
-                'allDay' => true,
-            ];
-        }
+        // -----------------------------------------------------------------
+        // Normalize start/end into a stable provider-agnostic shape.
+        //
+        // SnapshotEvent MUST preserve time-of-day when available.
+        // If the incoming row has dtstart/dtend strings, use them to fill
+        // missing time info in start/end.
+        // -----------------------------------------------------------------
 
-        // Accept both "YYYY-MM-DD HH:MM:SS" and ISO-8601 forms
-        if (str_contains($value, ' ')) {
-            [$date, $time] = explode(' ', $value, 2);
-        } elseif (str_contains($value, 'T')) {
-            [$date, $time] = explode('T', $value, 2);
-            $time = preg_replace('/Z$/', '', $time);
+        $dtstart = is_string($row['dtstart'] ?? null) ? trim($row['dtstart']) : '';
+        $dtend   = is_string($row['dtend'] ?? null) ? trim($row['dtend']) : '';
+
+        // If start/end are empty or missing time, but dtstart/dtend exist, hydrate them.
+        if ($dtstart !== '' && $this->needsTimeHydration($this->start)) {
+            $this->start = $this->dateTimeArrayFromString($dtstart, $this->isAllDay);
         } else {
-            // Fallback: treat as date-only
-            return [
-                'date' => substr($value, 0, 10),
-                'allDay' => false,
-            ];
+            $this->start = $this->normalizeDateTimeArray($this->start, $this->isAllDay);
         }
 
-        return [
-            'date' => $date,
-            'time' => $time,
-            'allDay' => false,
-        ];
+        if ($dtend !== '' && $this->needsTimeHydration($this->end)) {
+            $this->end = $this->dateTimeArrayFromString($dtend, $this->isAllDay);
+        } else {
+            $this->end = $this->normalizeDateTimeArray($this->end, $this->isAllDay);
+        }
     }
 
     public function addCancelledDate(string|array $originalStartTime): void
@@ -104,5 +80,89 @@ final class SnapshotEvent
     public function addSourceRow(array $row): void
     {
         $this->sourceRows[] = $row;
+    }
+
+    /**
+     * Returns true if start/end should be hydrated from dtstart/dtend.
+     *
+     * We hydrate when:
+     * - array is empty, OR
+     * - has date but missing time/dateTime (common failure mode that yields midnight)
+     */
+    private function needsTimeHydration(array $dt): bool
+    {
+        if ($dt === []) {
+            return true;
+        }
+
+        if (isset($dt['dateTime']) && is_string($dt['dateTime']) && $dt['dateTime'] !== '') {
+            return false;
+        }
+
+        if (isset($dt['date']) && is_string($dt['date']) && $dt['date'] !== '') {
+            // if time is missing, hydrate
+            $time = $dt['time'] ?? null;
+            return !is_string($time) || $time === '';
+        }
+
+        return true;
+    }
+
+    /**
+     * Normalize a date/dateTime array into:
+     *   all-day: ['date' => 'YYYY-MM-DD', 'allDay' => true]
+     *   timed:   ['date' => 'YYYY-MM-DD', 'time' => 'HH:MM:SS', 'allDay' => false]
+     */
+    private function normalizeDateTimeArray(array $dt, bool $isAllDay): array
+    {
+        // Accept provider-style start/end blocks: ['dateTime' => '...'] or ['date' => '...']
+        $dateTime = $dt['dateTime'] ?? null;
+        if (is_string($dateTime) && $dateTime !== '') {
+            // Best-effort parse: YYYY-MM-DDTHH:MM:SS...
+            $parts = preg_split('/[T ]/', $dateTime);
+            $date = is_array($parts) && isset($parts[0]) ? (string) $parts[0] : '';
+            $time = is_array($parts) && isset($parts[1]) ? (string) $parts[1] : '00:00:00';
+            $time = substr($time, 0, 8);
+
+            if ($isAllDay) {
+                return ['date' => $date, 'allDay' => true];
+            }
+            return ['date' => $date, 'time' => $time, 'allDay' => false];
+        }
+
+        $date = $dt['date'] ?? null;
+        $time = $dt['time'] ?? null;
+
+        if (!is_string($date) || $date === '') {
+            $date = '1970-01-01';
+        }
+
+        if ($isAllDay) {
+            return ['date' => $date, 'allDay' => true];
+        }
+
+        if (!is_string($time) || $time === '') {
+            $time = '00:00:00';
+        }
+
+        return ['date' => $date, 'time' => $time, 'allDay' => false];
+    }
+
+    /**
+     * Parse dtstart/dtend strings like "YYYY-MM-DD HH:MM:SS" into normalized arrays.
+     */
+    private function dateTimeArrayFromString(string $s, bool $isAllDay): array
+    {
+        // Expect "YYYY-MM-DD HH:MM:SS" (your exporter uses this)
+        $parts = preg_split('/\s+/', trim($s));
+        $date = is_array($parts) && isset($parts[0]) ? (string) $parts[0] : '';
+        $time = is_array($parts) && isset($parts[1]) ? (string) $parts[1] : '00:00:00';
+        $time = substr($time, 0, 8);
+
+        if ($isAllDay) {
+            return ['date' => $date, 'allDay' => true];
+        }
+
+        return ['date' => $date, 'time' => $time, 'allDay' => false];
     }
 }
