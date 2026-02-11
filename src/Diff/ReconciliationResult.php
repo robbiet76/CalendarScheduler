@@ -48,6 +48,36 @@ final class ReconciliationResult
         return $this->targetManifest;
     }
 
+    /**
+     * plannedManifest
+     *
+     * The manifest that should be committed by the Apply layer as the canonical record
+     * after successful execution of side effects.
+     *
+     * Today, reconciliation emits a single planned/target manifest, so this is an alias
+     * of targetManifest(). Keeping this method explicit avoids ApplyRunner reaching for
+     * SchedulerRunResult or planner internals.
+     *
+     * @return array<string,mixed>
+     */
+    public function plannedManifest(): array
+    {
+        return $this->targetManifest();
+    }
+
+    /**
+     * calendarManifest
+     *
+     * Alias retained for older call sites. Do not treat this as "raw calendar-only";
+     * use SchedulerRunResult if you need pre-reconciliation manifests.
+     *
+     * @return array<string,mixed>
+     */
+    public function calendarManifest(): array
+    {
+        return $this->targetManifest();
+    }
+
     /** @return array<int,ReconciliationAction> */
     public function actions(): array
     {

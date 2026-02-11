@@ -25,20 +25,6 @@ final class ApplyRunner
         private readonly ?\CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor $googleExecutor = null
     ) {}
 
-    /**
-     * Choose the manifest that should be committed as the canonical record of intent.
-     *
-     * We want the planner-produced desired manifest (calendarManifest) as the commit record.
-     * Do NOT depend on "targetManifest" semantics here, since reconciliation may treat that
-     * differently (and we've observed it can be empty).
-     *
-     * @return array<string,mixed>
-     */
-    private function plannedManifest(ReconciliationResult $result): array
-    {
-        return $result->targetManifest();
-    }
-
     public function apply(
         ReconciliationResult $result,
         ApplyOptions $options
@@ -122,8 +108,8 @@ final class ApplyRunner
             }
 
             // Persist the new canonical manifest (COMMIT RECORD).
-            // Commit the planner's desired manifest after side effects have been applied.
-            $this->manifestWriter->applyTargetManifest($this->plannedManifest($result));
+            // Commit the reconciliation-planned manifest after side effects have been applied.
+            $this->manifestWriter->applyTargetManifest($result->plannedManifest());
         } catch (\Throwable $e) {
             throw $e;
         }
