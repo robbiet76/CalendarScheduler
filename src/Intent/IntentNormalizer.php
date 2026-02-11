@@ -515,6 +515,14 @@ final class IntentNormalizer
             // Compose timing (REPLACED per instruction)
             $timing = [
                 'all_day' => (bool)$pi->allDay,
+                'start_date' => [
+                    'hard' => $pi->scope->getStart()->format('Y-m-d'),
+                    'symbolic' => null,
+                ],
+                'end_date' => [
+                    'hard' => $pi->scope->getEnd()->format('Y-m-d'),
+                    'symbolic' => null,
+                ],
                 'start_time' => [
                     'hard' => $pi->start->format('H:i:s'),
                     'symbolic' => null,
@@ -559,6 +567,14 @@ final class IntentNormalizer
                 // Compose timing (REPLACED per instruction)
                 $timing = [
                     'all_day' => (bool)$pi->allDay,
+                    'start_date' => [
+                        'hard' => $pi->scope->getStart()->format('Y-m-d'),
+                        'symbolic' => null,
+                    ],
+                    'end_date' => [
+                        'hard' => $pi->scope->getEnd()->format('Y-m-d'),
+                        'symbolic' => null,
+                    ],
                     'start_time' => [
                         'hard' => $pi->start->format('H:i:s'),
                         'symbolic' => null,
