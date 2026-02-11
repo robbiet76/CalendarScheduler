@@ -12,6 +12,7 @@ use CalendarScheduler\Diff\Diff;
 use CalendarScheduler\Diff\Reconciler;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator;
 
 /**
  * SchedulerEngine
@@ -95,7 +96,7 @@ final class SchedulerEngine
         $applyRequested  = array_key_exists('apply', $opts);
 
         if ($refreshCalendar || $applyRequested) {
-            $this->refreshCalendarSnapshotFromGoogle($calendarSnapshotPath);
+            $this->refreshCalendarSnapshotFromGoogle($calendarSnapshotPath, $context);
         }
 
         $calendarSnapshotRaw = [];
@@ -277,25 +278,37 @@ final class SchedulerEngine
      * Refresh the calendar snapshot by pulling directly from Google Calendar API.
      *
      * Writes a deterministic JSON wrapper to $calendarSnapshotPath:
-     *   { "calendar_id": "...", "events": [ ... ] }
+     *   { "calendar_id": "...", "events": [ ...provider-agnostic rows... ] }
      *
      * @throws \RuntimeException on any failure.
      */
-    private function refreshCalendarSnapshotFromGoogle(string $calendarSnapshotPath): void
-    {
+    private function refreshCalendarSnapshotFromGoogle(
+        string $calendarSnapshotPath,
+        NormalizationContext $context
+    ): void {
         $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/google';
         $config = new GoogleConfig($configDir);
 
         $client = new GoogleApiClient($config);
-        $events = $client->listEvents($config->getCalendarId());
+        $rawEvents = $client->listEvents($config->getCalendarId());
+
+        // Translate provider-specific events into snapshot rows
+        $translator = new GoogleCalendarTranslator();
+        $translatedEvents = $translator->ingest($rawEvents, $config->getCalendarId());
 
         $payload = [
-            'calendar_id' => $config->getCalendarId(),
-            'events' => $events,
-            'generated_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format(DATE_ATOM),
+            'calendar_id'  => $config->getCalendarId(),
+            'events'       => $translatedEvents,
+            'generated_at' => (new \DateTimeImmutable(
+                'now',
+                new \DateTimeZone('UTC')
+            ))->format(DATE_ATOM),
         ];
 
-        $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $json = json_encode(
+            $payload,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
 
         $dir = dirname($calendarSnapshotPath);
         if (!is_dir($dir)) {
