@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 namespace CalendarScheduler\Resolution\Dto;
+
 use CalendarScheduler\Planner\Dto\PlannerIntent;
 
 /**
@@ -51,6 +52,10 @@ final class ResolvedSchedule
                     parentUid: $subevent->getParentUid(),
                     sourceEventUid: $subevent->getSourceEventUid(),
                     provider: $subevent->getProvider(),
+                    start: $subevent->getStart(),
+                    end: $subevent->getEnd(),
+                    allDay: $subevent->isAllDay(),
+                    timezone: $subevent->getTimezone(),
                     role: $subevent->getRole(),
                     scope: $subevent->getScope(),
                     priority: $subevent->getPriority(),

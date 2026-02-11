@@ -74,6 +74,105 @@ final class FppScheduleAdapter
     }
 
     /**
+     * Parse minimal INI-like settings from a calendar description.
+     * We only care about:
+     *  - [settings] type = playlist|sequence|command
+     */
+    private function parseSettingsTypeFromDescription(?string $description): ?string
+    {
+        if (!is_string($description) || trim($description) === '') {
+            return null;
+        }
+
+        $section = null;
+        $lines = preg_split('/\r\n|\r|\n/', $description) ?: [];
+        foreach ($lines as $line) {
+            $t = trim($line);
+            if ($t === '' || str_starts_with($t, '#') || str_starts_with($t, ';')) {
+                continue;
+            }
+            if (preg_match('/^\[(.+)\]$/', $t, $m) === 1) {
+                $section = strtolower(trim($m[1]));
+                continue;
+            }
+            if ($section !== 'settings') {
+                continue;
+            }
+            if (preg_match('/^type\s*=\s*(.+)$/i', $t, $m) === 1) {
+                $v = strtolower(trim($m[1]));
+                if ($v === 'playlist' || $v === 'sequence' || $v === 'command') {
+                    return $v;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Parse a minimal INI-like [command] block from description.
+     * Supports keys like:
+     *  - args[] = 100
+     *  - multisync = true
+     *  - hosts = 192.168.1.2
+     *
+     * Returns a map that can be merged directly into an FPP schedule entry.
+     *
+     * @return array<string,mixed>
+     */
+    private function parseCommandBlockFromDescription(?string $description): array
+    {
+        if (!is_string($description) || trim($description) === '') {
+            return [];
+        }
+
+        $section = null;
+        $out = [];
+        $lines = preg_split('/\r\n|\r|\n/', $description) ?: [];
+        foreach ($lines as $line) {
+            $t = trim($line);
+            if ($t === '' || str_starts_with($t, '#') || str_starts_with($t, ';')) {
+                continue;
+            }
+            if (preg_match('/^\[(.+)\]$/', $t, $m) === 1) {
+                $section = strtolower(trim($m[1]));
+                continue;
+            }
+            if ($section !== 'command') {
+                continue;
+            }
+            // key = value
+            if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $t, $m) !== 1) {
+                continue;
+            }
+            $key = trim($m[1]);
+            $valRaw = trim($m[2]);
+
+            // basic bool parsing
+            $valLower = strtolower($valRaw);
+            $val = $valRaw;
+            if ($valLower === 'true') {
+                $val = true;
+            } elseif ($valLower === 'false') {
+                $val = false;
+            }
+
+            // array keys like args[]
+            if (str_ends_with($key, '[]')) {
+                if (!isset($out[$key]) || !is_array($out[$key])) {
+                    $out[$key] = [];
+                }
+                $out[$key][] = $val;
+                continue;
+            }
+
+            $out[$key] = $val;
+        }
+
+        return $out;
+    }
+
+    /**
      * Load and convert all FPP schedule entries into canonical manifest-event arrays.
      *
      * @param \DateTimeZone $fppTz
@@ -232,6 +331,24 @@ final class FppScheduleAdapter
     }
 
     /**
+     * Convert a list of canonical manifest-events into schedule.json entries.
+     *
+     * @param array<int,array<string,mixed>> $events
+     * @return array<int,array<string,mixed>>
+     */
+    public function toScheduleEntries(array $events): array
+    {
+        $out = [];
+        foreach ($events as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+            $out[] = $this->toScheduleEntry($event);
+        }
+        return $out;
+    }
+
+    /**
      * Convert a canonical manifest-event back into an FPP schedule entry array.
      *
      * @param array<string,mixed> $event manifest-event
@@ -239,19 +356,52 @@ final class FppScheduleAdapter
      */
     public function toScheduleEntry(array $event): array
     {
-        $typeNorm = (string) ($event['type'] ?? '');
-        $target   = (string) ($event['target'] ?? '');
+        // Current manifest shape (v2): identity + subEvents (no legacy support)
+        if (!isset($event['identity']) || !isset($event['subEvents'][0])) {
+            throw new \InvalidArgumentException('Invalid manifest event shape for FPP adapter.');
+        }
+
+        $identity = is_array($event['identity']) ? $event['identity'] : [];
+        $subEvent = is_array($event['subEvents'][0]) ? $event['subEvents'][0] : [];
+        $payload = is_array($subEvent['payload'] ?? null) ? (array) $subEvent['payload'] : [];
+        $timing  = is_array($subEvent['timing'] ?? null) ? (array) $subEvent['timing'] : [];
+        $behavior = is_array($subEvent['behavior'] ?? null) ? (array) $subEvent['behavior'] : [];
+
+        $summary = is_string($payload['summary'] ?? null) ? (string) $payload['summary'] : '';
+        $description = is_string($payload['description'] ?? null) ? (string) $payload['description'] : null;
+
+        // Prefer explicit identity when it exists, otherwise infer from payload.
+        $typeNorm = (string) ($identity['type'] ?? '');
+        $target   = (string) ($identity['target'] ?? '');
+
+        if ($typeNorm === '' || $typeNorm === 'unknown') {
+            $inferred = $this->parseSettingsTypeFromDescription($description);
+            if (is_string($inferred) && $inferred !== '') {
+                $typeNorm = $inferred;
+            }
+        }
+
+        // If still unknown, default to playlist (most common).
+        if ($typeNorm === '' || $typeNorm === 'unknown') {
+            $typeNorm = 'playlist';
+        }
+
+        // If target is missing, infer from summary.
+        if (trim($target) === '') {
+            $target = $summary;
+        }
 
         // Denormalize type to FPP representation expectations
         $type = FPPSemantics::denormalizeType($typeNorm);
 
-        $payload = is_array($event['payload'] ?? null) ? (array) $event['payload'] : [];
-        $timing  = is_array($event['timing'] ?? null) ? (array) $event['timing'] : [];
+        $enabledSemantic = $behavior['enabled'] ?? ($payload['enabled'] ?? true);
+        $repeatSemantic  = $behavior['repeat']  ?? ($payload['repeat']  ?? 'none');
+        $stopTypeSemantic = $behavior['stopType'] ?? ($payload['stopType'] ?? null);
 
         $entry = [
-            'enabled'  => FPPSemantics::denormalizeEnabled((bool) ($payload['enabled'] ?? true)),
-            'repeat'   => FPPSemantics::semanticToRepeat((string) ($payload['repeat'] ?? 'none')),
-            'stopType' => FPPSemantics::stopTypeToEnum($payload['stopType'] ?? null),
+            'enabled'  => FPPSemantics::denormalizeEnabled((bool) $enabledSemantic),
+            'repeat'   => FPPSemantics::semanticToRepeat((string) $repeatSemantic),
+            'stopType' => FPPSemantics::stopTypeToEnum($stopTypeSemantic),
             'day' => FPPSemantics::denormalizeDays(
                 is_array($timing['days'] ?? null)
                     && ($timing['days']['type'] ?? null) === 'weekly'
@@ -264,28 +414,36 @@ final class FppScheduleAdapter
         if ($type === 'command') {
             $cmd = is_array($payload['command'] ?? null) ? (array) $payload['command'] : [];
 
+            // If command details are not yet structured, parse them from description.
+            if (empty($cmd) && is_string($description) && trim($description) !== '') {
+                $cmd = $this->parseCommandBlockFromDescription($description);
+            }
+
             /**
              * Reverse mapping symmetry:
              * - command.name -> entry.command
+             * - if missing, fall back to summary (common authoring pattern) then identity target
              * - all other command keys pass through to the schedule entry
              */
-            $entry['command'] = isset($cmd['name']) ? (string) $cmd['name'] : $target;
+            $entry['command'] = isset($cmd['name'])
+                ? (string) $cmd['name']
+                : (trim($summary) !== '' ? $summary : $target);
 
             foreach ($cmd as $k => $v) {
                 if ($k === 'name') {
                     continue;
                 }
-                // Avoid stomping scheduler keys even if a payload contains them
                 if (isset(self::COMMAND_EXCLUDE_KEYS[$k])) {
                     continue;
                 }
                 $entry[$k] = $v;
             }
         } else {
+            $name = trim($target) !== '' ? $target : $summary;
             $entry['playlist'] =
-                ($type === 'sequence' && !str_ends_with($target, '.fseq'))
-                    ? $target . '.fseq'
-                    : $target;
+                ($type === 'sequence' && !str_ends_with($name, '.fseq'))
+                    ? $name . '.fseq'
+                    : $name;
 
             $entry['sequence'] = ($type === 'sequence') ? 1 : 0;
         }

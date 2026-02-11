@@ -209,7 +209,57 @@ final class SchedulerEngine
         $resolvedSchedule = $resolver->resolve($snapshot);
 
         $plannerIntents = $resolvedSchedule->toPlannerIntents();
-        $calendarIntents = $this->normalizer->normalizePlannerIntents($plannerIntents);
+
+        // Resolution already produces PlannerIntent objects with correct timing.
+        // At this stage (resolution-smoke-pass baseline), no further normalization
+        // of planner intents is required. We simply index them by identityHash
+        // for manifest building.
+        $calendarIntents = [];
+
+        foreach ($plannerIntents as $plannerIntent) {
+
+            $manifestEvent = [
+                'type'   => $plannerIntent->payload['type'] ?? 'playlist',
+                'target' => $plannerIntent->payload['target'] ?? '',
+                'timing' => [
+                    'all_day'    => $plannerIntent->allDay,
+                    'start_date' => [
+                        'hard'     => $plannerIntent->start->format('Y-m-d'),
+                        'symbolic' => null,
+                    ],
+                    'end_date'   => [
+                        'hard'     => $plannerIntent->end->format('Y-m-d'),
+                        'symbolic' => null,
+                    ],
+                    'start_time' => [
+                        'hard'     => $plannerIntent->start->format('H:i:s'),
+                        'symbolic' => null,
+                        'offset'   => 0,
+                    ],
+                    'end_time'   => [
+                        'hard'     => $plannerIntent->end->format('H:i:s'),
+                        'symbolic' => null,
+                        'offset'   => 0,
+                    ],
+                    'days' => null,
+                ],
+                'payload' => $plannerIntent->payload,
+                'ownership' => [
+                    'managed' => true,
+                ],
+                'correlation' => [
+                    'sourceEventUid' => $plannerIntent->sourceEventUid,
+                ],
+                'source' => 'calendar',
+            ];
+
+            $intent = $this->normalizer->fromManifestEvent(
+                $manifestEvent,
+                $context
+            );
+
+            $calendarIntents[$intent->identityHash] = $intent;
+        }
 
         foreach ($calendarEvents as $event) {
             $ts = $event['updatedAtEpoch'] ?? $event['sourceUpdatedAt'] ?? 0;
@@ -224,10 +274,12 @@ final class SchedulerEngine
         $fppIntents = [];
         foreach ($fppEvents as $event) {
             $intent = $this->normalizer->fromManifestEvent($event, $context);
-            $fppIntents[$intent->identityHash] = $intent;
+            $hash = $intent->identityHash;
+
+            $fppIntents[$hash] = $intent;
 
             $ts = $event['updatedAtEpoch'] ?? $event['sourceUpdatedAt'] ?? 0;
-            $computedFppUpdatedAtById[$intent->identityHash] = is_int($ts) ? $ts : (int)$ts;
+            $computedFppUpdatedAtById[$hash] = is_int($ts) ? $ts : (int)$ts;
         }
 
         // ------------------------------------------------------------
