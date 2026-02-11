@@ -200,6 +200,24 @@ final class ResolutionEngine implements ResolutionEngineInterface
      */
     private function extractStartEndDateTime(array $arr, \DateTimeZone $tz, bool $isStart): \DateTimeImmutable
     {
+        // ------------------------------------------------------------
+        // v2 snapshot normalization shape:
+        //   ['date' => 'YYYY-MM-DD', 'time' => 'HH:MM:SS', 'allDay' => bool]
+        // ------------------------------------------------------------
+        if (isset($arr['date']) && is_string($arr['date'])) {
+            $isAllDay = (bool)($arr['allDay'] ?? false);
+
+            // If time is present and not all-day, preserve it.
+            if (!$isAllDay && isset($arr['time']) && is_string($arr['time']) && trim($arr['time']) !== '') {
+                // Construct in the event timezone (already normalized to FPP tz upstream)
+                return new \DateTimeImmutable($arr['date'] . ' ' . $arr['time'], $tz);
+            }
+
+            // All-day (or no explicit time): midnight boundary
+            $d = new \DateTimeImmutable($arr['date'], $tz);
+            return $d->setTime(0, 0, 0);
+        }
+
         if (isset($arr['dateTime'])) {
             return $this->parseCalendarDateTime($arr['dateTime'], $tz);
         }
