@@ -217,6 +217,14 @@ final class SchedulerEngine
         $calendarIntents = [];
 
         foreach ($plannerIntents as $plannerIntent) {
+            // Derive executable identity (type/target) from payload.
+            // Google snapshot payload does not guarantee explicit `type`/`target` keys.
+            // We treat `[settings]` in description as authoritative when present.
+            $payload = is_array($plannerIntent->payload ?? null) ? $plannerIntent->payload : [];
+            $derived = $this->deriveTypeAndTargetFromPayload($payload);
+            $eventType = $derived['type'];
+            $eventTarget = $derived['target'];
+
             // Date range comes from scope.
             // FPP schedule entries are range-based and use an INCLUSIVE end date.
             // Our ResolutionScope is [start, end) (end-exclusive), so inclusive end date
@@ -232,8 +240,8 @@ final class SchedulerEngine
             }
 
             $manifestEvent = [
-                'type'   => $plannerIntent->payload['type'] ?? 'playlist',
-                'target' => $plannerIntent->payload['target'] ?? '',
+                'type'   => $eventType,
+                'target' => $eventTarget,
                 'timing' => [
                     'all_day'    => $plannerIntent->allDay,
                     'start_date' => [
@@ -256,7 +264,7 @@ final class SchedulerEngine
                     ],
                     'days' => null,
                 ],
-                'payload' => $plannerIntent->payload,
+                'payload' => $payload,
                 'ownership' => [
                     'managed' => true,
                 ],
@@ -337,6 +345,132 @@ final class SchedulerEngine
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch
         );
+    }
+
+    /**
+     * Best-effort extraction of scheduling identity (type/target) from a provider payload.
+     *
+     * Current contract:
+     * - `type` is one of: playlist | sequence | command
+     * - `target` is a non-empty string identifier (typically derived from summary)
+     *
+     * For Google rows, the authoritative settings live in the `[settings]` block inside `description`.
+     * We parse that block and fall back to summary-based defaults.
+     *
+     * @param array<string,mixed> $payload
+     * @return array{type:string,target:string}
+     */
+    private function deriveTypeAndTargetFromPayload(array $payload): array
+    {
+        $type = null;
+        $target = null;
+
+        // Preferred: explicit keys (future/other providers may supply these).
+        if (isset($payload['type']) && is_string($payload['type']) && trim($payload['type']) !== '') {
+            $type = strtolower(trim($payload['type']));
+        }
+        if (isset($payload['target']) && is_string($payload['target']) && trim($payload['target']) !== '') {
+            $target = trim($payload['target']);
+        }
+
+        // Google exporter path: parse [settings] from description.
+        $desc = isset($payload['description']) && is_string($payload['description']) ? $payload['description'] : '';
+        if ($desc !== '') {
+            $settings = $this->parseSettingsBlock($desc);
+
+            if ($type === null && isset($settings['type']) && is_string($settings['type'])) {
+                $t = strtolower(trim($settings['type']));
+                if ($t !== '') {
+                    $type = $t;
+                }
+            }
+
+            // Optional explicit target override
+            if ($target === null && isset($settings['target']) && is_string($settings['target'])) {
+                $tgt = trim($settings['target']);
+                if ($tgt !== '') {
+                    $target = $tgt;
+                }
+            }
+        }
+
+        // Fallback target from summary.
+        if ($target === null) {
+            $summary = isset($payload['summary']) && is_string($payload['summary']) ? trim($payload['summary']) : '';
+            if ($summary !== '') {
+                $target = $summary;
+            }
+        }
+
+        // Final defaults.
+        if ($type === null) {
+            $type = 'playlist';
+        }
+        if ($target === null || $target === '') {
+            // Never allow null/empty target; adapter/diff rely on this.
+            $target = 'unknown';
+        }
+
+        // Clamp allowed types (ignore monthly support does not affect identity typing).
+        if (!in_array($type, ['playlist', 'sequence', 'command'], true)) {
+            $type = 'playlist';
+        }
+
+        return ['type' => $type, 'target' => $target];
+    }
+
+    /**
+     * Parse a simple INI-like `[settings]` block from a description.
+     *
+     * Expected format:
+     *   [settings]
+     *   key = value
+     *   ...
+     *
+     * Parsing stops at the first blank line after `[settings]` or at a comment-only section.
+     *
+     * @return array<string,string>
+     */
+    private function parseSettingsBlock(string $description): array
+    {
+        $lines = preg_split('/\r\n|\r|\n/', $description);
+        if (!is_array($lines)) {
+            return [];
+        }
+
+        $in = false;
+        $out = [];
+
+        foreach ($lines as $line) {
+            $line = (string)$line;
+            $trim = trim($line);
+
+            if (!$in) {
+                if (strtolower($trim) === '[settings]') {
+                    $in = true;
+                }
+                continue;
+            }
+
+            // Stop at first blank line (notes separator) once inside settings.
+            if ($trim === '') {
+                break;
+            }
+
+            // Ignore comment lines.
+            if (str_starts_with($trim, '#') || str_starts_with($trim, ';')) {
+                continue;
+            }
+
+            // key = value
+            if (preg_match('/^([A-Za-z0-9_\-]+)\s*=\s*(.*?)\s*$/', $trim, $m) === 1) {
+                $k = strtolower($m[1]);
+                $v = $m[2];
+                $out[$k] = $v;
+            }
+        }
+
+        return $out;
     }
 
     /**
