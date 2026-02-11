@@ -96,7 +96,7 @@ final class SchedulerEngine
         $applyRequested  = array_key_exists('apply', $opts);
 
         if ($refreshCalendar || $applyRequested) {
-            $this->refreshCalendarSnapshotFromGoogle($calendarSnapshotPath, $context);
+            $this->refreshCalendarSnapshotFromGoogle($calendarSnapshotPath);
         }
 
         $calendarSnapshotRaw = [];
@@ -283,8 +283,7 @@ final class SchedulerEngine
      * @throws \RuntimeException on any failure.
      */
     private function refreshCalendarSnapshotFromGoogle(
-        string $calendarSnapshotPath,
-        NormalizationContext $context
+        string $calendarSnapshotPath
     ): void {
         $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/google';
         $config = new GoogleConfig($configDir);
