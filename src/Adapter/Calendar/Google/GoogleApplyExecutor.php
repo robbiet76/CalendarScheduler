@@ -5,6 +5,7 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
 
 use CalendarScheduler\Adapter\Calendar\Google\GoogleMutation;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleMutationResult;
+use CalendarScheduler\Diff\ReconciliationAction;
 
 final class GoogleApplyExecutor
 {
@@ -18,16 +19,37 @@ final class GoogleApplyExecutor
     }
 
     /**
-     * @param GoogleMutation[] $mutations
-     * @return GoogleMutationResult[]
+     * Convenience entrypoint: map ReconciliationAction[] to GoogleMutation[] and apply.
+     *
+     * This keeps the "apply() consumes GoogleMutation[] only" contract intact,
+     * while allowing ApplyRunner to pass actions at the orchestration boundary.
+     *
+     * @param ReconciliationAction[] $actions
      */
-    public function apply(array $mutations): array
+    public function applyActions(array $actions): void
     {
-        $results = [];
-        foreach ($mutations as $mutation) {
-            $results[] = $this->applyOne($mutation);
+        $mutations = [];
+
+        foreach ($actions as $action) {
+            $mapped = $this->mapper->mapAction($action, $this->client->getConfig());
+            foreach ($mapped as $mutation) {
+                $mutations[] = $mutation;
+            }
         }
-        return $results;
+
+        $this->apply($mutations);
+    }
+
+    /**
+     * Apply a batch of reconciliation actions to Google Calendar.
+     *
+     * @param GoogleMutation[] $mutations
+     */
+    public function apply(array $mutations): void
+    {
+        foreach ($mutations as $mutation) {
+            $this->applyOne($mutation);
+        }
     }
 
     private function applyOne(GoogleMutation $mutation): GoogleMutationResult

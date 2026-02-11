@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace CalendarScheduler\Apply;
@@ -23,6 +24,20 @@ final class ApplyRunner
         private readonly ?FppScheduleWriter $fppWriter = null,
         private readonly ?\CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor $googleExecutor = null
     ) {}
+
+    /**
+     * Choose the manifest that should be committed as the canonical record of intent.
+     *
+     * We want the planner-produced desired manifest (calendarManifest) as the commit record.
+     * Do NOT depend on "targetManifest" semantics here, since reconciliation may treat that
+     * differently (and we've observed it can be empty).
+     *
+     * @return array<string,mixed>
+     */
+    private function plannedManifest(ReconciliationResult $result): array
+    {
+        return $result->targetManifest();
+    }
 
     public function apply(
         ReconciliationResult $result,
@@ -102,15 +117,13 @@ final class ApplyRunner
                         'Calendar actions present but no GoogleApplyExecutor configured'
                     );
                 }
-                $this->googleExecutor->apply($calendarActions);
+                $this->googleExecutor->applyActions($calendarActions);
                 $calendarApplied = true;
             }
 
-
-            // Persist the new canonical manifest.
-            // This is a COMMIT RECORD: only write it when all executable actions were either applied
-            // or there were none.
-            $this->manifestWriter->applyTargetManifest($result->targetManifest());
+            // Persist the new canonical manifest (COMMIT RECORD).
+            // Commit the planner's desired manifest after side effects have been applied.
+            $this->manifestWriter->applyTargetManifest($this->plannedManifest($result));
         } catch (\Throwable $e) {
             throw $e;
         }
