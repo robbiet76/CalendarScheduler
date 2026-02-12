@@ -291,10 +291,12 @@ final class SchedulerEngine
                     ? $plannerIntent->payload
                     : [];
 
-                // Parse [settings] block once per subevent
+                // Parse [settings] and [symbolic_time] blocks once per subevent
                 $settings = [];
+                $symbolics = [];
                 if (isset($payload['description']) && is_string($payload['description'])) {
-                    $settings = $this->parseSettingsBlock($payload['description']);
+                    $settings  = $this->parseSettingsBlock($payload['description']);
+                    $symbolics = $this->parseSymbolicTimeBlock($payload['description']);
                 }
 
                 // Behavior extraction from settings
@@ -306,9 +308,9 @@ final class SchedulerEngine
                 $repeat = $settings['repeat'] ?? null;
                 $stopType = $settings['stoptype'] ?? null;
 
-                // Symbolic time extraction (if present in settings)
-                $startSymbolic = $settings['start_symbolic'] ?? null;
-                $endSymbolic   = $settings['end_symbolic'] ?? null;
+                // Symbolic time extraction (from [symbolic_time] block)
+                $startSymbolic = $symbolics['start'] ?? null;
+                $endSymbolic   = $symbolics['end'] ?? null;
 
                 $subEvents[] = [
                     'type'   => $eventType,
@@ -329,8 +331,8 @@ final class SchedulerEngine
                             ? [
                                 'hard'     => null,
                                 'symbolic' => $startSymbolic,
-                                'offset'   => isset($settings['start_offset'])
-                                    ? (int)$settings['start_offset']
+                                'offset'   => isset($symbolics['start_offset'])
+                                    ? (int)$symbolics['start_offset']
                                     : 0,
                             ]
                             : [
@@ -342,8 +344,8 @@ final class SchedulerEngine
                             ? [
                                 'hard'     => null,
                                 'symbolic' => $endSymbolic,
-                                'offset'   => isset($settings['end_offset'])
-                                    ? (int)$settings['end_offset']
+                                'offset'   => isset($symbolics['end_offset'])
+                                    ? (int)$symbolics['end_offset']
                                     : 0,
                             ]
                             : [
@@ -577,6 +579,56 @@ final class SchedulerEngine
             }
 
             // key = value
+            if (preg_match('/^([A-Za-z0-9_\-]+)\s*=\s*(.*?)\s*$/', $trim, $m) === 1) {
+                $k = strtolower($m[1]);
+                $v = $m[2];
+                $out[$k] = $v;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Parse a simple INI-like `[symbolic_time]` block from a description.
+     *
+     * Expected format:
+     *   [symbolic_time]
+     *   start = dusk
+     *   start_offset = -60
+     *   end = dawn
+     *   end_offset = 15
+     *
+     * @return array<string,string>
+     */
+    private function parseSymbolicTimeBlock(string $description): array
+    {
+        $lines = preg_split('/\r\n|\r|\n/', $description);
+        if (!is_array($lines)) {
+            return [];
+        }
+
+        $in = false;
+        $out = [];
+
+        foreach ($lines as $line) {
+            $trim = trim((string)$line);
+
+            if (!$in) {
+                if (strtolower($trim) === '[symbolic_time]') {
+                    $in = true;
+                }
+                continue;
+            }
+
+            if ($trim === '') {
+                break;
+            }
+
+            if (str_starts_with($trim, '#') || str_starts_with($trim, ';')) {
+                continue;
+            }
+
             if (preg_match('/^([A-Za-z0-9_\-]+)\s*=\s*(.*?)\s*$/', $trim, $m) === 1) {
                 $k = strtolower($m[1]);
                 $v = $m[2];
