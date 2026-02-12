@@ -90,9 +90,27 @@ final class ManifestPlanner
                 );
             }
 
+            $timing = $sub['timing'];
+
+            // Enforce canonical timing rule:
+            // If symbolic time exists, hard time must be null.
+            if (
+                isset($timing['start_time']['symbolic']) &&
+                $timing['start_time']['symbolic'] !== null
+            ) {
+                $timing['start_time']['hard'] = null;
+            }
+
+            if (
+                isset($timing['end_time']['symbolic']) &&
+                $timing['end_time']['symbolic'] !== null
+            ) {
+                $timing['end_time']['hard'] = null;
+            }
+
             $subEvents[] = [
                 'stateHash' => $sub['stateHash'],
-                'timing'    => $sub['timing'],
+                'timing'    => $timing,
                 'behavior'  => [
                     'enabled'  => $sub['payload']['enabled'] ?? true,
                     'repeat'   => $sub['payload']['repeat'] ?? 'none',
