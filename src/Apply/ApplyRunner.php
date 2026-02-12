@@ -78,18 +78,50 @@ final class ApplyRunner
                         continue;
                     }
 
-                    // v2 events contain subEvents; adapter expands them
-                    $expanded = $this->fppAdapter->toScheduleEntries($event);
-                    if ($expanded !== []) {
-                        foreach ($expanded as $entry) {
-                            if (is_array($entry)) {
-                                $scheduleEntries[] = $entry;
+                    // v2 manifest event: 1 calendar event => N FPP schedule entries (subEvents)
+                    // Adapter expects a single executable entry shape, so we flatten here.
+                    if (isset($event['subEvents']) && is_array($event['subEvents'])) {
+                        $eventType = $event['identity']['type'] ?? $event['type'] ?? null;
+                        $eventTarget = $event['identity']['target'] ?? $event['target'] ?? null;
+
+                        foreach ($event['subEvents'] as $sub) {
+                            if (!is_array($sub)) {
+                                continue;
                             }
+
+                            $timing = $sub['timing'] ?? null;
+                            if (!is_array($timing)) {
+                                continue;
+                            }
+
+                            $payload = is_array($sub['payload'] ?? null) ? $sub['payload'] : [];
+                            $behavior = is_array($sub['behavior'] ?? null) ? $sub['behavior'] : [];
+
+                            // Lift behavior fields into payload for FPP adapter compatibility.
+                            // (Adapter expects enabled/repeat/stopType within payload.)
+                            $payload = array_merge($payload, [
+                                'enabled'  => $behavior['enabled']  ?? ($payload['enabled']  ?? true),
+                                'repeat'   => $behavior['repeat']   ?? ($payload['repeat']   ?? 'none'),
+                                'stopType' => $behavior['stopType'] ?? ($payload['stopType'] ?? 'graceful'),
+                            ]);
+
+                            $flat = [
+                                'type'        => $eventType,
+                                'target'      => $eventTarget,
+                                'timing'      => $timing,
+                                'payload'     => $payload,
+                                'ownership'   => is_array($event['ownership'] ?? null) ? $event['ownership'] : [],
+                                'correlation' => is_array($event['correlation'] ?? null) ? $event['correlation'] : [],
+                                'source'      => 'manifest',
+                            ];
+
+                            $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($flat);
                         }
+
                         continue;
                     }
 
-                    // Fallback for legacy-style single event
+                    // Legacy-style single executable event
                     $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($event);
                 }
 
