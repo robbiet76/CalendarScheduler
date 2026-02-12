@@ -460,8 +460,14 @@ final class FppScheduleAdapter
             $startTime = is_array($timing['start_time'] ?? null) ? (array) $timing['start_time'] : [];
             $endTime   = is_array($timing['end_time'] ?? null) ? (array) $timing['end_time'] : [];
 
-            $entry['startTime']       = $startTime['hard'] ?? null;
-            $entry['endTime']         = $endTime['hard']   ?? null;
+            $entry['startTime'] =
+                ($startTime['symbolic'] ?? null)
+                    ?: ($startTime['hard'] ?? null);
+
+            $entry['endTime'] =
+                ($endTime['symbolic'] ?? null)
+                    ?: ($endTime['hard'] ?? null);
+
             $entry['startTimeOffset'] = (int) ($startTime['offset'] ?? 0);
             $entry['endTimeOffset']   = (int) ($endTime['offset']   ?? 0);
         }
@@ -469,8 +475,13 @@ final class FppScheduleAdapter
         $startDate = is_array($timing['start_date'] ?? null) ? (array) $timing['start_date'] : [];
         $endDate   = is_array($timing['end_date'] ?? null) ? (array) $timing['end_date'] : [];
 
-        $entry['startDate'] = ($startDate['hard'] ?? null) ?: (($startDate['symbolic'] ?? null) ?: null);
-        $entry['endDate']   = ($endDate['hard'] ?? null)   ?: (($endDate['symbolic'] ?? null)   ?: null);
+        $entry['startDate'] =
+            ($startDate['symbolic'] ?? null)
+                ?: ($startDate['hard'] ?? null);
+
+        $entry['endDate'] =
+            ($endDate['symbolic'] ?? null)
+                ?: ($endDate['hard'] ?? null);
 
         return $entry;
     }

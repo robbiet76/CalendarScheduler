@@ -248,6 +248,8 @@ final class SchedulerEngine
 
         foreach ($groupedByParent as $parentUid => $intentsForParent) {
 
+            $intent = null;
+
             // Use first intent as identity anchor (all share same parent)
             $anchor = $intentsForParent[0];
 
@@ -350,8 +352,8 @@ final class SchedulerEngine
                     $normalizedSubEvents[] = $se;
                 }
 
-                // Use first normalized subEvent to anchor identity
-                if (!isset($intent)) {
+                // Use first normalized intent to anchor identity
+                if ($intent === null) {
                     $intent = $normalized;
                 }
             }
