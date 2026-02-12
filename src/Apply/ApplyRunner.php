@@ -78,51 +78,52 @@ final class ApplyRunner
                         continue;
                     }
 
-                    // v2 manifest event: 1 calendar event => N FPP schedule entries (subEvents)
-                    // Adapter expects a single executable entry shape, so we flatten here.
-                    if (isset($event['subEvents']) && is_array($event['subEvents'])) {
-                        $eventType = $event['identity']['type'] ?? $event['type'] ?? null;
-                        $eventTarget = $event['identity']['target'] ?? $event['target'] ?? null;
+                    // v2 manifest event: 1 manifest event => N FPP schedule entries (subEvents)
+                    // FppScheduleAdapter expects the v2 manifest shape: identity + subEvents.
+                    $identity = $event['identity'] ?? null;
+                    $subEvents = $event['subEvents'] ?? null;
 
-                        foreach ($event['subEvents'] as $sub) {
-                            if (!is_array($sub)) {
-                                continue;
-                            }
-
-                            $timing = $sub['timing'] ?? null;
-                            if (!is_array($timing)) {
-                                continue;
-                            }
-
-                            $payload = is_array($sub['payload'] ?? null) ? $sub['payload'] : [];
-                            $behavior = is_array($sub['behavior'] ?? null) ? $sub['behavior'] : [];
-
-                            // Lift behavior fields into payload for FPP adapter compatibility.
-                            // (Adapter expects enabled/repeat/stopType within payload.)
-                            $payload = array_merge($payload, [
-                                'enabled'  => $behavior['enabled']  ?? ($payload['enabled']  ?? true),
-                                'repeat'   => $behavior['repeat']   ?? ($payload['repeat']   ?? 'none'),
-                                'stopType' => $behavior['stopType'] ?? ($payload['stopType'] ?? 'graceful'),
-                            ]);
-
-                            $flat = [
-                                'type'        => $eventType,
-                                'target'      => $eventTarget,
-                                'timing'      => $timing,
-                                'payload'     => $payload,
-                                'ownership'   => is_array($event['ownership'] ?? null) ? $event['ownership'] : [],
-                                'correlation' => is_array($event['correlation'] ?? null) ? $event['correlation'] : [],
-                                'source'      => 'manifest',
-                            ];
-
-                            $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($flat);
-                        }
-
-                        continue;
+                    if (!is_array($identity) || !is_array($subEvents)) {
+                        // No legacy support in this project; fail fast with a helpful message.
+                        $id = is_string($event['identityHash'] ?? null) ? $event['identityHash'] : '(missing identityHash)';
+                        throw new \InvalidArgumentException(
+                            "ApplyRunner: target manifest event is missing required v2 keys (identity/subEvents). identityHash={$id}"
+                        );
                     }
 
-                    // Legacy-style single executable event
-                    $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($event);
+                    foreach ($subEvents as $sub) {
+                        if (!is_array($sub)) {
+                            continue;
+                        }
+
+                        // Ensure behavior fields are present in payload for adapters that expect them.
+                        // We keep the canonical v2 shape, but duplicate enabled/repeat/stopType into payload.
+                        $payload = is_array($sub['payload'] ?? null) ? $sub['payload'] : [];
+                        $behavior = is_array($sub['behavior'] ?? null) ? $sub['behavior'] : [];
+                        $payload = array_merge($payload, [
+                            'enabled'  => $behavior['enabled']  ?? ($payload['enabled']  ?? true),
+                            'repeat'   => $behavior['repeat']   ?? ($payload['repeat']   ?? 'none'),
+                            'stopType' => $behavior['stopType'] ?? ($payload['stopType'] ?? 'graceful'),
+                        ]);
+
+                        $single = [
+                            'id'           => $event['id'] ?? ($event['identityHash'] ?? null),
+                            'identityHash' => $event['identityHash'] ?? null,
+                            'stateHash'    => $event['stateHash'] ?? null,
+                            'identity'     => $identity,
+                            'ownership'    => is_array($event['ownership'] ?? null) ? $event['ownership'] : [],
+                            'correlation'  => is_array($event['correlation'] ?? null) ? $event['correlation'] : [],
+                            'provenance'   => $event['provenance'] ?? null,
+                            'subEvents'    => [
+                                array_merge($sub, [
+                                    'payload' => $payload,
+                                ]),
+                            ],
+                            'source'       => 'manifest',
+                        ];
+
+                        $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($single);
+                    }
                 }
 
                 // ALWAYS write staged schedule (even in plan/dry-run)
