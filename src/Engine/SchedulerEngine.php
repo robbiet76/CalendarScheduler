@@ -216,68 +216,115 @@ final class SchedulerEngine
         // for manifest building.
         $calendarIntents = [];
 
+        // ------------------------------------------------------------
+        // Group PlannerIntents by parentUid (1 manifest event per calendar event)
+        // ------------------------------------------------------------
+        $groupedByParent = [];
+
         foreach ($plannerIntents as $plannerIntent) {
-            // Derive executable identity (type/target) from payload.
-            // Google snapshot payload does not guarantee explicit `type`/`target` keys.
-            // We treat `[settings]` in description as authoritative when present.
-            $payload = is_array($plannerIntent->payload ?? null) ? $plannerIntent->payload : [];
+            $parentUid = $plannerIntent->parentUid;
+            if (!isset($groupedByParent[$parentUid])) {
+                $groupedByParent[$parentUid] = [];
+            }
+            $groupedByParent[$parentUid][] = $plannerIntent;
+        }
+
+        foreach ($groupedByParent as $parentUid => $intentsForParent) {
+
+            // Use first intent as identity anchor (all share same parent)
+            $anchor = $intentsForParent[0];
+
+            $payload = is_array($anchor->payload ?? null) ? $anchor->payload : [];
             $derived = $this->deriveTypeAndTargetFromPayload($payload);
             $eventType = $derived['type'];
             $eventTarget = $derived['target'];
 
-            // Date range comes from scope.
-            // FPP schedule entries are range-based and use an INCLUSIVE end date.
-            // Our ResolutionScope is [start, end) (end-exclusive), so inclusive end date
-            // is (scopeEnd - 1 day).
-            $scopeStart = $plannerIntent->scope->getStart();
-            $scopeEndExclusive = $plannerIntent->scope->getEnd();
-            $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');
+            $subEvents = [];
 
-            // Guard: if somehow the scope is a single day [d, d+1), endInclusive == start day.
-            // If scope is malformed (shouldn't be), this still prevents null dates.
-            if ($scopeEndInclusive < $scopeStart) {
-                $scopeEndInclusive = $scopeStart;
+            foreach ($intentsForParent as $plannerIntent) {
+
+                $scopeStart = $plannerIntent->scope->getStart();
+                $scopeEndExclusive = $plannerIntent->scope->getEnd();
+                $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');
+
+                if ($scopeEndInclusive < $scopeStart) {
+                    $scopeEndInclusive = $scopeStart;
+                }
+
+                $subEvents[] = [
+                    'type'   => $eventType,
+                    'target' => $eventTarget,
+                    'timing' => [
+                        'all_day'    => $plannerIntent->allDay,
+                        'start_date' => [
+                            'hard'     => $scopeStart->format('Y-m-d'),
+                            'symbolic' => null,
+                        ],
+                        'end_date'   => [
+                            'hard'     => $scopeEndInclusive->format('Y-m-d'),
+                            'symbolic' => null,
+                        ],
+                        'start_time' => [
+                            'hard'     => $plannerIntent->start->format('H:i:s'),
+                            'symbolic' => null,
+                            'offset'   => 0,
+                        ],
+                        'end_time'   => [
+                            'hard'     => $plannerIntent->end->format('H:i:s'),
+                            'symbolic' => null,
+                            'offset'   => 0,
+                        ],
+                        'days' => null,
+                    ],
+                    'payload' => is_array($plannerIntent->payload ?? null)
+                        ? $plannerIntent->payload
+                        : [],
+                ];
             }
 
+            // Build manifest event (1 per calendar parent)
             $manifestEvent = [
                 'type'   => $eventType,
                 'target' => $eventTarget,
-                'timing' => [
-                    'all_day'    => $plannerIntent->allDay,
-                    'start_date' => [
-                        'hard'     => $scopeStart->format('Y-m-d'),
-                        'symbolic' => null,
-                    ],
-                    'end_date'   => [
-                        'hard'     => $scopeEndInclusive->format('Y-m-d'),
-                        'symbolic' => null,
-                    ],
-                    'start_time' => [
-                        'hard'     => $plannerIntent->start->format('H:i:s'),
-                        'symbolic' => null,
-                        'offset'   => 0,
-                    ],
-                    'end_time'   => [
-                        'hard'     => $plannerIntent->end->format('H:i:s'),
-                        'symbolic' => null,
-                        'offset'   => 0,
-                    ],
-                    'days' => null,
-                ],
-                'payload' => $payload,
+                'timing' => $subEvents[0]['timing'], // identity anchor timing
+                'payload' => $subEvents[0]['payload'],
                 'ownership' => [
                     'managed' => true,
                 ],
                 'correlation' => [
-                    'sourceEventUid' => $plannerIntent->sourceEventUid,
+                    'sourceEventUid' => $parentUid,
                 ],
                 'source' => 'calendar',
             ];
 
+            // Normalize base identity
             $intent = $this->normalizer->fromManifestEvent(
                 $manifestEvent,
                 $context
             );
+
+            // Replace single subEvent with all grouped subEvents
+            $intent->subEvents = [];
+
+            foreach ($subEvents as $sub) {
+                $normalizedSub = $this->normalizer->fromManifestEvent(
+                    [
+                        'type'       => $sub['type'],
+                        'target'     => $sub['target'],
+                        'timing'     => $sub['timing'],
+                        'payload'    => $sub['payload'],
+                        'ownership'  => ['managed' => true],
+                        'correlation'=> ['sourceEventUid' => $parentUid],
+                        'source'     => 'calendar',
+                    ],
+                    $context
+                );
+
+                // Pull normalized subEvent state
+                foreach ($normalizedSub->subEvents as $se) {
+                    $intent->subEvents[] = $se;
+                }
+            }
 
             $calendarIntents[$intent->identityHash] = $intent;
         }
