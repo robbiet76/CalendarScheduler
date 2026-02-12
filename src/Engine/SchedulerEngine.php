@@ -350,12 +350,10 @@ final class SchedulerEngine
             // Build a single manifest event and normalize once
             // ------------------------------------------------------------
             $manifestEvent = [
-                // Identity contract expected by IntentNormalizer
-                'identity' => [
-                    'type'   => $eventType,
-                    'target' => $eventTarget,
-                    'timing' => $subEvents[0]['timing'],
-                ],
+                // Canonical manifest identity (flat structure expected by IntentNormalizer)
+                'type'   => $eventType,
+                'target' => $eventTarget,
+                'timing' => $subEvents[0]['timing'],
 
                 // Top-level payload (anchor payload required by normalization)
                 'payload' => $payload,
