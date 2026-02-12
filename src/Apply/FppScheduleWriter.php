@@ -87,7 +87,9 @@ final class FppScheduleWriter
 
         $stagedPath = $this->stagingDirectory . '/schedule.staged.json';
 
-        if (@file_put_contents($stagedPath, $json) === false) {
+        // Always overwrite staged file (never append)
+        // LOCK_EX ensures atomic write and prevents concurrent append behavior
+        if (@file_put_contents($stagedPath, $json . PHP_EOL, LOCK_EX) === false) {
             throw new \RuntimeException('Failed to write staged schedule: ' . $stagedPath);
         }
     }
