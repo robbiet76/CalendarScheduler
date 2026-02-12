@@ -327,32 +327,13 @@ final class SchedulerEngine
                 ];
             }
 
-            // Build manifest event (1 per calendar parent)
-            $manifestEvent = [
-                'type'   => $eventType,
-                'target' => $eventTarget,
-                'timing' => $subEvents[0]['timing'], // identity anchor timing
-                'payload' => $subEvents[0]['payload'],
-                'ownership' => [
-                    'managed' => true,
-                ],
-                'correlation' => [
-                    'sourceEventUid' => $parentUid,
-                ],
-                'source' => 'calendar',
-            ];
-
-            // Normalize base identity
-            $intent = $this->normalizer->fromManifestEvent(
-                $manifestEvent,
-                $context
-            );
-
-            // Replace single subEvent with all grouped subEvents
-            $intent->subEvents = [];
+            // ------------------------------------------------------------
+            // Normalize each subEvent first (ensures holidays + symbolics applied)
+            // ------------------------------------------------------------
+            $normalizedSubEvents = [];
 
             foreach ($subEvents as $sub) {
-                $normalizedSub = $this->normalizer->fromManifestEvent(
+                $normalized = $this->normalizer->fromManifestEvent(
                     [
                         'type'       => $sub['type'],
                         'target'     => $sub['target'],
@@ -365,11 +346,18 @@ final class SchedulerEngine
                     $context
                 );
 
-                // Pull normalized subEvent state
-                foreach ($normalizedSub->subEvents as $se) {
-                    $intent->subEvents[] = $se;
+                foreach ($normalized->subEvents as $se) {
+                    $normalizedSubEvents[] = $se;
+                }
+
+                // Use first normalized subEvent to anchor identity
+                if (!isset($intent)) {
+                    $intent = $normalized;
                 }
             }
+
+            // Replace subEvents on anchor intent with fully normalized set
+            $intent->subEvents = $normalizedSubEvents;
 
             $calendarIntents[$intent->identityHash] = $intent;
         }
