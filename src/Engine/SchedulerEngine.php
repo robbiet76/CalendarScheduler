@@ -323,16 +323,34 @@ final class SchedulerEngine
                             'hard'     => $scopeEndInclusive->format('Y-m-d'),
                             'symbolic' => null,
                         ],
-                        'start_time' => [
-                            'hard'     => $plannerIntent->start->format('H:i:s'),
-                            'symbolic' => $startSymbolic,
-                            'offset'   => 0,
-                        ],
-                        'end_time'   => [
-                            'hard'     => $plannerIntent->end->format('H:i:s'),
-                            'symbolic' => $endSymbolic,
-                            'offset'   => 0,
-                        ],
+                        // Symbolic time invalidates hard time.
+                        // Hard time is resolution-only and must not leak into manifest identity.
+                        'start_time' => ($startSymbolic !== null)
+                            ? [
+                                'hard'     => null,
+                                'symbolic' => $startSymbolic,
+                                'offset'   => isset($settings['start_offset'])
+                                    ? (int)$settings['start_offset']
+                                    : 0,
+                            ]
+                            : [
+                                'hard'     => $plannerIntent->start->format('H:i:s'),
+                                'symbolic' => null,
+                                'offset'   => 0,
+                            ],
+                        'end_time' => ($endSymbolic !== null)
+                            ? [
+                                'hard'     => null,
+                                'symbolic' => $endSymbolic,
+                                'offset'   => isset($settings['end_offset'])
+                                    ? (int)$settings['end_offset']
+                                    : 0,
+                            ]
+                            : [
+                                'hard'     => $plannerIntent->end->format('H:i:s'),
+                                'symbolic' => null,
+                                'offset'   => 0,
+                            ],
                         'days' => $plannerIntent->days ?? null,
                     ],
                     'payload' => array_merge(
