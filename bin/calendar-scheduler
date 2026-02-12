@@ -67,6 +67,7 @@ $opts = getopt('', [
     'refresh-calendar',
     'apply',
     'plan',
+    'auth',
 ]);
 
 $dryRun = array_key_exists('dry-run', $opts);
@@ -74,6 +75,18 @@ $quiet  = array_key_exists('quiet', $opts);
 $refreshCalendar = array_key_exists('refresh-calendar', $opts);
 $apply = array_key_exists('apply', $opts);
 $plan = array_key_exists('plan', $opts);
+
+$auth = array_key_exists('auth', $opts);
+
+if ($auth) {
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+    $googleConfig = new GoogleConfig($googleConfigPath);
+    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($googleConfig);
+
+    $printUrl = false;
+    $bootstrap->runCli($printUrl);
+    exit(0);
+}
 
 $schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
 $manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
