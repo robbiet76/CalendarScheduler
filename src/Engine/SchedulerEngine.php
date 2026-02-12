@@ -69,13 +69,30 @@ final class SchedulerEngine
             ?? '/home/fpp/media/config/calendar-scheduler/manifest.json';
 
         // -----------------------------------------------------------------
-        // Build NormalizationContext
+        // Build NormalizationContext (inject holidays from fpp-env.json)
         // -----------------------------------------------------------------
+
+        $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        $holidays = [];
+
+        if (is_file($fppEnvPath)) {
+            $fppEnvRaw = json_decode(
+                file_get_contents($fppEnvPath),
+                true
+            );
+
+            if (is_array($fppEnvRaw)
+                && isset($fppEnvRaw['rawLocale']['holidays'])
+                && is_array($fppEnvRaw['rawLocale']['holidays'])
+            ) {
+                $holidays = $fppEnvRaw['rawLocale']['holidays'];
+            }
+        }
 
         $context = new NormalizationContext(
             new \DateTimeZone('UTC'),
             new \CalendarScheduler\Platform\FPPSemantics(),
-            new \CalendarScheduler\Platform\HolidayResolver([])
+            new \CalendarScheduler\Platform\HolidayResolver($holidays)
         );
 
         // -----------------------------------------------------------------
@@ -297,7 +314,7 @@ final class SchedulerEngine
                             'symbolic' => $endSymbolic,
                             'offset'   => 0,
                         ],
-                        'days' => null,
+                        'days' => $plannerIntent->days ?? null,
                     ],
                     'payload' => array_merge(
                         $payload,
