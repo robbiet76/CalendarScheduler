@@ -251,6 +251,29 @@ final class SchedulerEngine
                     $scopeEndInclusive = $scopeStart;
                 }
 
+                $payload = is_array($plannerIntent->payload ?? null)
+                    ? $plannerIntent->payload
+                    : [];
+
+                // Parse [settings] block once per subevent
+                $settings = [];
+                if (isset($payload['description']) && is_string($payload['description'])) {
+                    $settings = $this->parseSettingsBlock($payload['description']);
+                }
+
+                // Behavior extraction from settings
+                $enabled = true;
+                if (isset($settings['enabled'])) {
+                    $enabled = filter_var($settings['enabled'], FILTER_VALIDATE_BOOLEAN);
+                }
+
+                $repeat = $settings['repeat'] ?? null;
+                $stopType = $settings['stoptype'] ?? null;
+
+                // Symbolic time extraction (if present in settings)
+                $startSymbolic = $settings['start_symbolic'] ?? null;
+                $endSymbolic   = $settings['end_symbolic'] ?? null;
+
                 $subEvents[] = [
                     'type'   => $eventType,
                     'target' => $eventTarget,
@@ -266,19 +289,24 @@ final class SchedulerEngine
                         ],
                         'start_time' => [
                             'hard'     => $plannerIntent->start->format('H:i:s'),
-                            'symbolic' => null,
+                            'symbolic' => $startSymbolic,
                             'offset'   => 0,
                         ],
                         'end_time'   => [
                             'hard'     => $plannerIntent->end->format('H:i:s'),
-                            'symbolic' => null,
+                            'symbolic' => $endSymbolic,
                             'offset'   => 0,
                         ],
                         'days' => null,
                     ],
-                    'payload' => is_array($plannerIntent->payload ?? null)
-                        ? $plannerIntent->payload
-                        : [],
+                    'payload' => array_merge(
+                        $payload,
+                        [
+                            'enabled'  => $enabled,
+                            'repeat'   => $repeat ?? 'none',
+                            'stopType' => $stopType ?? 'graceful',
+                        ]
+                    ),
                 ];
             }
 
