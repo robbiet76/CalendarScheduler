@@ -325,7 +325,7 @@ final class SchedulerEngine
                         ],
                         // Symbolic time invalidates hard time.
                         // Hard time is resolution-only and must not leak into manifest identity.
-                        'start_time' => ($startSymbolic !== null)
+                        'start_time' => ($startSymbolic !== null && $startSymbolic !== '')
                             ? [
                                 'hard'     => null,
                                 'symbolic' => $startSymbolic,
@@ -338,7 +338,7 @@ final class SchedulerEngine
                                 'symbolic' => null,
                                 'offset'   => 0,
                             ],
-                        'end_time' => ($endSymbolic !== null)
+                        'end_time' => ($endSymbolic !== null && $endSymbolic !== '')
                             ? [
                                 'hard'     => null,
                                 'symbolic' => $endSymbolic,
