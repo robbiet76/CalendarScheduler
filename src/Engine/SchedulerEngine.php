@@ -350,16 +350,20 @@ final class SchedulerEngine
             // Build a single manifest event and normalize once
             // ------------------------------------------------------------
             $manifestEvent = [
-                'identity' => [
-                    'type'   => $eventType,
-                    'target' => $eventTarget,
-                    'timing' => $subEvents[0]['timing'],
-                ],
+                // Top-level identity contract expected by IntentNormalizer
+                'type'   => $eventType,
+                'target' => $eventTarget,
+                'timing' => $subEvents[0]['timing'],
+
+                // Full state
                 'subEvents' => $subEvents,
+
+                // Ownership / correlation metadata
                 'ownership' => ['managed' => true],
                 'correlation' => [
                     'sourceEventUid' => $parentUid,
                 ],
+
                 'source' => 'calendar',
             ];
 
