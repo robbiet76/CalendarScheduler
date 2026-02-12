@@ -239,16 +239,34 @@ final class SchedulerEngine
         $groupedByParent = [];
 
         foreach ($plannerIntents as $plannerIntent) {
-            $parentUid = $plannerIntent->parentUid;
+            $parentUid = $plannerIntent->parentUid ?? null;
+
+            // Fallback: derive from payload UID fields if resolution did not set parentUid
+            if ($parentUid === null) {
+                $payload = is_array($plannerIntent->payload ?? null)
+                    ? $plannerIntent->payload
+                    : [];
+
+                $parentUid =
+                    $payload['uid']
+                    ?? $payload['sourceEventUid']
+                    ?? $payload['id']
+                    ?? null;
+            }
+
+            // Final fallback: stable synthetic UID per planner intent
+            if ($parentUid === null) {
+                $parentUid = 'synthetic_' . spl_object_id($plannerIntent);
+            }
+
             if (!isset($groupedByParent[$parentUid])) {
                 $groupedByParent[$parentUid] = [];
             }
+
             $groupedByParent[$parentUid][] = $plannerIntent;
         }
 
         foreach ($groupedByParent as $parentUid => $intentsForParent) {
-
-            $intent = null;
 
             // Use first intent as identity anchor (all share same parent)
             $anchor = $intentsForParent[0];
@@ -261,7 +279,6 @@ final class SchedulerEngine
             $subEvents = [];
 
             foreach ($intentsForParent as $plannerIntent) {
-
                 $scopeStart = $plannerIntent->scope->getStart();
                 $scopeEndExclusive = $plannerIntent->scope->getEnd();
                 $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');
@@ -330,38 +347,28 @@ final class SchedulerEngine
             }
 
             // ------------------------------------------------------------
-            // Normalize each subEvent first (ensures holidays + symbolics applied)
+            // Build a single manifest event and normalize once
             // ------------------------------------------------------------
-            $normalizedSubEvents = [];
+            $manifestEvent = [
+                'identity' => [
+                    'type'   => $eventType,
+                    'target' => $eventTarget,
+                    'timing' => $subEvents[0]['timing'],
+                ],
+                'subEvents' => $subEvents,
+                'ownership' => ['managed' => true],
+                'correlation' => [
+                    'sourceEventUid' => $parentUid,
+                ],
+                'source' => 'calendar',
+            ];
 
-            foreach ($subEvents as $sub) {
-                $normalized = $this->normalizer->fromManifestEvent(
-                    [
-                        'type'       => $sub['type'],
-                        'target'     => $sub['target'],
-                        'timing'     => $sub['timing'],
-                        'payload'    => $sub['payload'],
-                        'ownership'  => ['managed' => true],
-                        'correlation'=> ['sourceEventUid' => $parentUid],
-                        'source'     => 'calendar',
-                    ],
-                    $context
-                );
+            $normalizedIntent = $this->normalizer->fromManifestEvent(
+                $manifestEvent,
+                $context
+            );
 
-                foreach ($normalized->subEvents as $se) {
-                    $normalizedSubEvents[] = $se;
-                }
-
-                // Use first normalized intent to anchor identity
-                if ($intent === null) {
-                    $intent = $normalized;
-                }
-            }
-
-            // Replace subEvents on anchor intent with fully normalized set
-            $intent->subEvents = $normalizedSubEvents;
-
-            $calendarIntents[$intent->identityHash] = $intent;
+            $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
         }
 
         foreach ($calendarEvents as $event) {

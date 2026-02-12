@@ -102,17 +102,22 @@ final class Intent
     /** @var array<int,array> */
     public array $subEvents;
 
+    /** @var string */
+    public string $eventStateHash;
+
     public function __construct(
         string $identityHash,
         array $identity,
         array $ownership,
         array $correlation,
-        array $subEvents
+        array $subEvents,
+        string $eventStateHash
     ) {
-        $this->identityHash = $identityHash;
-        $this->identity     = $identity;
-        $this->ownership    = $ownership;
-        $this->correlation  = $correlation;
-        $this->subEvents    = $subEvents;
+        $this->identityHash   = $identityHash;
+        $this->identity       = $identity;
+        $this->ownership      = $ownership;
+        $this->correlation    = $correlation;
+        $this->subEvents      = $subEvents;
+        $this->eventStateHash = $eventStateHash;
     }
 }
