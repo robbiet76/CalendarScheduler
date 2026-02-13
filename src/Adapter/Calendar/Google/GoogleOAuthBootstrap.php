@@ -58,6 +58,10 @@ final class GoogleOAuthBootstrap
         fwrite(STDOUT, "  {$authUrlFile}" . PHP_EOL . PHP_EOL);
         fwrite(STDOUT, "Open that file locally (or copy its contents) in a browser to authorize access." . PHP_EOL . PHP_EOL);
 
+        // Also print the raw URL on its own line for easy copy/paste (no prefix text).
+        fwrite(STDOUT, "Raw authorization URL:" . PHP_EOL);
+        fwrite(STDOUT, $authUrl . PHP_EOL . PHP_EOL);
+
         fwrite(
             STDOUT,
             "Paste the authorization `code` here (you can generate it on any machine/browser), then press Enter:" . PHP_EOL
