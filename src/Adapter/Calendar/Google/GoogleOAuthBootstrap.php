@@ -28,10 +28,6 @@ final class GoogleOAuthBootstrap
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
     private GoogleConfig $config;
 
-    private const ESC = "\033";
-    private const OSC = "\033]";
-    private const ST  = "\033\\";
-
     public function __construct(GoogleConfig $config)
     {
         $this->config = $config;
@@ -50,19 +46,17 @@ final class GoogleOAuthBootstrap
         fwrite(STDOUT, "Token output: {$tokenPath}" . PHP_EOL);
         fwrite(STDOUT, PHP_EOL);
 
-        // Print a clickable OSC-8 hyperlink using *short* label text.
-        // Do NOT print the long URL as visible text (it will wrap in SSH/terminal copy).
         $authUrl = $this->buildAuthUrl();
-        fwrite(STDOUT, "Open this link in a local browser and authorize access:" . PHP_EOL . PHP_EOL);
 
-        $linkText = "OAuth authorize URL (click)";
-        // OSC 8: ESC ] 8 ;; URL ST  TEXT  ESC ] 8 ;; ST
-        $oscLink =
-            self::OSC . "8;;" . $authUrl . self::ST .
-            $linkText .
-            self::OSC . "8;;" . self::ST;
+        // Write the authorization URL to a file to avoid SSH line-wrap issues.
+        $authUrlFile = $configDir . DIRECTORY_SEPARATOR . 'auth_url.txt';
+        if (file_put_contents($authUrlFile, $authUrl . PHP_EOL) === false) {
+            throw new \RuntimeException("Failed to write auth URL file: {$authUrlFile}");
+        }
 
-        fwrite(STDOUT, $oscLink . PHP_EOL . PHP_EOL);
+        fwrite(STDOUT, "Authorization URL written to:" . PHP_EOL);
+        fwrite(STDOUT, "  {$authUrlFile}" . PHP_EOL . PHP_EOL);
+        fwrite(STDOUT, "Open that file locally (or copy its contents) in a browser to authorize access." . PHP_EOL . PHP_EOL);
 
         fwrite(
             STDOUT,
