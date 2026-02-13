@@ -398,16 +398,34 @@ final class FppScheduleAdapter
         $repeatSemantic  = $behavior['repeat']  ?? ($payload['repeat']  ?? 'none');
         $stopTypeSemantic = $behavior['stopType'] ?? ($payload['stopType'] ?? null);
 
+        // Determine RRULE metadata (if present)
+        $rrule = is_array($payload['rrule'] ?? null) ? $payload['rrule'] : null;
+        $rruleFreq = is_string($rrule['freq'] ?? null) ? strtoupper($rrule['freq']) : null;
+        $weeklyDays = null;
+
+        if (
+            is_array($timing['days'] ?? null)
+            && ($timing['days']['type'] ?? null) === 'weekly'
+            && is_array($timing['days']['value'] ?? null)
+        ) {
+            $weeklyDays = $timing['days']['value'];
+        }
+
+        // Default repeat/day from semantic behavior
+        $repeatValue = FPPSemantics::semanticToRepeat((string) $repeatSemantic);
+        $dayValue = FPPSemantics::denormalizeDays($weeklyDays);
+
+        // If this is a WEEKLY RRULE, force FPP weekly repeat + mask
+        if ($rruleFreq === 'WEEKLY' && is_array($weeklyDays) && $weeklyDays !== []) {
+            $repeatValue = 1; // FPP weekly
+            $dayValue = FPPSemantics::denormalizeDays($weeklyDays);
+        }
+
         $entry = [
             'enabled'  => FPPSemantics::denormalizeEnabled((bool) $enabledSemantic),
-            'repeat'   => FPPSemantics::semanticToRepeat((string) $repeatSemantic),
+            'repeat'   => $repeatValue,
             'stopType' => FPPSemantics::stopTypeToEnum($stopTypeSemantic),
-            'day' => FPPSemantics::denormalizeDays(
-                is_array($timing['days'] ?? null)
-                    && ($timing['days']['type'] ?? null) === 'weekly'
-                    ? ($timing['days']['value'] ?? null)
-                    : null
-            ),
+            'day'      => $dayValue,
         ];
 
         // --- Type-specific fields ---
