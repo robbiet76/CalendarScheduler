@@ -101,7 +101,10 @@ final class ManifestPlanner
                 is_array($sub['weeklyDays']) &&
                 $sub['weeklyDays'] !== []
             ) {
-                $timing['days'] = $sub['weeklyDays'];
+                $timing['days'] = [
+                    'type'  => 'weekly',
+                    'value' => array_values($sub['weeklyDays']),
+                ];
             }
 
             // Fallback: if timing.days is still unset/null but the source RRULE provided BYDAY,
@@ -113,7 +116,10 @@ final class ManifestPlanner
                 is_array($sub['payload']['rrule']['byday']) &&
                 $sub['payload']['rrule']['byday'] !== []
             ) {
-                $timing['days'] = $sub['payload']['rrule']['byday'];
+                $timing['days'] = [
+                    'type'  => 'weekly',
+                    'value' => array_values($sub['payload']['rrule']['byday']),
+                ];
             }
 
             // Enforce canonical timing rule:
