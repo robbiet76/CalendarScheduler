@@ -470,6 +470,28 @@ final class FppScheduleAdapter
                     continue;
                 }
 
+                // Canonical multisync keys (preferred)
+                if ($k === 'multisyncCommand') {
+                    $entry['multisyncCommand'] = (bool) $v;
+                    continue;
+                }
+
+                if ($k === 'multisyncHosts') {
+                    $entry['multisyncHosts'] = (string) $v;
+                    continue;
+                }
+
+                // Legacy support: multisync / hosts (normalize to FPP keys)
+                if ($k === 'multisync') {
+                    $entry['multisyncCommand'] = (bool) $v;
+                    continue;
+                }
+
+                if ($k === 'hosts') {
+                    $entry['multisyncHosts'] = (string) $v;
+                    continue;
+                }
+
                 $entry[$k] = $v;
             }
         } else {
