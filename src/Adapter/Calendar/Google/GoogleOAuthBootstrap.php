@@ -45,11 +45,10 @@ final class GoogleOAuthBootstrap
         fwrite(STDOUT, "Token output: {$tokenPath}" . PHP_EOL);
         fwrite(STDOUT, PHP_EOL);
 
-        if ($printAuthUrl) {
-            $authUrl = $this->buildAuthUrl();
-            fwrite(STDOUT, "Auth URL (optional):" . PHP_EOL . PHP_EOL);
-            fwrite(STDOUT, $authUrl . PHP_EOL . PHP_EOL);
-        }
+        // Always print manually constructed OAuth URL for copy/paste into a local browser
+        $authUrl = $this->buildAuthUrl();
+        fwrite(STDOUT, "Open this URL in a local browser and authorize access:" . PHP_EOL . PHP_EOL);
+        fwrite(STDOUT, $authUrl . PHP_EOL . PHP_EOL);
 
         fwrite(
             STDOUT,
