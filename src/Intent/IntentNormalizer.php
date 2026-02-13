@@ -183,15 +183,31 @@ final class IntentNormalizer
                 if ($symbolic === '') {
                     $symbolic = null;
                 }
+            } else {
+                $symbolic = null;
             }
 
             $hard = $date['hard'] ?? null;
-            if (!is_string($hard) || $hard === '') {
+            if (!is_string($hard) || trim($hard) === '') {
                 $hard = null;
             }
 
+            /*
+             * Identity rule:
+             * - If a symbolic holiday exists, it MUST be used for identity.
+             * - Hard date becomes fallback only when no symbolic exists.
+             * - When symbolic exists, hard date MUST be nulled to prevent
+             *   identity drift between calendar and FPP representations.
+             */
+            if ($symbolic !== null) {
+                return [
+                    'symbolic' => $symbolic,
+                    'hard'     => null,
+                ];
+            }
+
             return [
-                'symbolic' => $symbolic,
+                'symbolic' => null,
                 'hard'     => $hard,
             ];
         };
