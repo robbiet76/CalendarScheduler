@@ -88,19 +88,20 @@ final class GoogleOAuthBootstrap
             throw new \RuntimeException("oauth.scopes missing in config.json");
         }
 
-        $params = [
-            'client_id' => $clientId,
-            'redirect_uri' => $redirectUri,
-            'response_type' => 'code',
-            'scope' => implode(' ', $scopes),
-            'access_type' => 'offline',
-            'prompt' => 'consent',
-        ];
-
         // Prefer auth_uri from client_secret.json (matches working manual URL)
         $authUrlBase = $client['auth_uri'] ?? self::FALLBACK_AUTH_URL;
 
-        return $authUrlBase . '?' . http_build_query($params);
+        // Manually construct query to avoid SSH line-wrap issues and
+        // to keep redirect_uri readable (do NOT percent-encode redirect_uri).
+        $query =
+            'client_id=' . urlencode($clientId) .
+            '&redirect_uri=' . $redirectUri .
+            '&response_type=code' .
+            '&scope=' . urlencode(implode(' ', $scopes)) .
+            '&access_type=offline' .
+            '&prompt=consent';
+
+        return $authUrlBase . '?' . $query;
     }
 
     /**
