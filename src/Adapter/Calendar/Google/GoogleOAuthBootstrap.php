@@ -23,7 +23,8 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
  */
 final class GoogleOAuthBootstrap
 {
-    private const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+    // Fallback only; normally we use auth_uri from client_secret.json
+    private const FALLBACK_AUTH_URL = 'https://accounts.google.com/o/oauth2/auth';
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
     private GoogleConfig $config;
 
@@ -96,7 +97,10 @@ final class GoogleOAuthBootstrap
             'prompt' => 'consent',
         ];
 
-        return self::AUTH_URL . '?' . http_build_query($params);
+        // Prefer auth_uri from client_secret.json (matches working manual URL)
+        $authUrlBase = $client['auth_uri'] ?? self::FALLBACK_AUTH_URL;
+
+        return $authUrlBase . '?' . http_build_query($params);
     }
 
     /**
