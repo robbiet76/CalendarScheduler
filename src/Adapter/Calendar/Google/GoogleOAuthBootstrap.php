@@ -46,10 +46,15 @@ final class GoogleOAuthBootstrap
         fwrite(STDOUT, "Token output: {$tokenPath}" . PHP_EOL);
         fwrite(STDOUT, PHP_EOL);
 
-        // Always print manually constructed OAuth URL for copy/paste into a local browser
+        // Always print manually constructed OAuth URL.
+        // Use OSC 8 hyperlink so SSH terminals render a clickable link without line-wrap issues.
         $authUrl = $this->buildAuthUrl();
-        fwrite(STDOUT, "Open this URL in a local browser and authorize access:" . PHP_EOL . PHP_EOL);
-        fwrite(STDOUT, $authUrl . PHP_EOL . PHP_EOL);
+        fwrite(STDOUT, "Open this link in a local browser and authorize access:" . PHP_EOL . PHP_EOL);
+
+        $linkText = "Click here to authorize Google Calendar";
+        $oscLink = "\e]8;;{$authUrl}\e\\{$linkText}\e]8;;\e\\";
+
+        fwrite(STDOUT, $oscLink . PHP_EOL . PHP_EOL);
 
         fwrite(
             STDOUT,
