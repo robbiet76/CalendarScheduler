@@ -91,6 +91,16 @@ final class ManifestPlanner
             }
 
             $timing = $sub['timing'];
+            // If weeklyDays metadata exists (from Resolution layer),
+            // propagate it into canonical timing.days so downstream
+            // FppSemantics can compute correct day mask.
+            if (
+                isset($sub['weeklyDays']) &&
+                is_array($sub['weeklyDays']) &&
+                $sub['weeklyDays'] !== []
+            ) {
+                $timing['days'] = $sub['weeklyDays'];
+            }
 
             // Enforce canonical timing rule:
             // If symbolic time exists, hard time must be null.
