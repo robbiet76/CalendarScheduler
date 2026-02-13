@@ -48,6 +48,12 @@ final class GoogleOAuthBootstrap
 
         $authUrl = $this->buildAuthUrl();
 
+        // Minimal mode: print only the authorization URL and exit.
+        if ($printAuthUrl === true) {
+            fwrite(STDOUT, $authUrl . PHP_EOL);
+            return;
+        }
+
         // Write the authorization URL to a file to avoid SSH line-wrap issues.
         $authUrlFile = $configDir . DIRECTORY_SEPARATOR . 'auth_url.txt';
         if (file_put_contents($authUrlFile, $authUrl . PHP_EOL) === false) {
