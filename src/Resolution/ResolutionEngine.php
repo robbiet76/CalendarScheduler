@@ -645,6 +645,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
             role: ResolutionRole::OVERRIDE,
             scope: $scope,
             priority: $this->computePriority(ResolutionRole::OVERRIDE, $scope),
+            weeklyDays: $this->extractWeeklyDays($event),
             payload: $row['payload'] ?? [],
             sourceTrace: [
                 'kind' => 'override',
@@ -673,6 +674,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
             role: ResolutionRole::BASE,
             scope: $segmentScope,
             priority: $this->computePriority(ResolutionRole::BASE, $segmentScope),
+            weeklyDays: $this->extractWeeklyDays($event),
             payload: $event->payload ?? [],
             sourceTrace: [
                 'kind' => 'base',
@@ -698,5 +700,39 @@ final class ResolutionEngine implements ResolutionEngineInterface
                 $segmentScope->getEnd()->format('Y-m-d'),
             ])
         );
+    }
+
+    /**
+     * Extract BYDAY values from RRULE (WEEKLY only).
+     *
+     * Returns array like ['MO','WE'] or null if not applicable.
+     */
+    private function extractWeeklyDays(SnapshotEvent $event): ?array
+    {
+        if (!is_array($event->rrule ?? null)) {
+            return null;
+        }
+
+        $freq = strtoupper((string)($event->rrule['freq'] ?? ''));
+        if ($freq !== 'WEEKLY') {
+            return null;
+        }
+
+        $byday = $event->rrule['byday'] ?? null;
+        if ($byday === null) {
+            return null;
+        }
+
+        if (is_string($byday)) {
+            $parts = array_map('trim', explode(',', $byday));
+        } elseif (is_array($byday)) {
+            $parts = $byday;
+        } else {
+            return null;
+        }
+
+        $parts = array_values(array_filter($parts, fn($d) => is_string($d) && $d !== ''));
+
+        return empty($parts) ? null : $parts;
     }
 }

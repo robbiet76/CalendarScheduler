@@ -35,6 +35,14 @@ final class ResolvedSubevent
     private array $sourceTrace;
 
     /**
+     * Weekly mask metadata (e.g. ['MO','WE','FR']) derived from RRULE BYDAY.
+     * Null when not applicable.
+     *
+     * @var array<int,string>|null
+     */
+    private ?array $weeklyDays;
+
+    /**
      * @param array<string,mixed> $payload canonical settings needed for FPP entry creation
      * @param array $sourceTrace
      */
@@ -51,7 +59,8 @@ final class ResolvedSubevent
         ResolutionScope $scope,
         int $priority,
         array $payload,
-        array $sourceTrace
+        array $sourceTrace,
+        ?array $weeklyDays = null
     ) {
         $this->bundleUid = $bundleUid;
         $this->sourceEventUid = $sourceEventUid;
@@ -66,6 +75,7 @@ final class ResolvedSubevent
         $this->priority = $priority;
         $this->payload = $payload;
         $this->sourceTrace = $sourceTrace;
+        $this->weeklyDays = $weeklyDays;
     }
 
     public function getBundleUid(): string
@@ -147,5 +157,12 @@ final class ResolvedSubevent
     public function getSourceTrace(): array
     {
         return $this->sourceTrace;
+    }
+    /**
+     * @return array<int,string>|null
+     */
+    public function getWeeklyDays(): ?array
+    {
+        return $this->weeklyDays;
     }
 }
