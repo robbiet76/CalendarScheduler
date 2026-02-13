@@ -452,6 +452,10 @@ final class FppScheduleAdapter
                 ? (string) $cmd['name']
                 : (trim($summary) !== '' ? $summary : $target);
 
+            // FPP contract: command entries must explicitly set sequence=0 and playlist=""
+            $entry['sequence'] = 0;
+            $entry['playlist'] = '';
+
             foreach ($cmd as $k => $v) {
                 if ($k === 'name') {
                     continue;
@@ -459,6 +463,13 @@ final class FppScheduleAdapter
                 if (isset(self::COMMAND_EXCLUDE_KEYS[$k])) {
                     continue;
                 }
+
+                // Normalize args[] -> args for FPP schedule.json shape
+                if ($k === 'args[]') {
+                    $entry['args'] = is_array($v) ? array_values($v) : [$v];
+                    continue;
+                }
+
                 $entry[$k] = $v;
             }
         } else {
