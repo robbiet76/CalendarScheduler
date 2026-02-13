@@ -494,6 +494,14 @@ final class FppScheduleAdapter
 
                 $entry[$k] = $v;
             }
+
+            // Ensure FPP-native multisync defaults (never null)
+            if (!array_key_exists('multisyncCommand', $entry)) {
+                $entry['multisyncCommand'] = false;
+            }
+            if (!array_key_exists('multisyncHosts', $entry)) {
+                $entry['multisyncHosts'] = '';
+            }
         } else {
             $name = trim($target) !== '' ? $target : $summary;
             $entry['playlist'] =
