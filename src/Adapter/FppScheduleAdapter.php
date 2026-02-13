@@ -40,6 +40,26 @@ final class FppScheduleAdapter
     ];
 
     /**
+     * Normalize symbolic sun tokens to FPP-expected casing.
+     */
+    private function normalizeSunToken(?string $value): ?string
+    {
+        if (!is_string($value) || $value === '') {
+            return $value;
+        }
+
+        $map = [
+            'dawn'    => 'Dawn',
+            'dusk'    => 'Dusk',
+            'sunrise' => 'SunRise',
+            'sunset'  => 'SunSet',
+        ];
+
+        $lower = strtolower($value);
+        return $map[$lower] ?? $value;
+    }
+
+    /**
      * Split an FPP date field into canonical hard/symbolic parts.
      *
      * FPP allows:
@@ -524,13 +544,20 @@ final class FppScheduleAdapter
             $startTime = is_array($timing['start_time'] ?? null) ? (array) $timing['start_time'] : [];
             $endTime   = is_array($timing['end_time'] ?? null) ? (array) $timing['end_time'] : [];
 
-            $entry['startTime'] =
-                ($startTime['symbolic'] ?? null)
-                    ?: ($startTime['hard'] ?? null);
+            $symbolicStart = $startTime['symbolic'] ?? null;
+            $symbolicEnd   = $endTime['symbolic'] ?? null;
 
-            $entry['endTime'] =
-                ($endTime['symbolic'] ?? null)
-                    ?: ($endTime['hard'] ?? null);
+            if (is_string($symbolicStart) && $symbolicStart !== '') {
+                $entry['startTime'] = $this->normalizeSunToken($symbolicStart);
+            } else {
+                $entry['startTime'] = $startTime['hard'] ?? null;
+            }
+
+            if (is_string($symbolicEnd) && $symbolicEnd !== '') {
+                $entry['endTime'] = $this->normalizeSunToken($symbolicEnd);
+            } else {
+                $entry['endTime'] = $endTime['hard'] ?? null;
+            }
 
             $entry['startTimeOffset'] = (int) ($startTime['offset'] ?? 0);
             $entry['endTimeOffset']   = (int) ($endTime['offset']   ?? 0);
