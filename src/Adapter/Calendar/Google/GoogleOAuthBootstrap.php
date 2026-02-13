@@ -28,6 +28,10 @@ final class GoogleOAuthBootstrap
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
     private GoogleConfig $config;
 
+    private const ESC = "\033";
+    private const OSC = "\033]";
+    private const ST  = "\033\\";
+
     public function __construct(GoogleConfig $config)
     {
         $this->config = $config;
@@ -46,18 +50,19 @@ final class GoogleOAuthBootstrap
         fwrite(STDOUT, "Token output: {$tokenPath}" . PHP_EOL);
         fwrite(STDOUT, PHP_EOL);
 
-        // Always print manually constructed OAuth URL.
-        // Use OSC 8 hyperlink so SSH terminals render a clickable link without line-wrap issues.
+        // Print a clickable OSC-8 hyperlink using *short* label text.
+        // Do NOT print the long URL as visible text (it will wrap in SSH/terminal copy).
         $authUrl = $this->buildAuthUrl();
         fwrite(STDOUT, "Open this link in a local browser and authorize access:" . PHP_EOL . PHP_EOL);
 
-        $linkText = "Click here to authorize Google Calendar";
-        $oscLink = "\e]8;;{$authUrl}\e\\{$linkText}\e]8;;\e\\";
+        $linkText = "OAuth authorize URL (click)";
+        // OSC 8: ESC ] 8 ;; URL ST  TEXT  ESC ] 8 ;; ST
+        $oscLink =
+            self::OSC . "8;;" . $authUrl . self::ST .
+            $linkText .
+            self::OSC . "8;;" . self::ST;
 
         fwrite(STDOUT, $oscLink . PHP_EOL . PHP_EOL);
-        // Also print raw URL for terminals that do not support OSC 8 hyperlinks
-        fwrite(STDOUT, "If the link above is not clickable, copy this URL:" . PHP_EOL);
-        fwrite(STDOUT, $authUrl . PHP_EOL . PHP_EOL);
 
         fwrite(
             STDOUT,
@@ -99,17 +104,18 @@ final class GoogleOAuthBootstrap
         // Prefer auth_uri from client_secret.json (matches working manual URL)
         $authUrlBase = $client['auth_uri'] ?? self::FALLBACK_AUTH_URL;
 
-        // Manually construct query to avoid SSH line-wrap issues and
-        // to keep redirect_uri readable (do NOT percent-encode redirect_uri).
-        $query =
-            'client_id=' . urlencode($clientId) .
-            '&redirect_uri=' . $redirectUri .
-            '&response_type=code' .
-            '&scope=' . urlencode(implode(' ', $scopes)) .
-            '&access_type=offline' .
-            '&prompt=consent';
+        // Build query with RFC3986 encoding (redirect_uri MUST be encoded).
+        // This keeps the URL valid even when copied via terminals.
+        $params = [
+            'client_id' => $clientId,
+            'redirect_uri' => $redirectUri,
+            'response_type' => 'code',
+            'scope' => implode(' ', $scopes),
+            'access_type' => 'offline',
+            'prompt' => 'consent',
+        ];
 
-        return $authUrlBase . '?' . $query;
+        return $authUrlBase . '?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
     }
 
     /**
