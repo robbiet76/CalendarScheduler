@@ -55,6 +55,9 @@ final class GoogleOAuthBootstrap
         $oscLink = "\e]8;;{$authUrl}\e\\{$linkText}\e]8;;\e\\";
 
         fwrite(STDOUT, $oscLink . PHP_EOL . PHP_EOL);
+        // Also print raw URL for terminals that do not support OSC 8 hyperlinks
+        fwrite(STDOUT, "If the link above is not clickable, copy this URL:" . PHP_EOL);
+        fwrite(STDOUT, $authUrl . PHP_EOL . PHP_EOL);
 
         fwrite(
             STDOUT,
