@@ -172,12 +172,19 @@ final class ManifestPlanner
             );
         }
 
+        // Identity must reflect resolved timing (including weekly day masks).
+        // Use the first subEvent timing as the canonical identity timing.
+        $identity = $intent->identity;
+        if (isset($subEvents[0]['timing']) && is_array($subEvents[0]['timing'])) {
+            $identity['timing'] = $subEvents[0]['timing'];
+        }
+
         return [
             'id'           => $intent->identityHash,
             'identityHash' => $intent->identityHash,
             'stateHash'    => $eventStateHash,
 
-            'identity'     => $intent->identity,
+            'identity'     => $identity,
             'ownership'    => $intent->ownership,
             'correlation'  => $intent->correlation,
             'provenance'   => $intent->provenance ?? null,
