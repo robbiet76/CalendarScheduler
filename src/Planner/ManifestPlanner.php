@@ -92,17 +92,6 @@ final class ManifestPlanner
 
             $timing = $sub['timing'];
 
-            // Weekly days normalization:
-            // If timing.days is absent/null, but RRULE provides BYDAY,
-            // lift it into timing.days so downstream FPPSemantics can compute
-            // the correct FPP day mask deterministically.
-            if (
-                (!array_key_exists('days', $timing) || $timing['days'] === null) &&
-                isset($sub['payload']['rrule']['byday']) &&
-                is_array($sub['payload']['rrule']['byday'])
-            ) {
-                $timing['days'] = $sub['payload']['rrule']['byday'];
-            }
 
             // If weeklyDays metadata exists (from Resolution layer),
             // propagate it into canonical timing.days so downstream
