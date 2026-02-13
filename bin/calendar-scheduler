@@ -83,7 +83,7 @@ if ($auth) {
     $googleConfig = new GoogleConfig($googleConfigPath);
     $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($googleConfig);
 
-    $printUrl = false;
+    $printUrl = in_array('--print-url', $argv, true);
     $bootstrap->runCli($printUrl);
     exit(0);
 }
