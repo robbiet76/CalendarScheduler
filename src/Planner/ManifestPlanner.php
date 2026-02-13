@@ -104,6 +104,18 @@ final class ManifestPlanner
                 $timing['days'] = $sub['weeklyDays'];
             }
 
+            // Fallback: if timing.days is still unset/null but the source RRULE provided BYDAY,
+            // carry it through as canonical timing.days.
+            // (RRULE parsing happens upstream; ManifestPlanner only preserves the resolved metadata.)
+            if (
+                (!isset($timing['days']) || $timing['days'] === null || $timing['days'] === []) &&
+                isset($sub['payload']['rrule']['byday']) &&
+                is_array($sub['payload']['rrule']['byday']) &&
+                $sub['payload']['rrule']['byday'] !== []
+            ) {
+                $timing['days'] = $sub['payload']['rrule']['byday'];
+            }
+
             // Enforce canonical timing rule:
             // If symbolic time exists, hard time must be null.
             if (
