@@ -396,7 +396,16 @@ final class FPPSemantics
             return self::DAY_EVERYDAY;
         }
 
-        sort($days);
+        // Preserve canonical weekday order for preset matching.
+        // DO NOT use sort(); lexicographic ordering breaks preset keys (e.g. SU,MO,TU,WE,TH).
+        $order = ['SU','MO','TU','WE','TH','FR','SA'];
+        $ordered = [];
+        foreach ($order as $d) {
+            if (in_array($d, $days, true)) {
+                $ordered[] = $d;
+            }
+        }
+        $days = $ordered;
 
         // Try preset reverse match (PHP array keys must be string/int)
         $key = implode(',', $days);
