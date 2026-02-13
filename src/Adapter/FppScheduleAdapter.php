@@ -415,8 +415,13 @@ final class FppScheduleAdapter
         $repeatValue = FPPSemantics::semanticToRepeat((string) $repeatSemantic);
         $dayValue = FPPSemantics::denormalizeDays($weeklyDays);
 
-        // If this is a WEEKLY RRULE, force FPP weekly repeat + mask
-        if ($rruleFreq === 'WEEKLY' && is_array($weeklyDays) && $weeklyDays !== []) {
+        /**
+         * If weeklyDays metadata exists (Resolution populated timing.days),
+         * force FPP weekly repeat + proper day mask.
+         *
+         * Do NOT rely solely on RRULE freq here — manifest timing is authoritative.
+         */
+        if (is_array($weeklyDays) && $weeklyDays !== []) {
             $repeatValue = 1; // FPP weekly
             $dayValue = FPPSemantics::denormalizeDays($weeklyDays);
         }
