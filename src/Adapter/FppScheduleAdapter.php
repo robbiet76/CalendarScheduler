@@ -60,6 +60,37 @@ final class FppScheduleAdapter
     }
 
     /**
+     * Split an FPP time field into canonical hard/symbolic parts.
+     *
+     * Sun tokens (Dawn, Dusk, SunRise, SunSet) must populate symbolic.
+     * Hard clock times (HH:MM:SS) populate hard.
+     *
+     * @return array{hard: ?string, symbolic: ?string}
+     */
+    private function splitTimeHardSymbolic(?string $value): array
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return ['hard' => null, 'symbolic' => null];
+        }
+
+        $normalized = $this->normalizeSunToken($value);
+
+        $sunTokens = ['Dawn', 'Dusk', 'SunRise', 'SunSet'];
+
+        if (in_array($normalized, $sunTokens, true)) {
+            return [
+                'hard'     => null,
+                'symbolic' => $normalized,
+            ];
+        }
+
+        return [
+            'hard'     => $value,
+            'symbolic' => null,
+        ];
+    }
+
+    /**
      * Split an FPP date field into canonical hard/symbolic parts.
      *
      * FPP allows:
@@ -276,18 +307,21 @@ final class FppScheduleAdapter
         $startDateParts = $this->splitDateHardSymbolic($entry['startDate'] ?? null);
         $endDateParts   = $this->splitDateHardSymbolic($endDate);
 
+        $startSplit = $this->splitTimeHardSymbolic($entry['startTime'] ?? null);
+        $endSplit   = $this->splitTimeHardSymbolic($entry['endTime'] ?? null);
+
         $timing = [
             'all_day' => $isAllDay,
             'start_date' => $startDateParts,
             'end_date'   => $endDateParts,
             'start_time' => $isAllDay ? null : [
-                'hard'     => $entry['startTime'] ?? null,
-                'symbolic' => null,
+                'hard'     => $startSplit['hard'],
+                'symbolic' => $startSplit['symbolic'],
                 'offset'   => (int) ($entry['startTimeOffset'] ?? 0),
             ],
             'end_time'   => $isAllDay ? null : [
-                'hard'     => $entry['endTime'] ?? null,
-                'symbolic' => null,
+                'hard'     => $endSplit['hard'],
+                'symbolic' => $endSplit['symbolic'],
                 'offset'   => (int) ($entry['endTimeOffset'] ?? 0),
             ],
             'days' => $normalizedDays === null
