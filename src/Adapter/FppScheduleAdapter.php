@@ -406,6 +406,11 @@ final class FppScheduleAdapter
                 $entry[$k] = $v;
             }
 
+            // FPP scheduler UI expects command rows to always carry args as an array.
+            if (!array_key_exists('args', $entry) || !is_array($entry['args'])) {
+                $entry['args'] = [];
+            }
+
             // Ensure FPP-native multisync defaults (never null)
             if (!array_key_exists('multisyncCommand', $entry)) {
                 $entry['multisyncCommand'] = false;
