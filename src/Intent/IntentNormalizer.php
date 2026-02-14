@@ -57,6 +57,14 @@ final class IntentNormalizer
         // Any hard time present alongside a symbolic value is display-only and must be ignored.
         $timingArr = $this->normalizeSymbolicTimes($timingArr);
 
+        // All-day normalization:
+        // When all_day = true, time fields are semantically irrelevant
+        // and MUST be nulled for identity stability across providers.
+        if (!empty($timingArr['all_day'])) {
+            $timingArr['start_time'] = null;
+            $timingArr['end_time']   = null;
+        }
+
         /**
          * Command timing normalization:
          * - Commands are point-in-time unless repeating
