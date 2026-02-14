@@ -53,6 +53,22 @@ final class IntentNormalizer
             $event['timing'],
             $context->holidayResolver
         );
+
+        // Days normalization source-of-truth:
+        // - Calendar-side events may not populate timing.days directly.
+        // - If Resolution produced weeklyDays metadata, use it to populate timing.days.
+        // - This keeps identity/state hashing stable across calendar and FPP.
+        if (
+            (!isset($timingArr['days']) || $timingArr['days'] === null)
+            && isset($event['weeklyDays'])
+            && is_array($event['weeklyDays'])
+            && $event['weeklyDays'] !== []
+        ) {
+            $timingArr['days'] = [
+                'type'  => 'weekly',
+                'value' => array_values($event['weeklyDays']),
+            ];
+        }
         // Debug raw days before any normalization
         if (getenv('GCS_DEBUG_INTENTS') === '1') {
             $rawDays = $timingArr['days'] ?? null;
