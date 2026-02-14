@@ -470,6 +470,7 @@ final class IntentNormalizer
         $timing = $data['timing'] ?? [];
         $stage  = $data['stage'] ?? 'unknown';
 
+
         $fmtDate = function ($v): string {
             if (!is_array($v)) {
                 return 'hard= symbolic=';
@@ -481,17 +482,44 @@ final class IntentNormalizer
             );
         };
 
+        $fmtTime = function ($v): string {
+            if (!is_array($v)) {
+                return 'null';
+            }
+            return sprintf(
+                'hard=%s symbolic=%s offset=%d',
+                $v['hard'] ?? '',
+                $v['symbolic'] ?? '',
+                (int)($v['offset'] ?? 0)
+            );
+        };
+
+        $fmtDays = function ($v): string {
+            if (!is_array($v)) {
+                return 'null';
+            }
+            return json_encode($v);
+        };
+
         fwrite(STDERR, sprintf(
             "PRE-HASH [%s] (%s)\n".
             "  type=%s target=%s\n".
+            "  all_day:    %s\n".
             "  start_date: %s\n".
-            "  end_date:   %s\n\n",
+            "  end_date:   %s\n".
+            "  start_time: %s\n".
+            "  end_time:   %s\n".
+            "  days:       %s\n\n",
             $source,
             $stage,
             $data['type'] ?? '',
             $data['target'] ?? '',
+            isset($timing['all_day']) ? ($timing['all_day'] ? 'true' : 'false') : 'false',
             $fmtDate($timing['start_date'] ?? null),
             $fmtDate($timing['end_date'] ?? null),
+            $fmtTime($timing['start_time'] ?? null),
+            $fmtTime($timing['end_time'] ?? null),
+            $fmtDays($timing['days'] ?? null),
         ));
     }
 }
