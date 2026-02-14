@@ -41,7 +41,7 @@ final class GoogleApplyExecutor
     }
 
     /**
-     * Apply a batch of reconciliation actions to Google Calendar.
+     * Apply a batch of Google mutations to Google Calendar.
      *
      * @param GoogleMutation[] $mutations
      */

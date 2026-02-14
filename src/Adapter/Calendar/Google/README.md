@@ -6,12 +6,12 @@ for the Calendar Scheduler system.
 Responsibilities:
 
 - OAuth-authenticated Google Calendar API access
-- Structural mapping between Manifest ApplyOps and Google events
+- Structural mapping between manifest-v2 reconciliation actions and Google events
 - Faithful, lossless projection of execution geometry
 
 This adapter is:
 - Structural only
 - Semantically passive
-- ApplyOp-driven
+- ReconciliationAction-driven
 
 No Diff, authority, or intent logic belongs here.
