@@ -91,10 +91,10 @@ final class GoogleEventMapper
     /**
      * UPDATE semantics
      *
-     * Manifest-v2 alignment:
-     * - No providerState lookup in ReconciliationAction.
-     * - If subEvent payload includes a Google event id, emit UPDATE.
-     * - Otherwise emit CREATE (upsert-by-create fallback).
+     * Step C strategy: destructive replace.
+     *
+     * - Treat update as delete existing + create desired.
+     * - Avoid partial patch behavior without persisted provider-state mapping.
      *
      * @param ReconciliationAction $action
      * @param array<int, array<string,mixed>> $subEvents
@@ -103,39 +103,10 @@ final class GoogleEventMapper
      */
     private function mapUpdate(ReconciliationAction $action, array $subEvents, string $calendarId): array
     {
-        $mutations = [];
-
-        foreach ($subEvents as $subEvent) {
-            if (!is_array($subEvent)) {
-                continue;
-            }
-
-            $subEventHash = $this->deriveSubEventHash($subEvent);
-            $googleEventId = $this->extractGoogleEventId($action, $subEvent);
-
-            if ($googleEventId !== null) {
-                $mutations[] = new GoogleMutation(
-                    op: GoogleMutation::OP_UPDATE,
-                    calendarId: $calendarId,
-                    googleEventId: $googleEventId,
-                    payload: $this->buildPayload($action, $subEvent),
-                    manifestEventId: $action->identityHash,
-                    subEventHash: $subEventHash
-                );
-                continue;
-            }
-
-            $mutations[] = new GoogleMutation(
-                op: GoogleMutation::OP_CREATE,
-                calendarId: $calendarId,
-                googleEventId: null,
-                payload: $this->buildPayload($action, $subEvent),
-                manifestEventId: $action->identityHash,
-                subEventHash: $subEventHash
-            );
-        }
-
-        return $mutations;
+        return [
+            ...$this->mapDelete($action, $calendarId),
+            ...$this->mapCreate($action, $subEvents, $calendarId),
+        ];
     }
 
     /**
