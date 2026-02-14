@@ -40,26 +40,6 @@ final class FppScheduleAdapter
     ];
 
     /**
-     * Normalize symbolic sun tokens to FPP-expected casing.
-     */
-    private function normalizeSunToken(?string $value): ?string
-    {
-        if (!is_string($value) || $value === '') {
-            return $value;
-        }
-
-        $map = [
-            'dawn'    => 'Dawn',
-            'dusk'    => 'Dusk',
-            'sunrise' => 'SunRise',
-            'sunset'  => 'SunSet',
-        ];
-
-        $lower = strtolower($value);
-        return $map[$lower] ?? $value;
-    }
-
-    /**
      * Split an FPP time field into canonical hard/symbolic parts.
      *
      * Sun tokens (Dawn, Dusk, SunRise, SunSet) must populate symbolic.
@@ -73,11 +53,8 @@ final class FppScheduleAdapter
             return ['hard' => null, 'symbolic' => null];
         }
 
-        $normalized = $this->normalizeSunToken($value);
-
-        $sunTokens = ['Dawn', 'Dusk', 'SunRise', 'SunSet'];
-
-        if (in_array($normalized, $sunTokens, true)) {
+        $normalized = FPPSemantics::normalizeSymbolicTimeToken($value);
+        if (FPPSemantics::isSymbolicTime($normalized)) {
             return [
                 'hard'     => null,
                 'symbolic' => $normalized,
@@ -122,105 +99,6 @@ final class FppScheduleAdapter
 
         // Otherwise treat as symbolic token (holiday name).
         return ['hard' => null, 'symbolic' => $s];
-    }
-
-    /**
-     * Parse minimal INI-like settings from a calendar description.
-     * We only care about:
-     *  - [settings] type = playlist|sequence|command
-     */
-    private function parseSettingsTypeFromDescription(?string $description): ?string
-    {
-        if (!is_string($description) || trim($description) === '') {
-            return null;
-        }
-
-        $section = null;
-        $lines = preg_split('/\r\n|\r|\n/', $description) ?: [];
-        foreach ($lines as $line) {
-            $t = trim($line);
-            if ($t === '' || str_starts_with($t, '#') || str_starts_with($t, ';')) {
-                continue;
-            }
-            if (preg_match('/^\[(.+)\]$/', $t, $m) === 1) {
-                $section = strtolower(trim($m[1]));
-                continue;
-            }
-            if ($section !== 'settings') {
-                continue;
-            }
-            if (preg_match('/^type\s*=\s*(.+)$/i', $t, $m) === 1) {
-                $v = strtolower(trim($m[1]));
-                if ($v === 'playlist' || $v === 'sequence' || $v === 'command') {
-                    return $v;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Parse a minimal INI-like [command] block from description.
-     * Supports keys like:
-     *  - args[] = 100
-     *  - multisync = true
-     *  - hosts = 192.168.1.2
-     *
-     * Returns a map that can be merged directly into an FPP schedule entry.
-     *
-     * @return array<string,mixed>
-     */
-    private function parseCommandBlockFromDescription(?string $description): array
-    {
-        if (!is_string($description) || trim($description) === '') {
-            return [];
-        }
-
-        $section = null;
-        $out = [];
-        $lines = preg_split('/\r\n|\r|\n/', $description) ?: [];
-        foreach ($lines as $line) {
-            $t = trim($line);
-            if ($t === '' || str_starts_with($t, '#') || str_starts_with($t, ';')) {
-                continue;
-            }
-            if (preg_match('/^\[(.+)\]$/', $t, $m) === 1) {
-                $section = strtolower(trim($m[1]));
-                continue;
-            }
-            if ($section !== 'command') {
-                continue;
-            }
-            // key = value
-            if (preg_match('/^([^=]+?)\s*=\s*(.*)$/', $t, $m) !== 1) {
-                continue;
-            }
-            $key = trim($m[1]);
-            $valRaw = trim($m[2]);
-
-            // basic bool parsing
-            $valLower = strtolower($valRaw);
-            $val = $valRaw;
-            if ($valLower === 'true') {
-                $val = true;
-            } elseif ($valLower === 'false') {
-                $val = false;
-            }
-
-            // array keys like args[]
-            if (str_ends_with($key, '[]')) {
-                if (!isset($out[$key]) || !is_array($out[$key])) {
-                    $out[$key] = [];
-                }
-                $out[$key][] = $val;
-                continue;
-            }
-
-            $out[$key] = $val;
-        }
-
-        return $out;
     }
 
     /**
@@ -422,27 +300,15 @@ final class FppScheduleAdapter
         $behavior = is_array($subEvent['behavior'] ?? null) ? (array) $subEvent['behavior'] : [];
 
         $summary = is_string($payload['summary'] ?? null) ? (string) $payload['summary'] : '';
-        $description = is_string($payload['description'] ?? null) ? (string) $payload['description'] : null;
 
-        // Prefer explicit identity when it exists, otherwise infer from payload.
+        // v2 contract: reverse mapping uses canonical identity fields.
         $typeNorm = (string) ($identity['type'] ?? '');
         $target   = (string) ($identity['target'] ?? '');
 
-        if ($typeNorm === '' || $typeNorm === 'unknown') {
-            $inferred = $this->parseSettingsTypeFromDescription($description);
-            if (is_string($inferred) && $inferred !== '') {
-                $typeNorm = $inferred;
-            }
-        }
-
-        // If still unknown, default to playlist (most common).
-        if ($typeNorm === '' || $typeNorm === 'unknown') {
-            $typeNorm = 'playlist';
-        }
-
-        // If target is missing, infer from summary.
-        if (trim($target) === '') {
-            $target = $summary;
+        if ($typeNorm === '' || $typeNorm === 'unknown' || trim($target) === '') {
+            throw new \InvalidArgumentException(
+                'Manifest event missing canonical identity fields (type/target) for FPP denormalization.'
+            );
         }
 
         // Denormalize type to FPP representation expectations
@@ -452,9 +318,6 @@ final class FppScheduleAdapter
         $repeatSemantic  = $behavior['repeat']  ?? ($payload['repeat']  ?? 'none');
         $stopTypeSemantic = $behavior['stopType'] ?? ($payload['stopType'] ?? null);
 
-        // Determine RRULE metadata (if present)
-        $rrule = is_array($payload['rrule'] ?? null) ? $payload['rrule'] : null;
-        $rruleFreq = is_string($rrule['freq'] ?? null) ? strtoupper($rrule['freq']) : null;
         $weeklyDays = null;
 
         if (
@@ -477,7 +340,6 @@ final class FppScheduleAdapter
          */
         if (is_array($weeklyDays) && $weeklyDays !== []) {
             $repeatValue = 1; // FPP weekly
-            $dayValue = FPPSemantics::denormalizeDays($weeklyDays);
         }
 
         $entry = [
@@ -491,15 +353,10 @@ final class FppScheduleAdapter
         if ($type === 'command') {
             $cmd = is_array($payload['command'] ?? null) ? (array) $payload['command'] : [];
 
-            // If command details are not yet structured, parse them from description.
-            if (empty($cmd) && is_string($description) && trim($description) !== '') {
-                $cmd = $this->parseCommandBlockFromDescription($description);
-            }
-
             /**
              * Reverse mapping symmetry:
              * - command.name -> entry.command
-             * - if missing, fall back to summary (common authoring pattern) then identity target
+             * - if missing, fall back to summary then identity target
              * - all other command keys pass through to the schedule entry
              */
             $entry['command'] = isset($cmd['name'])
@@ -582,13 +439,13 @@ final class FppScheduleAdapter
             $symbolicEnd   = $endTime['symbolic'] ?? null;
 
             if (is_string($symbolicStart) && $symbolicStart !== '') {
-                $entry['startTime'] = $this->normalizeSunToken($symbolicStart);
+                $entry['startTime'] = FPPSemantics::normalizeSymbolicTimeToken($symbolicStart);
             } else {
                 $entry['startTime'] = $startTime['hard'] ?? null;
             }
 
             if (is_string($symbolicEnd) && $symbolicEnd !== '') {
-                $entry['endTime'] = $this->normalizeSunToken($symbolicEnd);
+                $entry['endTime'] = FPPSemantics::normalizeSymbolicTimeToken($symbolicEnd);
             } else {
                 $entry['endTime'] = $endTime['hard'] ?? null;
             }

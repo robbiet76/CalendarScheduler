@@ -431,7 +431,7 @@ final class IntentNormalizer
                 if ($symbolic === '') {
                     $symbolic = null;
                 } else {
-                    $symbolic = $this->normalizeSunToken($symbolic);
+                    $symbolic = \CalendarScheduler\Platform\FPPSemantics::normalizeSymbolicTimeToken($symbolic);
                 }
             } else {
                 $symbolic = null;
@@ -503,20 +503,6 @@ final class IntentNormalizer
         }
 
         return $ordered;
-    }
-
-    /**
-     * Canonicalize symbolic sun-time tokens across calendar/FPP representations.
-     */
-    private function normalizeSunToken(string $token): string
-    {
-        return match (strtolower(trim($token))) {
-            'dawn' => 'Dawn',
-            'sunrise' => 'SunRise',
-            'sunset' => 'SunSet',
-            'dusk' => 'Dusk',
-            default => $token,
-        };
     }
 
     /**

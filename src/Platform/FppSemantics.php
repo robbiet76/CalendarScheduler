@@ -522,6 +522,26 @@ final class FPPSemantics
     }
 
     /**
+     * Canonicalize sun token casing to FPP scheduler identifiers.
+     *
+     * Returns the input unchanged when it is not a known symbolic token.
+     */
+    public static function normalizeSymbolicTimeToken(?string $value): ?string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return $value;
+        }
+
+        return match (strtolower(trim($value))) {
+            'dawn' => 'Dawn',
+            'sunrise' => 'SunRise',
+            'sunset' => 'SunSet',
+            'dusk' => 'Dusk',
+            default => $value,
+        };
+    }
+
+    /**
      * Default rounding interval (minutes) used by FPP
      * when resolving symbolic times.
      */
