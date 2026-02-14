@@ -60,7 +60,8 @@ final class ResolvedSchedule
                     scope: $subevent->getScope(),
                     priority: $subevent->getPriority(),
                     payload: $subevent->getPayload(),
-                    sourceTrace: $subevent->getSourceTrace()
+                    sourceTrace: $subevent->getSourceTrace(),
+                    weeklyDays: $subevent->getWeeklyDays()
                 );
             }
         }

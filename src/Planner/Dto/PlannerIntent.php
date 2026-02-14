@@ -47,6 +47,9 @@ final class PlannerIntent
     /** @var array */
     public array $sourceTrace;
 
+    /** @var array<int,string>|null */
+    public ?array $weeklyDays;
+
     /**
      * @param string $role One of ResolutionRole::BASE | ResolutionRole::OVERRIDE
      * @param array<string,mixed> $payload
@@ -67,7 +70,8 @@ final class PlannerIntent
         ResolutionScope $scope,
         int $priority,
         array $payload,
-        array $sourceTrace
+        array $sourceTrace,
+        ?array $weeklyDays = null
     ) {
         $this->bundleUid = $bundleUid;
         $this->parentUid = $parentUid;
@@ -82,5 +86,6 @@ final class PlannerIntent
         $this->priority = $priority;
         $this->payload = $payload;
         $this->sourceTrace = $sourceTrace;
+        $this->weeklyDays = $weeklyDays;
     }
 }

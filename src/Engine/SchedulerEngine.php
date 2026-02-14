@@ -353,7 +353,15 @@ final class SchedulerEngine
                                 'symbolic' => null,
                                 'offset'   => 0,
                             ],
-                        'days' => $plannerIntent->days ?? null,
+                        'days' => (
+                            is_array($plannerIntent->weeklyDays ?? null)
+                            && $plannerIntent->weeklyDays !== []
+                        )
+                            ? [
+                                'type'  => 'weekly',
+                                'value' => array_values($plannerIntent->weeklyDays),
+                            ]
+                            : null,
                     ],
                     'payload' => array_merge(
                         $payload,
