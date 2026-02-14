@@ -53,6 +53,11 @@ final class IntentNormalizer
             $event['timing'],
             $context->holidayResolver
         );
+        // Debug raw days before any normalization
+        if (getenv('GCS_DEBUG_INTENTS') === '1') {
+            $rawDays = $timingArr['days'] ?? null;
+            fwrite(STDERR, "RAW DAYS [" . ($event['source'] ?? 'unknown') . "]: " . json_encode($rawDays) . "\n");
+        }
         // Symbolic times (dusk/dawn/etc.) must remain symbolic end-to-end.
         // Any hard time present alongside a symbolic value is display-only and must be ignored.
         $timingArr = $this->normalizeSymbolicTimes($timingArr);
