@@ -103,8 +103,23 @@ final class GoogleEventMapper
      */
     private function mapUpdate(ReconciliationAction $action, array $subEvents, string $calendarId): array
     {
+        $deleteMutations = [];
+        try {
+            $deleteMutations = $this->mapDelete($action, $calendarId);
+        } catch (RuntimeException $e) {
+            // If legacy/current manifest rows do not carry resolvable Google ids,
+            // degrade to create-only so apply can proceed without hard failure.
+            if (strpos($e->getMessage(), 'no resolvable Google event ids') === false) {
+                throw $e;
+            }
+            error_log(
+                'GoogleEventMapper: update fallback to create-only (missing delete ids) ' .
+                'identityHash=' . $action->identityHash
+            );
+        }
+
         return [
-            ...$this->mapDelete($action, $calendarId),
+            ...$deleteMutations,
             ...$this->mapCreate($action, $subEvents, $calendarId),
         ];
     }
