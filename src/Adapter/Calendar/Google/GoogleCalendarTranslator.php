@@ -93,6 +93,16 @@ final class GoogleCalendarTranslator
 
             $uid = $provenance['uid'] ?? null;
 
+            // DEBUG: log raw RRULE + BYDAY for calendar ingestion
+            if (is_array($rrule) && isset($rrule['byday'])) {
+                error_log(
+                    'RAW RRULE BYDAY [calendar]: ' .
+                    json_encode($rrule['byday'])
+                );
+            } else {
+                error_log('RAW RRULE BYDAY [calendar]: null');
+            }
+
             $out[] = [
                 // Provider + calendar identity
                 'provider'        => 'google',
