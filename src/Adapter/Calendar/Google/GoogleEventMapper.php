@@ -16,11 +16,6 @@ use RuntimeException;
  * - Each resolved SubEvent is an atomic execution unit.
  * - Grouping is conservative: default is 1 SubEvent → 1 Google event.
  * - No I/O. No API calls. No normalization.
- *
- * ProviderState invariants:
- * - providerState.googleEvents MUST be keyed by subEventHash
- * - each entry MUST contain a valid Google event ID
- * - missing or mismatched state triggers destructive replace
  */
 final class GoogleEventMapper
 {
@@ -74,9 +69,11 @@ final class GoogleEventMapper
         $mutations = [];
 
         foreach ($subEvents as $subEvent) {
-            if (!isset($subEvent['identityHash']) || !is_string($subEvent['identityHash'])) {
-                throw new RuntimeException('SubEvent missing valid identityHash');
+            if (!is_array($subEvent)) {
+                continue;
             }
+
+            $subEventHash = $this->deriveSubEventHash($subEvent);
 
             $mutations[] = new GoogleMutation(
                 op: GoogleMutation::OP_CREATE,
@@ -84,7 +81,7 @@ final class GoogleEventMapper
                 googleEventId: null,
                 payload: $this->buildPayload($action, $subEvent),
                 manifestEventId: $action->identityHash,
-                subEventHash: $subEvent['identityHash']
+                subEventHash: $subEventHash
             );
         }
 
@@ -94,8 +91,10 @@ final class GoogleEventMapper
     /**
      * UPDATE semantics
      *
-     * Updates are conservative:
-     * - If cardinality or identity does not match, fall back to delete + create.
+     * Manifest-v2 alignment:
+     * - No providerState lookup in ReconciliationAction.
+     * - If subEvent payload includes a Google event id, emit UPDATE.
+     * - Otherwise emit CREATE (upsert-by-create fallback).
      *
      * @param ReconciliationAction $action
      * @param array<int, array<string,mixed>> $subEvents
@@ -104,43 +103,35 @@ final class GoogleEventMapper
      */
     private function mapUpdate(ReconciliationAction $action, array $subEvents, string $calendarId): array
     {
-        $existing = $action->providerState['googleEvents'] ?? null;
-        if (!is_array($existing)) {
-            throw new RuntimeException('Update action missing providerState.googleEvents');
-        }
-
-        // Cardinality mismatch → destructive replace
-        if (count($existing) !== count($subEvents)) {
-            return [
-                ...$this->mapDelete($action, $calendarId),
-                ...$this->mapCreate($action, $subEvents, $calendarId),
-            ];
-        }
-
         $mutations = [];
 
         foreach ($subEvents as $subEvent) {
-            if (!isset($subEvent['identityHash']) || !is_string($subEvent['identityHash'])) {
-                throw new RuntimeException('SubEvent missing valid identityHash');
+            if (!is_array($subEvent)) {
+                continue;
             }
-            $hash = $subEvent['identityHash'];
-            $existingEvent = $existing[$hash] ?? null;
 
-            if (!is_array($existingEvent) || empty($existingEvent['id'])) {
-                // Identity mismatch → destructive replace
-                return [
-                    ...$this->mapDelete($action, $calendarId),
-                    ...$this->mapCreate($action, $subEvents, $calendarId),
-                ];
+            $subEventHash = $this->deriveSubEventHash($subEvent);
+            $googleEventId = $this->extractGoogleEventId($action, $subEvent);
+
+            if ($googleEventId !== null) {
+                $mutations[] = new GoogleMutation(
+                    op: GoogleMutation::OP_UPDATE,
+                    calendarId: $calendarId,
+                    googleEventId: $googleEventId,
+                    payload: $this->buildPayload($action, $subEvent),
+                    manifestEventId: $action->identityHash,
+                    subEventHash: $subEventHash
+                );
+                continue;
             }
 
             $mutations[] = new GoogleMutation(
-                op: GoogleMutation::OP_UPDATE,
+                op: GoogleMutation::OP_CREATE,
                 calendarId: $calendarId,
-                googleEventId: $existingEvent['id'],
+                googleEventId: null,
                 payload: $this->buildPayload($action, $subEvent),
                 manifestEventId: $action->identityHash,
-                subEventHash: $hash
+                subEventHash: $subEventHash
             );
         }
 
@@ -156,25 +147,49 @@ final class GoogleEventMapper
      */
     private function mapDelete(ReconciliationAction $action, string $calendarId): array
     {
-        $existing = $action->providerState['googleEvents'] ?? null;
-        if (!is_array($existing) || $existing === []) {
-            return [];
+        $event = $action->event ?? null;
+        if (!is_array($event)) {
+            throw new RuntimeException('Delete action missing manifest event payload');
+        }
+
+        $subEvents = $event['subEvents'] ?? null;
+        if (!is_array($subEvents) || $subEvents === []) {
+            throw new RuntimeException('Delete action missing subEvents');
+        }
+
+        $ids = [];
+
+        // Primary correlation id (calendar-originated events)
+        $sourceEventUid = $event['correlation']['sourceEventUid'] ?? null;
+        if (is_string($sourceEventUid) && $sourceEventUid !== '') {
+            $ids[$sourceEventUid] = true;
+        }
+
+        foreach ($subEvents as $subEvent) {
+            if (!is_array($subEvent)) {
+                continue;
+            }
+            $id = $this->extractGoogleEventId($action, $subEvent);
+            if (is_string($id) && $id !== '') {
+                $ids[$id] = true;
+            }
+        }
+
+        if ($ids === []) {
+            throw new RuntimeException(
+                'Delete action has no resolvable Google event ids (missing correlation.sourceEventUid and payload googleEventId).'
+            );
         }
 
         $mutations = [];
-
-        foreach ($existing as $hash => $event) {
-            if (empty($event['id'])) {
-                continue;
-            }
-
+        foreach (array_keys($ids) as $eventId) {
             $mutations[] = new GoogleMutation(
                 op: GoogleMutation::OP_DELETE,
                 calendarId: $calendarId,
-                googleEventId: $event['id'],
+                googleEventId: $eventId,
                 payload: [],
                 manifestEventId: $action->identityHash,
-                subEventHash: (string)$hash
+                subEventHash: 'delete:' . $eventId
             );
         }
 
@@ -190,23 +205,37 @@ final class GoogleEventMapper
      */
     private function buildPayload(ReconciliationAction $action, array $subEvent): array
     {
-        $start = $subEvent['start'] ?? null;
-        $end   = $subEvent['end'] ?? null;
-        $tz    = $subEvent['timezone'] ?? null;
+        $timing = $subEvent['timing'] ?? null;
+        $payloadIn = $subEvent['payload'] ?? null;
 
-        if (!is_array($start) || !is_array($end) || !is_string($tz)) {
-            throw new RuntimeException('Invalid SubEvent timing data');
+        if (!is_array($timing) || !is_array($payloadIn)) {
+            throw new RuntimeException('Invalid SubEvent manifest shape: expected timing+payload arrays');
         }
 
+        $tz = is_string($timing['timezone'] ?? null) && $timing['timezone'] !== ''
+            ? $timing['timezone']
+            : 'UTC';
+
+        [$start, $end] = $this->buildGoogleStartEndFromTiming($timing);
+        $subEventHash = $this->deriveSubEventHash($subEvent);
+
+        $summary = is_string($payloadIn['summary'] ?? null) && trim((string)$payloadIn['summary']) !== ''
+            ? (string)$payloadIn['summary']
+            : (string)($action->event['identity']['target'] ?? '');
+
+        $description = is_string($payloadIn['description'] ?? null)
+            ? (string)$payloadIn['description']
+            : '';
+
         $payload = [
-            'summary'     => (string)($action->summary ?? ''),
-            'description' => (string)($action->description ?? ''),
+            'summary'     => $summary,
+            'description' => $description,
             'start'       => $this->mapDateTime($start, $tz),
             'end'         => $this->mapDateTime($end, $tz),
             'extendedProperties' => [
                 'private' => [
                     'cs.manifestEventId' => $action->identityHash,
-                    'cs.subEventHash'    => $subEvent['identityHash'],
+                    'cs.subEventHash'    => $subEventHash,
                     'cs.provider'        => 'google',
                     'cs.schemaVersion'   => '2',
                 ],
@@ -230,6 +259,98 @@ final class GoogleEventMapper
         return [
             'dateTime' => $dt['date'] . 'T' . $dt['time'],
             'timeZone' => $timezone,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $subEvent
+     */
+    private function deriveSubEventHash(array $subEvent): string
+    {
+        $stateHash = $subEvent['stateHash'] ?? null;
+        if (is_string($stateHash) && $stateHash !== '') {
+            return $stateHash;
+        }
+
+        return hash('sha256', json_encode([
+            'timing' => $subEvent['timing'] ?? null,
+            'payload' => $subEvent['payload'] ?? null,
+            'behavior' => $subEvent['behavior'] ?? null,
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Resolve a Google event id from manifest event/subevent metadata when available.
+     *
+     * @param array<string,mixed> $subEvent
+     */
+    private function extractGoogleEventId(ReconciliationAction $action, array $subEvent): ?string
+    {
+        $id = $subEvent['payload']['googleEventId'] ?? null;
+        if (is_string($id) && $id !== '') {
+            return $id;
+        }
+
+        $corrId = $action->event['correlation']['sourceEventUid'] ?? null;
+        if (is_string($corrId) && $corrId !== '') {
+            return $corrId;
+        }
+
+        return null;
+    }
+
+    /**
+     * Convert manifest-v2 subEvent timing into Google start/end blocks.
+     *
+     * @param array<string,mixed> $timing
+     * @return array{0:array<string,mixed>,1:array<string,mixed>}
+     */
+    private function buildGoogleStartEndFromTiming(array $timing): array
+    {
+        $allDay = (bool)($timing['all_day'] ?? false);
+        $startDate = $timing['start_date']['hard'] ?? null;
+        $endDate = $timing['end_date']['hard'] ?? null;
+
+        if (!is_string($startDate) || $startDate === '') {
+            throw new RuntimeException('Google mapping requires hard start_date');
+        }
+        if (!is_string($endDate) || $endDate === '') {
+            throw new RuntimeException('Google mapping requires hard end_date');
+        }
+
+        if ($allDay) {
+            $endExclusive = (new \DateTimeImmutable($endDate, new \DateTimeZone('UTC')))
+                ->modify('+1 day')
+                ->format('Y-m-d');
+
+            return [
+                ['date' => $startDate, 'allDay' => true],
+                ['date' => $endExclusive, 'allDay' => true],
+            ];
+        }
+
+        $startTime = $timing['start_time']['hard'] ?? null;
+        $endTime = $timing['end_time']['hard'] ?? null;
+        $startSymbolic = $timing['start_time']['symbolic'] ?? null;
+        $endSymbolic = $timing['end_time']['symbolic'] ?? null;
+
+        if (is_string($startSymbolic) && $startSymbolic !== '') {
+            throw new RuntimeException('Google mapping does not support symbolic start_time');
+        }
+        if (is_string($endSymbolic) && $endSymbolic !== '') {
+            throw new RuntimeException('Google mapping does not support symbolic end_time');
+        }
+
+        if (!is_string($startTime) || $startTime === '') {
+            $startTime = '00:00:00';
+        }
+        if (!is_string($endTime) || $endTime === '') {
+            $endTime = $startTime;
+        }
+
+        return [
+            ['date' => $startDate, 'time' => $startTime, 'allDay' => false],
+            ['date' => $endDate, 'time' => $endTime, 'allDay' => false],
         ];
     }
 }

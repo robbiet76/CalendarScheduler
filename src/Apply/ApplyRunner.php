@@ -144,7 +144,7 @@ final class ApplyRunner
                 }
 
                 if (!$options->isPlan() && !$options->isDryRun()) {
-                    $this->googleExecutor->apply($calendarActions);
+                    $this->googleExecutor->applyActions($calendarActions);
                     $calendarApplied = true;
                 }
             }
