@@ -130,7 +130,7 @@ final class IntentNormalizer
 
         return new Intent(
             $identityHash,
-            $identity,
+            $identityHashInput,
             $event['ownership'],
             $event['correlation'],
             [$subEvent],
