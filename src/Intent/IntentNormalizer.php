@@ -33,6 +33,14 @@ use CalendarScheduler\Platform\HolidayResolver;
  */
 final class IntentNormalizer
 {
+    /**
+     * Canonical weekday order used by FPP semantics.
+     * Identity/state hashing must use this order to avoid source-order drift.
+     *
+     * @var array<int,string>
+     */
+    private const WEEKDAY_ORDER = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
     public function __construct()
     {
         // Intentionally empty.
@@ -250,7 +258,7 @@ final class IntentNormalizer
             }
             return [
                 'type'  => 'weekly',
-                'value' => array_values($v['value']),
+                'value' => $this->canonicalizeWeeklyDays($v['value']),
             ];
         };
 
@@ -352,7 +360,7 @@ final class IntentNormalizer
             }
             return [
                 'type'  => 'weekly',
-                'value' => array_values($v['value']),
+                'value' => $this->canonicalizeWeeklyDays($v['value']),
             ];
         };
 
@@ -422,6 +430,8 @@ final class IntentNormalizer
                 $symbolic = trim($symbolic);
                 if ($symbolic === '') {
                     $symbolic = null;
+                } else {
+                    $symbolic = $this->normalizeSunToken($symbolic);
                 }
             } else {
                 $symbolic = null;
@@ -446,6 +456,67 @@ final class IntentNormalizer
         }
 
         return $timing;
+    }
+
+    /**
+     * Normalize weekly day lists to canonical FPP tokens and ordering.
+     *
+     * @param array<int,mixed> $days
+     * @return array<int,string>
+     */
+    private function canonicalizeWeeklyDays(array $days): array
+    {
+        $normalized = [];
+
+        foreach ($days as $day) {
+            if (!is_string($day)) {
+                continue;
+            }
+
+            $token = strtoupper(trim($day));
+            if ($token === '') {
+                continue;
+            }
+
+            // Accept a few common textual forms from calendar tooling.
+            $token = match ($token) {
+                'SUN' => 'SU',
+                'MON' => 'MO',
+                'TUE', 'TUES' => 'TU',
+                'WED' => 'WE',
+                'THU', 'THUR', 'THURS' => 'TH',
+                'FRI' => 'FR',
+                'SAT' => 'SA',
+                default => $token,
+            };
+
+            if (in_array($token, self::WEEKDAY_ORDER, true) && !isset($normalized[$token])) {
+                $normalized[$token] = true;
+            }
+        }
+
+        $ordered = [];
+        foreach (self::WEEKDAY_ORDER as $day) {
+            if (isset($normalized[$day])) {
+                $ordered[] = $day;
+            }
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * Canonicalize symbolic sun-time tokens across calendar/FPP representations.
+     */
+    private function normalizeSunToken(string $token): string
+    {
+        return match (strtolower(trim($token))) {
+            'dawn' => 'Dawn',
+            'sunrise' => 'SunRise',
+            'sunset' => 'SunSet',
+            'dusk' => 'Dusk',
+            default => $token,
+        };
     }
 
     /**
