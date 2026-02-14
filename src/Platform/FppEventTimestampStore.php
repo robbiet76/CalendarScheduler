@@ -1,0 +1,192 @@
+<?php
+declare(strict_types=1);
+
+namespace CalendarScheduler\Platform;
+
+use CalendarScheduler\Adapter\FppScheduleAdapter;
+use CalendarScheduler\Intent\IntentNormalizer;
+use CalendarScheduler\Intent\NormalizationContext;
+
+/**
+ * FppEventTimestampStore
+ *
+ * Maintains per-identity timestamp metadata for FPP schedule saves.
+ *
+ * Data lives outside schedule.json and is keyed by identityHash.
+ */
+final class FppEventTimestampStore
+{
+    /**
+     * Recompute and persist per-identity timestamps from the current schedule.json.
+     *
+     * @return array<string,mixed> Written document.
+     */
+    public function rebuild(
+        string $schedulePath,
+        string $outputPath
+    ): array {
+        if (!is_file($schedulePath)) {
+            throw new \RuntimeException("FPP schedule not found: {$schedulePath}");
+        }
+
+        $scheduleMtime = filemtime($schedulePath);
+        $nowEpoch = is_int($scheduleMtime) ? $scheduleMtime : time();
+
+        $previous = $this->load($outputPath);
+        $previousEvents = is_array($previous['events'] ?? null) ? $previous['events'] : [];
+
+        $context = $this->buildNormalizationContext();
+        $adapter = new FppScheduleAdapter();
+        $normalizer = new IntentNormalizer();
+
+        $fppEvents = $adapter->loadManifestEvents($context, $schedulePath);
+
+        $events = [];
+        foreach ($fppEvents as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+
+            $intent = $normalizer->fromManifestEvent($event, $context);
+            $id = $intent->identityHash;
+            $stateHash = $intent->eventStateHash;
+
+            $prev = is_array($previousEvents[$id] ?? null) ? $previousEvents[$id] : null;
+            $prevState = is_string($prev['stateHash'] ?? null) ? $prev['stateHash'] : '';
+            $prevUpdated = is_numeric($prev['updatedAtEpoch'] ?? null) ? (int)$prev['updatedAtEpoch'] : 0;
+
+            $updatedAt = ($prev !== null && $prevState !== '' && $prevState === $stateHash && $prevUpdated > 0)
+                ? $prevUpdated
+                : $nowEpoch;
+
+            $events[$id] = [
+                'updatedAtEpoch' => $updatedAt,
+                'lastSeenEpoch'  => $nowEpoch,
+                'stateHash'      => $stateHash,
+            ];
+        }
+
+        ksort($events, SORT_STRING);
+
+        $doc = [
+            'version'            => 1,
+            'source'             => 'fpp-save-hook',
+            'generatedAtEpoch'   => time(),
+            'scheduleMtimeEpoch' => $nowEpoch,
+            'events'             => $events,
+        ];
+
+        $this->writeAtomically($outputPath, $doc);
+
+        return $doc;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public function load(string $path): array
+    {
+        if (!is_file($path)) {
+            return [];
+        }
+
+        $raw = file_get_contents($path);
+        if ($raw === false || trim($raw) === '') {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @return array<string,int>
+     */
+    public function loadUpdatedAtByIdentity(string $path): array
+    {
+        $doc = $this->load($path);
+        $events = is_array($doc['events'] ?? null) ? $doc['events'] : [];
+
+        $out = [];
+        foreach ($events as $id => $row) {
+            if (!is_string($id) || $id === '') {
+                continue;
+            }
+            if (!is_array($row)) {
+                continue;
+            }
+            $ts = $row['updatedAtEpoch'] ?? null;
+            if (!is_numeric($ts)) {
+                continue;
+            }
+            $n = (int)$ts;
+            if ($n > 0) {
+                $out[$id] = $n;
+            }
+        }
+
+        return $out;
+    }
+
+    private function buildNormalizationContext(): NormalizationContext
+    {
+        $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        $holidays = [];
+
+        if (is_file($fppEnvPath)) {
+            try {
+                $fppEnvRaw = json_decode(
+                    (string)file_get_contents($fppEnvPath),
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR
+                );
+                if (is_array($fppEnvRaw)
+                    && isset($fppEnvRaw['rawLocale']['holidays'])
+                    && is_array($fppEnvRaw['rawLocale']['holidays'])
+                ) {
+                    $holidays = $fppEnvRaw['rawLocale']['holidays'];
+                }
+            } catch (\Throwable) {
+                $holidays = [];
+            }
+        }
+
+        return new NormalizationContext(
+            new \DateTimeZone('UTC'),
+            new FPPSemantics(),
+            new HolidayResolver($holidays)
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $doc
+     */
+    private function writeAtomically(string $path, array $doc): void
+    {
+        $json = json_encode(
+            $doc,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
+
+        $dir = dirname($path);
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Unable to create directory: {$dir}");
+        }
+
+        $tmp = $path . '.tmp';
+        if (@file_put_contents($tmp, $json . PHP_EOL) === false) {
+            throw new \RuntimeException("Unable to write temp file: {$tmp}");
+        }
+
+        if (!@rename($tmp, $path)) {
+            @unlink($tmp);
+            throw new \RuntimeException("Unable to replace file: {$path}");
+        }
+    }
+}

@@ -13,6 +13,7 @@ use CalendarScheduler\Diff\Reconciler;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator;
+use CalendarScheduler\Platform\FppEventTimestampStore;
 
 /**
  * SchedulerEngine
@@ -162,7 +163,9 @@ final class SchedulerEngine
         $fppMtime = filemtime($schedulePath);
         $fppSnapshotEpoch = is_int($fppMtime) ? $fppMtime : time();
 
-        $fppUpdatedAtById = [];
+        $fppEventTimestampPath = '/home/fpp/media/config/calendar-scheduler/fpp/event-timestamps.json';
+        $fppUpdatedAtById = (new FppEventTimestampStore())
+            ->loadUpdatedAtByIdentity($fppEventTimestampPath);
 
         // -----------------------------------------------------------------
         // Load current manifest
@@ -211,8 +214,8 @@ final class SchedulerEngine
         int $calendarSnapshotEpoch,
         int $fppSnapshotEpoch
     ): SchedulerRunResult {
-        $computedCalendarUpdatedAtById = [];
-        $computedFppUpdatedAtById = [];
+        $computedCalendarUpdatedAtById = $calendarUpdatedAtById;
+        $computedFppUpdatedAtById = $fppUpdatedAtById;
 
         // ------------------------------------------------------------
         // Calendar events → Snapshot → Resolution → PlannerIntents → Intents
@@ -226,6 +229,26 @@ final class SchedulerEngine
         $resolvedSchedule = $resolver->resolve($snapshot);
 
         $plannerIntents = $resolvedSchedule->toPlannerIntents();
+
+        $calendarUpdatedAtByUid = [];
+        foreach ($calendarEvents as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+
+            $uid = $event['uid'] ?? $event['sourceEventUid'] ?? null;
+            if (!is_string($uid) || $uid === '') {
+                continue;
+            }
+
+            $provenance = is_array($event['provenance'] ?? null) ? $event['provenance'] : [];
+            $ts = $event['updatedAtEpoch']
+                ?? ($provenance['updatedAtEpoch'] ?? null)
+                ?? $event['sourceUpdatedAt']
+                ?? 0;
+
+            $calendarUpdatedAtByUid[$uid] = is_int($ts) ? $ts : (int)$ts;
+        }
 
         // Resolution already produces PlannerIntent objects with correct timing.
         // At this stage (resolution-smoke-pass baseline), no further normalization
@@ -404,13 +427,9 @@ final class SchedulerEngine
             );
 
             $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
-        }
-
-        foreach ($calendarEvents as $event) {
-            $ts = $event['updatedAtEpoch'] ?? $event['sourceUpdatedAt'] ?? 0;
-            $computedCalendarUpdatedAtById[
-                $event['uid'] ?? $event['sourceEventUid'] ?? spl_object_id((object)$event)
-            ] = is_int($ts) ? $ts : (int) $ts;
+            $computedCalendarUpdatedAtById[$normalizedIntent->identityHash] =
+                $calendarUpdatedAtByUid[$parentUid]
+                ?? $calendarSnapshotEpoch;
         }
 
         // ------------------------------------------------------------
@@ -423,8 +442,10 @@ final class SchedulerEngine
 
             $fppIntents[$hash] = $intent;
 
-            $ts = $event['updatedAtEpoch'] ?? $event['sourceUpdatedAt'] ?? 0;
-            $computedFppUpdatedAtById[$hash] = is_int($ts) ? $ts : (int)$ts;
+            if (!isset($computedFppUpdatedAtById[$hash]) || $computedFppUpdatedAtById[$hash] <= 0) {
+                $ts = $event['updatedAtEpoch'] ?? $event['sourceUpdatedAt'] ?? 0;
+                $computedFppUpdatedAtById[$hash] = is_int($ts) ? $ts : (int)$ts;
+            }
         }
 
         // ------------------------------------------------------------
