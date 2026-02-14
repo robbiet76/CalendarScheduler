@@ -220,6 +220,19 @@ final class IntentNormalizer
             ];
         };
 
+        $canonDays = function ($v): ?array {
+            if ($v === null || !is_array($v)) {
+                return null;
+            }
+            if (($v['type'] ?? null) !== 'weekly' || !is_array($v['value'] ?? null)) {
+                return null;
+            }
+            return [
+                'type'  => 'weekly',
+                'value' => array_values($v['value']),
+            ];
+        };
+
         return [
             'type'   => $identity['type'],
             'target' => $identity['target'],
@@ -228,7 +241,7 @@ final class IntentNormalizer
                 'start_date' => $pickDate($timing['start_date'] ?? null),
                 'end_date'   => $pickDate($timing['end_date'] ?? null),
                 'start_time' => $pickTime($timing['start_time'] ?? null),
-                'days'       => $timing['days'] ?? null,
+                'days'       => $canonDays($timing['days'] ?? null),
             ],
         ];
     }
