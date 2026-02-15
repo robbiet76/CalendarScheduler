@@ -316,6 +316,12 @@ final class IntentNormalizer
                 ? $v['symbolic']
                 : null;
 
+            // Date semantics: symbolic dates are authoritative and hard date is display-only.
+            // Keep parity with identity canonicalization to avoid false state drift.
+            if ($symbolic !== null) {
+                $hard = null;
+            }
+
             return [
                 'hard'     => $hard,
                 'symbolic' => $symbolic,
