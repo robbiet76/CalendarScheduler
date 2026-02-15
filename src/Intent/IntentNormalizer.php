@@ -399,15 +399,22 @@ final class IntentNormalizer
 
         // Preserve command metadata (if present) as part of state with stable defaults.
         $command = null;
-        if (isset($payload['command']) && is_array($payload['command'])) {
-            $rawCommand = $payload['command'];
+        $isCommand = ((string)($subEvent['type'] ?? '')) === 'command';
+        if ($isCommand || isset($payload['command'])) {
+            $rawCommand = is_array($payload['command'] ?? null) ? $payload['command'] : [];
             $command = [];
 
             // Normalize common command fields that may be omitted on one side.
-            $command['name'] = isset($rawCommand['name']) ? (string)$rawCommand['name'] : '';
-            $command['args'] = is_array($rawCommand['args'] ?? null)
-                ? array_values($rawCommand['args'])
-                : [];
+            $command['name'] = isset($rawCommand['name']) && trim((string)$rawCommand['name']) !== ''
+                ? (string)$rawCommand['name']
+                : (string)($subEvent['target'] ?? '');
+            if (is_array($rawCommand['args'] ?? null)) {
+                $command['args'] = array_values($rawCommand['args']);
+            } elseif (array_key_exists('args', $rawCommand)) {
+                $command['args'] = [$rawCommand['args']];
+            } else {
+                $command['args'] = [];
+            }
             $command['multisyncCommand'] = $toBool($rawCommand['multisyncCommand'] ?? false);
             $command['multisyncHosts'] = isset($rawCommand['multisyncHosts'])
                 ? (string)$rawCommand['multisyncHosts']
