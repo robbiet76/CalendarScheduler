@@ -320,7 +320,6 @@ final class GoogleEventMapper
 
         $identity = is_array($action->event['identity'] ?? null) ? $action->event['identity'] : [];
         $identityType = is_string($identity['type'] ?? null) ? (string)$identity['type'] : '';
-        $identityTarget = is_string($identity['target'] ?? null) ? (string)$identity['target'] : '';
         $enabled = (bool)($behaviorIn['enabled'] ?? ($payloadIn['enabled'] ?? true));
         $repeat = is_string($behaviorIn['repeat'] ?? null)
             ? (string)$behaviorIn['repeat']
@@ -332,7 +331,6 @@ final class GoogleEventMapper
         $description = $this->composeManagedDescription(
             $descriptionIn,
             $identityType,
-            $identityTarget,
             $enabled,
             $repeat,
             $stopType,
@@ -346,12 +344,23 @@ final class GoogleEventMapper
             'start'       => $this->mapDateTime($start, $tz),
             'end'         => $this->mapDateTime($end, $tz),
             'extendedProperties' => [
-                'private' => [
-                    'cs.manifestEventId' => $action->identityHash,
-                    'cs.subEventHash'    => $subEventHash,
-                    'cs.provider'        => 'google',
-                    'cs.schemaVersion'   => '2',
-                ],
+                'private' => GoogleEventMetadataSchema::privateMetadata(
+                    $action->identityHash,
+                    $subEventHash,
+                    'google',
+                    $identityType !== '' ? $identityType : null,
+                    $enabled,
+                    $repeat !== '' ? $repeat : null,
+                    $stopType !== '' ? $stopType : null,
+                    is_string($timing['start_time']['symbolic'] ?? null)
+                        ? trim((string)$timing['start_time']['symbolic'])
+                        : null,
+                    isset($timing['start_time']['offset']) ? (int)$timing['start_time']['offset'] : null,
+                    is_string($timing['end_time']['symbolic'] ?? null)
+                        ? trim((string)$timing['end_time']['symbolic'])
+                        : null,
+                    isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : null
+                ),
             ],
         ];
 
@@ -361,7 +370,6 @@ final class GoogleEventMapper
     private function composeManagedDescription(
         string $existingDescription,
         string $type,
-        string $target,
         bool $enabled,
         string $repeat,
         string $stopType,
@@ -369,43 +377,133 @@ final class GoogleEventMapper
         ?array $endTime
     ): string {
         $settings = [
+            '# Managed by Calendar Scheduler',
+            '# Edit values below. Free-form notes can be added at the bottom.',
+            '',
             '[settings]',
-            'type = ' . $type,
-            'target = ' . $target,
-            'enabled = ' . ($enabled ? 'true' : 'false'),
-            'repeat = ' . $repeat,
-            'stopType = ' . $stopType,
+            '# Schedule Type: Playlist | Sequence | Command',
+            'type = ' . $this->formatTypeForDescription($type),
+            '# Enabled: True | False',
+            'enabled = ' . ($enabled ? 'True' : 'False'),
+            '# Repeat: None | Immediate | 5 Min. | 10 Min. | 15 Min. | 20 Min. | 30 Min. | 60 Min.',
+            'repeat = ' . $this->formatRepeatForDescription($repeat),
+            '# Stop Type: Graceful | Graceful Loop | Hard Stop',
+            'stopType = ' . $this->formatStopTypeForDescription($stopType),
+            '',
+            '[symbolic_time]',
+            '# Start Time/End Time: Dawn | SunRise | SunSet | Dusk',
+            '# Leave blank to use hard clock time from event start/end.',
         ];
+
+        $startSym = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
+        $endSym = is_string($endTime['symbolic'] ?? null) ? trim((string)$endTime['symbolic']) : '';
+        $startOffset = isset($startTime['offset']) ? (int)($startTime['offset']) : 0;
+        $endOffset = isset($endTime['offset']) ? (int)($endTime['offset']) : 0;
+
+        $settings[] = 'start = ' . $startSym;
+        $settings[] = '# Start Time Offset Min:';
+        $settings[] = 'start_offset = ' . (string)$startOffset;
+        $settings[] = 'end = ' . $endSym;
+        $settings[] = '# End Time Offset Min:';
+        $settings[] = 'end_offset = ' . (string)$endOffset;
+        $settings[] = '';
+        $settings[] = '# Notes:';
+        $settings[] = '# - Target comes from calendar title (summary), not description.';
+        $settings[] = '# - Offsets are ignored when start/end is blank.';
 
         $sections = [implode("\n", $settings)];
 
-        $symbolicLines = ['[symbolic_time]'];
-        $hasSymbolic = false;
-
-        $startSym = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
-        if ($startSym !== '') {
-            $hasSymbolic = true;
-            $symbolicLines[] = 'start = ' . $startSym;
-            $symbolicLines[] = 'start_offset = ' . (string)((int)($startTime['offset'] ?? 0));
-        }
-
-        $endSym = is_string($endTime['symbolic'] ?? null) ? trim((string)$endTime['symbolic']) : '';
-        if ($endSym !== '') {
-            $hasSymbolic = true;
-            $symbolicLines[] = 'end = ' . $endSym;
-            $symbolicLines[] = 'end_offset = ' . (string)((int)($endTime['offset'] ?? 0));
-        }
-
-        if ($hasSymbolic) {
-            $sections[] = implode("\n", $symbolicLines);
-        }
-
-        $existingDescription = trim($existingDescription);
+        $existingDescription = trim($this->stripManagedSections($existingDescription));
         if ($existingDescription !== '') {
             $sections[] = $existingDescription;
         }
 
         return implode("\n\n", $sections);
+    }
+
+    private function stripManagedSections(string $description): string
+    {
+        $lines = preg_split('/\r\n|\r|\n/', $description);
+        if (!is_array($lines) || $lines === []) {
+            return trim($description);
+        }
+
+        $out = [];
+        $inManaged = false;
+        $seenMarker = false;
+
+        foreach ($lines as $line) {
+            $trim = trim((string)$line);
+            $lower = strtolower($trim);
+
+            if (!$seenMarker && $lower === '# managed by calendar scheduler') {
+                $seenMarker = true;
+                continue;
+            }
+            if ($seenMarker && str_starts_with($trim, '#')) {
+                continue;
+            }
+            if ($seenMarker && $trim === '') {
+                continue;
+            }
+
+            if (!$inManaged && ($lower === '[settings]' || $lower === '[symbolic_time]')) {
+                $inManaged = true;
+                continue;
+            }
+
+            if ($inManaged) {
+                if ($trim === '') {
+                    $inManaged = false;
+                }
+                continue;
+            }
+
+            $out[] = (string)$line;
+        }
+
+        return trim(implode("\n", $out));
+    }
+
+    private function formatTypeForDescription(string $type): string
+    {
+        return match (strtolower(trim($type))) {
+            'sequence' => 'Sequence',
+            'command' => 'Command',
+            default => 'Playlist',
+        };
+    }
+
+    private function formatRepeatForDescription(string $repeat): string
+    {
+        $r = strtolower(trim($repeat));
+        if ($r === 'immediate') {
+            return 'Immediate';
+        }
+        if ($r === 'none' || $r === '') {
+            return 'None';
+        }
+        if (preg_match('/^(\d+)min$/', $r, $m) === 1) {
+            return $m[1] . ' Min.';
+        }
+        if (ctype_digit($r)) {
+            $n = (int)$r;
+            if ($n > 0) {
+                return (string)$n . ' Min.';
+            }
+        }
+
+        return 'None';
+    }
+
+    private function formatStopTypeForDescription(string $stopType): string
+    {
+        $v = strtolower(trim($stopType));
+        return match ($v) {
+            'hard', 'hard_stop', 'hard stop' => 'Hard Stop',
+            'graceful_loop', 'graceful loop' => 'Graceful Loop',
+            default => 'Graceful',
+        };
     }
 
     /**

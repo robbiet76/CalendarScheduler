@@ -328,26 +328,25 @@ final class SchedulerEngine
                     ? $plannerIntent->payload
                     : [];
 
-                // Parse [settings] and [symbolic_time] blocks once per subevent
-                $settings = [];
-                $symbolics = [];
-                if (isset($payload['description']) && is_string($payload['description'])) {
-                    $settings  = $this->parseSettingsBlock($payload['description']);
-                    $symbolics = $this->parseSymbolicTimeBlock($payload['description']);
-                }
+                // Scheduler settings come from reconciled metadata only.
+                $settings = $this->extractSchedulerSettingsFromPayload($payload);
 
                 // Behavior extraction from settings
                 $enabled = true;
                 if (isset($settings['enabled'])) {
-                    $enabled = filter_var($settings['enabled'], FILTER_VALIDATE_BOOLEAN);
+                    $enabled = $this->settingToBool($settings['enabled'], true);
                 }
 
                 $repeat = $settings['repeat'] ?? null;
                 $stopType = $settings['stoptype'] ?? null;
 
-                // Symbolic time extraction (from [symbolic_time] block)
-                $startSymbolic = $symbolics['start'] ?? null;
-                $endSymbolic   = $symbolics['end'] ?? null;
+                // Symbolic time extraction from reconciled metadata settings.
+                $startSymbolic = isset($settings['start']) && is_string($settings['start'])
+                    ? trim($settings['start'])
+                    : null;
+                $endSymbolic = isset($settings['end']) && is_string($settings['end'])
+                    ? trim($settings['end'])
+                    : null;
 
                 $subEvents[] = [
                     'type'   => $eventType,
@@ -368,8 +367,8 @@ final class SchedulerEngine
                             ? [
                                 'hard'     => null,
                                 'symbolic' => $startSymbolic,
-                                'offset'   => isset($symbolics['start_offset'])
-                                    ? (int)$symbolics['start_offset']
+                                'offset'   => isset($settings['start_offset'])
+                                    ? (int)$settings['start_offset']
                                     : 0,
                             ]
                             : [
@@ -381,8 +380,8 @@ final class SchedulerEngine
                             ? [
                                 'hard'     => null,
                                 'symbolic' => $endSymbolic,
-                                'offset'   => isset($symbolics['end_offset'])
-                                    ? (int)$symbolics['end_offset']
+                                'offset'   => isset($settings['end_offset'])
+                                    ? (int)$settings['end_offset']
                                     : 0,
                             ]
                             : [
@@ -532,8 +531,7 @@ final class SchedulerEngine
      * - `type` is one of: playlist | sequence | command
      * - `target` is a non-empty string identifier (typically derived from summary)
      *
-     * For Google rows, the authoritative settings live in the `[settings]` block inside `description`.
-     * We parse that block and fall back to summary-based defaults.
+     * For Google rows, settings come from reconciled metadata.
      *
      * @param array<string,mixed> $payload
      * @return array{type:string,target:string}
@@ -542,42 +540,23 @@ final class SchedulerEngine
     {
         $type = null;
         $target = null;
+        $settings = $this->extractSchedulerSettingsFromPayload($payload);
 
-        // Preferred: explicit keys (future/other providers may supply these).
+        // Preferred type can still be supplied explicitly.
         if (isset($payload['type']) && is_string($payload['type']) && trim($payload['type']) !== '') {
             $type = strtolower(trim($payload['type']));
         }
-        if (isset($payload['target']) && is_string($payload['target']) && trim($payload['target']) !== '') {
-            $target = trim($payload['target']);
-        }
 
-        // Google exporter path: parse [settings] from description.
-        $desc = isset($payload['description']) && is_string($payload['description']) ? $payload['description'] : '';
-        if ($desc !== '') {
-            $settings = $this->parseSettingsBlock($desc);
-
-            if ($type === null && isset($settings['type']) && is_string($settings['type'])) {
-                $t = strtolower(trim($settings['type']));
-                if ($t !== '') {
-                    $type = $t;
-                }
-            }
-
-            // Optional explicit target override
-            if ($target === null && isset($settings['target']) && is_string($settings['target'])) {
-                $tgt = trim($settings['target']);
-                if ($tgt !== '') {
-                    $target = $tgt;
-                }
+        if ($type === null && isset($settings['type']) && is_string($settings['type'])) {
+            $t = strtolower(trim($settings['type']));
+            if ($t !== '') {
+                $type = $t;
             }
         }
-
-        // Fallback target from summary.
-        if ($target === null) {
-            $summary = isset($payload['summary']) && is_string($payload['summary']) ? trim($payload['summary']) : '';
-            if ($summary !== '') {
-                $target = $summary;
-            }
+        // Calendar summary/title is authoritative for target.
+        $summary = isset($payload['summary']) && is_string($payload['summary']) ? trim($payload['summary']) : '';
+        if ($summary !== '') {
+            $target = $summary;
         }
 
         // Final defaults.
@@ -598,107 +577,47 @@ final class SchedulerEngine
     }
 
     /**
-     * Parse a simple INI-like `[settings]` block from a description.
+     * Read scheduler settings from structured metadata when available.
      *
-     * Expected format:
-     *   [settings]
-     *   key = value
-     *   ...
-     *
-     * Parsing stops at the first blank line after `[settings]` or at a comment-only section.
-     *
-     * @return array<string,string>
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
      */
-    private function parseSettingsBlock(string $description): array
+    private function extractSchedulerSettingsFromPayload(array $payload): array
     {
-        $lines = preg_split('/\r\n|\r|\n/', $description);
-        if (!is_array($lines)) {
-            return [];
-        }
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $settings = is_array($metadata['settings'] ?? null) ? $metadata['settings'] : [];
 
-        $in = false;
         $out = [];
-
-        foreach ($lines as $line) {
-            $line = (string)$line;
-            $trim = trim($line);
-
-            if (!$in) {
-                if (strtolower($trim) === '[settings]') {
-                    $in = true;
-                }
+        foreach ($settings as $k => $v) {
+            if (!is_string($k) || $k === '') {
                 continue;
             }
 
-            // Stop at first blank line (notes separator) once inside settings.
-            if ($trim === '') {
-                break;
-            }
-
-            // Ignore comment lines.
-            if (str_starts_with($trim, '#') || str_starts_with($trim, ';')) {
-                continue;
-            }
-
-            // key = value
-            if (preg_match('/^([A-Za-z0-9_\-]+)\s*=\s*(.*?)\s*$/', $trim, $m) === 1) {
-                $k = strtolower($m[1]);
-                $v = $m[2];
-                $out[$k] = $v;
-            }
+            $nk = strtolower(trim($k));
+            $out[$nk] = $v;
         }
 
         return $out;
     }
 
-    /**
-     * Parse a simple INI-like `[symbolic_time]` block from a description.
-     *
-     * Expected format:
-     *   [symbolic_time]
-     *   start = dusk
-     *   start_offset = -60
-     *   end = dawn
-     *   end_offset = 15
-     *
-     * @return array<string,string>
-     */
-    private function parseSymbolicTimeBlock(string $description): array
+    private function settingToBool(mixed $value, bool $default): bool
     {
-        $lines = preg_split('/\r\n|\r|\n/', $description);
-        if (!is_array($lines)) {
-            return [];
+        if (is_bool($value)) {
+            return $value;
         }
 
-        $in = false;
-        $out = [];
+        if (is_int($value)) {
+            return $value !== 0;
+        }
 
-        foreach ($lines as $line) {
-            $trim = trim((string)$line);
-
-            if (!$in) {
-                if (strtolower($trim) === '[symbolic_time]') {
-                    $in = true;
-                }
-                continue;
-            }
-
-            if ($trim === '') {
-                break;
-            }
-
-            if (str_starts_with($trim, '#') || str_starts_with($trim, ';')) {
-                continue;
-            }
-
-            if (preg_match('/^([A-Za-z0-9_\-]+)\s*=\s*(.*?)\s*$/', $trim, $m) === 1) {
-                $k = strtolower($m[1]);
-                $v = $m[2];
-                $out[$k] = $v;
+        if (is_string($value)) {
+            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if (is_bool($parsed)) {
+                return $parsed;
             }
         }
 
-        return $out;
+        return $default;
     }
 
     /**
