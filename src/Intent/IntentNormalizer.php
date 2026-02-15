@@ -302,6 +302,9 @@ final class IntentNormalizer
             $v = trim($v);
             return $v === '' ? null : strtolower($v);
         };
+        $toBool = static function ($v): bool {
+            return !($v === false || $v === 0 || $v === '0');
+        };
 
         $canonDate = function ($v): array {
             if (!is_array($v)) {
@@ -405,9 +408,7 @@ final class IntentNormalizer
             $command['args'] = is_array($rawCommand['args'] ?? null)
                 ? array_values($rawCommand['args'])
                 : [];
-            $command['multisyncCommand'] = \CalendarScheduler\Platform\FPPSemantics::normalizeBool(
-                $rawCommand['multisyncCommand'] ?? false
-            );
+            $command['multisyncCommand'] = $toBool($rawCommand['multisyncCommand'] ?? false);
             $command['multisyncHosts'] = isset($rawCommand['multisyncHosts'])
                 ? (string)$rawCommand['multisyncHosts']
                 : '';
