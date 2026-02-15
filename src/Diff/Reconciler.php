@@ -45,6 +45,19 @@ final class Reconciler
         $fpp = $this->indexEventsByIdentity($fppManifest);
         $cur = $this->indexEventsByIdentity($currentManifest);
 
+        // Safety guard:
+        // If both sources are non-empty but have zero shared identities, treat as a hard failure.
+        // This indicates a normalization/identity regression and would otherwise plan destructive
+        // bidirectional deletes.
+        if ($cal !== [] && $fpp !== []) {
+            $sharedIds = array_intersect(array_keys($cal), array_keys($fpp));
+            if ($sharedIds === []) {
+                throw new \RuntimeException(
+                    'Reconciler safety stop: calendar and FPP manifests have zero shared identity hashes; refusing destructive convergence plan'
+                );
+            }
+        }
+
         $allIds = array_unique(array_merge(array_keys($cal), array_keys($fpp), array_keys($cur)));
         sort($allIds);
 
