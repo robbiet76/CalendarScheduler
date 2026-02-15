@@ -235,7 +235,7 @@ final class IntentNormalizer
 
         $pickDate = function (?array $date): array {
             if ($date === null) {
-                return ['symbolic' => null, 'hard' => null];
+                return ['mode' => 'none', 'value' => null];
             }
 
             $symbolic = $date['symbolic'] ?? null;
@@ -253,24 +253,11 @@ final class IntentNormalizer
                 $hard = null;
             }
 
-            /*
-             * Identity rule:
-             * - If a symbolic holiday exists, it MUST be used for identity.
-             * - Hard date becomes fallback only when no symbolic exists.
-             * - When symbolic exists, hard date MUST be nulled to prevent
-             *   identity drift between calendar and FPP representations.
-             */
             if ($symbolic !== null) {
-                return [
-                    'symbolic' => $symbolic,
-                    'hard'     => null,
-                ];
+                return ['mode' => 'symbolic', 'value' => $symbolic];
             }
 
-            return [
-                'symbolic' => null,
-                'hard'     => $hard,
-            ];
+            return ['mode' => 'hard', 'value' => $hard];
         };
 
         $canonDays = function ($v): ?array {
@@ -332,7 +319,7 @@ final class IntentNormalizer
 
         $canonDate = function ($v): array {
             if (!is_array($v)) {
-                return ['hard' => null, 'symbolic' => null];
+                return ['mode' => 'none', 'value' => null];
             }
 
             $hard = isset($v['hard']) && is_string($v['hard']) && trim($v['hard']) !== ''
@@ -343,16 +330,11 @@ final class IntentNormalizer
                 ? $v['symbolic']
                 : null;
 
-            // Date semantics: symbolic dates are authoritative and hard date is display-only.
-            // Keep parity with identity canonicalization to avoid false state drift.
             if ($symbolic !== null) {
-                $hard = null;
+                return ['mode' => 'symbolic', 'value' => $symbolic];
             }
 
-            return [
-                'hard'     => $hard,
-                'symbolic' => $symbolic,
-            ];
+            return ['mode' => 'hard', 'value' => $hard];
         };
 
         $canonTime = function ($v) use ($lowerOrNull): ?array {
