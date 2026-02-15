@@ -227,25 +227,10 @@ final class ResolutionEngine implements ResolutionEngineInterface
 
             if ($freq === 'DAILY' || $freq === 'WEEKLY') {
 
-                // Extract event start time-of-day
-                [$st, $_] = $this->extractEventTimeOfDay($event);
-                $startSecs = ($st['h'] * 3600) + ($st['m'] * 60) + $st['s'];
-
-                // UNTIL time-of-day (already converted to event timezone)
-                $untilSecs = ((int)$untilDt->format('H') * 3600)
-                           + ((int)$untilDt->format('i') * 60)
-                           + (int)$untilDt->format('s');
-
                 $untilDate = $untilDt->format('Y-m-d');
-
-                // Determine last valid occurrence date
-                if ($startSecs <= $untilSecs) {
-                    $lastDate = $untilDate;
-                } else {
-                    $lastDate = (new \DateTimeImmutable($untilDate, $tz))
-                        ->modify('-1 day')
-                        ->format('Y-m-d');
-                }
+                // UNTIL is inclusive of the final occurrence date for our date-range semantics.
+                // Do not decrement by time-of-day here; that caused off-by-one end dates.
+                $lastDate = $untilDate;
 
                 // Convert lastDate into exclusive midnight bound
                 $endExclusiveFromUntil = (new \DateTimeImmutable($lastDate, $tz))
