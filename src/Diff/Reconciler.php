@@ -121,6 +121,7 @@ final class Reconciler
 
             if (is_array($winningEvent)) {
                 $winningEvent = $this->carryCurrentProviderCorrelation($winningEvent, $curEvent);
+                $winningEvent = $this->carryCalendarProviderCorrelation($winningEvent, $calEvent);
             }
 
             // Build target manifest events
@@ -174,6 +175,42 @@ final class Reconciler
         $currentGoogleIds = $currentCorrelation['googleEventIds'] ?? null;
         if (!is_array($winningGoogleIds) && is_array($currentGoogleIds) && $currentGoogleIds !== []) {
             $winningCorrelation['googleEventIds'] = $currentGoogleIds;
+        }
+
+        if ($winningCorrelation !== []) {
+            $winningEvent['correlation'] = $winningCorrelation;
+        }
+
+        return $winningEvent;
+    }
+
+    /**
+     * Preserve provider linkage from current calendar manifest when winner does
+     * not carry it (common when FPP is authoritative for state changes).
+     *
+     * @param array<string,mixed> $winningEvent
+     * @param array<string,mixed>|null $calendarEvent
+     * @return array<string,mixed>
+     */
+    private function carryCalendarProviderCorrelation(array $winningEvent, ?array $calendarEvent): array
+    {
+        if (!is_array($calendarEvent)) {
+            return $winningEvent;
+        }
+
+        $winningCorrelation = is_array($winningEvent['correlation'] ?? null) ? $winningEvent['correlation'] : [];
+        $calendarCorrelation = is_array($calendarEvent['correlation'] ?? null) ? $calendarEvent['correlation'] : [];
+
+        $winningSourceUid = $winningCorrelation['sourceEventUid'] ?? null;
+        $calendarSourceUid = $calendarCorrelation['sourceEventUid'] ?? null;
+        if ((!is_string($winningSourceUid) || $winningSourceUid === '') && is_string($calendarSourceUid) && $calendarSourceUid !== '') {
+            $winningCorrelation['sourceEventUid'] = $calendarSourceUid;
+        }
+
+        $winningGoogleIds = $winningCorrelation['googleEventIds'] ?? null;
+        $calendarGoogleIds = $calendarCorrelation['googleEventIds'] ?? null;
+        if (!is_array($winningGoogleIds) && is_array($calendarGoogleIds) && $calendarGoogleIds !== []) {
+            $winningCorrelation['googleEventIds'] = $calendarGoogleIds;
         }
 
         if ($winningCorrelation !== []) {
