@@ -520,6 +520,22 @@ final class GoogleEventMapper
             $endTime = $startTime;
         }
 
+        // Google rejects timed events where end <= start.
+        // Normalize common FPP-style edge cases:
+        // - overnight windows encoded on same date (end < start) => roll end +1 day
+        // - zero-length windows (end == start) => force minimal +1 minute duration
+        $startDt = new \DateTimeImmutable($startDate . ' ' . $startTime, new \DateTimeZone('UTC'));
+        $endDt = new \DateTimeImmutable($endDate . ' ' . $endTime, new \DateTimeZone('UTC'));
+        if ($endDt <= $startDt) {
+            if ($endDate === $startDate && strcmp($endTime, $startTime) < 0) {
+                $endDt = $endDt->modify('+1 day');
+            } else {
+                $endDt = $startDt->modify('+1 minute');
+            }
+            $endDate = $endDt->format('Y-m-d');
+            $endTime = $endDt->format('H:i:s');
+        }
+
         return [
             ['date' => $startDate, 'time' => $startTime, 'allDay' => false],
             ['date' => $endDate, 'time' => $endTime, 'allDay' => false],
