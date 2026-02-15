@@ -203,7 +203,7 @@ final class IntentNormalizer
      *
      * RULES:
      * - Identity is stable across time
-     * - Identity excludes dates (start/end date)
+     * - Identity excludes end-date boundary (end_date)
      * - Identity excludes execution state (repeat, stopType, enabled)
      * - Identity includes start_time to prevent collapsing distinct daily intents
      *
@@ -279,7 +279,6 @@ final class IntentNormalizer
             'timing' => [
                 'all_day'    => (bool)$timing['all_day'],
                 'start_date' => $pickDate($timing['start_date'] ?? null),
-                'end_date'   => $pickDate($timing['end_date'] ?? null),
                 'start_time' => $pickTime($timing['start_time'] ?? null),
                 'days'       => $canonDays($timing['days'] ?? null),
             ],
