@@ -111,11 +111,25 @@ final class IntentNormalizer
             'timing' => $timingArr,
         ];
 
+        $firstSubEvent = (
+            isset($event['subEvents'][0]) && is_array($event['subEvents'][0])
+        ) ? $event['subEvents'][0] : [];
+
+        // State hash should prefer subevent-level execution state when available.
+        // Calendar pipeline enriches subevent payload with behavior-derived defaults.
+        $statePayload = is_array($firstSubEvent['payload'] ?? null)
+            ? $firstSubEvent['payload']
+            : (is_array($event['payload'] ?? null) ? $event['payload'] : []);
+        $stateBehavior = is_array($firstSubEvent['behavior'] ?? null)
+            ? $firstSubEvent['behavior']
+            : (is_array($event['behavior'] ?? null) ? $event['behavior'] : []);
+
         $subEvent = [
             'type'    => $event['type'],
             'target'  => $event['target'],
             'timing'  => $timingArr,
-            'payload' => $event['payload'],
+            'payload' => $statePayload,
+            'behavior' => $stateBehavior,
         ];
 
         // Debug raw timing state before canonicalization
