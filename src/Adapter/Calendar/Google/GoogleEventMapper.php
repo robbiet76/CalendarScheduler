@@ -25,7 +25,7 @@ final class GoogleEventMapper
     private array $diagnostics = [
         'unmappable_skipped' => 0,
         'update_noop_nomappable' => 0,
-        'update_fallback_create_only' => 0,
+        'update_skipped_missing_delete_ids' => 0,
         'unmappable_reasons' => [],
     ];
 
@@ -153,15 +153,16 @@ final class GoogleEventMapper
             $deleteMutations = $this->mapDelete($action, $calendarId);
         } catch (RuntimeException $e) {
             // If legacy/current manifest rows do not carry resolvable Google ids,
-            // degrade to create-only so apply can proceed without hard failure.
+            // skip update to avoid create-only drift (duplicate/recreated events).
             if (strpos($e->getMessage(), 'no resolvable Google event ids') === false) {
                 throw $e;
             }
-            $this->diagnostics['update_fallback_create_only']++;
+            $this->diagnostics['update_skipped_missing_delete_ids']++;
             $this->debug(
-                'GoogleEventMapper: update fallback to create-only (missing delete ids) ' .
+                'GoogleEventMapper: update skipped (missing delete ids) ' .
                 'identityHash=' . $action->identityHash
             );
+            return [];
         }
 
         return [
@@ -183,12 +184,12 @@ final class GoogleEventMapper
     {
         $unmappableSkipped = (int)($this->diagnostics['unmappable_skipped'] ?? 0);
         $updateNoopNoMappable = (int)($this->diagnostics['update_noop_nomappable'] ?? 0);
-        $updateFallbackCreateOnly = (int)($this->diagnostics['update_fallback_create_only'] ?? 0);
+        $updateSkippedMissingDeleteIds = (int)($this->diagnostics['update_skipped_missing_delete_ids'] ?? 0);
         $reasons = is_array($this->diagnostics['unmappable_reasons'] ?? null)
             ? $this->diagnostics['unmappable_reasons']
             : [];
 
-        if ($unmappableSkipped === 0 && $updateNoopNoMappable === 0 && $updateFallbackCreateOnly === 0) {
+        if ($unmappableSkipped === 0 && $updateNoopNoMappable === 0 && $updateSkippedMissingDeleteIds === 0) {
             return;
         }
 
@@ -205,7 +206,7 @@ final class GoogleEventMapper
             'GoogleEventMapper summary:' .
             ' unmappable_skipped=' . $unmappableSkipped .
             ' update_noop_nomappable=' . $updateNoopNoMappable .
-            ' update_fallback_create_only=' . $updateFallbackCreateOnly .
+            ' update_skipped_missing_delete_ids=' . $updateSkippedMissingDeleteIds .
             $reasonSummary
         );
     }
