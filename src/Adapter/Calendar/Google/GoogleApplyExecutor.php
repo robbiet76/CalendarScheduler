@@ -39,8 +39,9 @@ final class GoogleApplyExecutor
         }
 
         $this->mapper->emitDiagnosticsSummary();
-
-        return $this->apply($mutations);
+        $results = $this->apply($mutations);
+        $this->client->emitDiagnosticsSummary();
+        return $results;
     }
 
     /**

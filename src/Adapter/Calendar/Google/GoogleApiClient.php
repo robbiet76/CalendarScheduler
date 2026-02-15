@@ -6,10 +6,13 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
 final class GoogleApiClient
 {
     private GoogleConfig $config;
+    private bool $debugCalendar;
+    private int $deleteSkippedAlreadyAbsent = 0;
 
     public function __construct(GoogleConfig $config)
     {
         $this->config = $config;
+        $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
     }
 
     public function getConfig(): GoogleConfig
@@ -88,13 +91,27 @@ final class GoogleApiClient
             $message = $e->getMessage();
             // Treat already-deleted/not-found as idempotent success.
             if (strpos($message, 'HTTP 404') !== false || strpos($message, 'HTTP 410') !== false) {
-                error_log(
-                    'GoogleApiClient: delete skipped (already absent) calendarId=' .
-                    $calendarId . ' eventId=' . $eventId
-                );
+                $this->deleteSkippedAlreadyAbsent++;
+                if ($this->debugCalendar) {
+                    error_log(
+                        'GoogleApiClient: delete skipped (already absent) calendarId=' .
+                        $calendarId . ' eventId=' . $eventId
+                    );
+                }
                 return;
             }
             throw $e;
+        }
+    }
+
+    public function emitDiagnosticsSummary(): void
+    {
+        if ($this->deleteSkippedAlreadyAbsent > 0) {
+            error_log(
+                'GoogleApiClient summary: delete_skipped_already_absent=' .
+                $this->deleteSkippedAlreadyAbsent
+            );
+            $this->deleteSkippedAlreadyAbsent = 0;
         }
     }
 
