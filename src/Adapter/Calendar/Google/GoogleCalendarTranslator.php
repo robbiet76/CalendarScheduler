@@ -16,7 +16,7 @@ use DateTimeZone;
  */
 final class GoogleCalendarTranslator
 {
-    private const MANAGED_FORMAT_VERSION = '1';
+    private const MANAGED_FORMAT_VERSION = '2';
 
     private bool $debugCalendar;
     private DateTimeZone $localTimezone;

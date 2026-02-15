@@ -19,7 +19,7 @@ use RuntimeException;
  */
 final class GoogleEventMapper
 {
-    private const MANAGED_FORMAT_VERSION = '1';
+    private const MANAGED_FORMAT_VERSION = '2';
 
     private bool $debugCalendar;
 
