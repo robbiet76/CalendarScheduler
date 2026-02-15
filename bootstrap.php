@@ -56,6 +56,7 @@ require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApiClient.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarProvider.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutation.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutationResult.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMapper.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApplyExecutor.php';
 
