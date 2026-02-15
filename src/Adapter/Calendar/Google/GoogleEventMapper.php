@@ -193,6 +193,15 @@ final class GoogleEventMapper
             }
         }
 
+        $corrIds = $event['correlation']['googleEventIds'] ?? null;
+        if (is_array($corrIds)) {
+            foreach ($corrIds as $id) {
+                if (is_string($id) && $id !== '') {
+                    $ids[$id] = true;
+                }
+            }
+        }
+
         if ($ids === []) {
             throw new RuntimeException(
                 'Delete action has no resolvable Google event ids (missing correlation.sourceEventUid and payload googleEventId).'
@@ -381,6 +390,15 @@ final class GoogleEventMapper
         $id = $subEvent['payload']['googleEventId'] ?? null;
         if (is_string($id) && $id !== '') {
             return $id;
+        }
+
+        $subEventHash = $this->deriveSubEventHash($subEvent);
+        $corrIds = $action->event['correlation']['googleEventIds'] ?? null;
+        if (is_array($corrIds)) {
+            $corrId = $corrIds[$subEventHash] ?? null;
+            if (is_string($corrId) && $corrId !== '') {
+                return $corrId;
+            }
         }
 
         $corrId = $action->event['correlation']['sourceEventUid'] ?? null;

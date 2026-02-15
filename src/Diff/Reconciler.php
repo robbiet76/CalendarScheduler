@@ -106,6 +106,10 @@ final class Reconciler
             $winningEvent = $decision['event']; // array|null
             $reason = $decision['reason'];
 
+            if (is_array($winningEvent)) {
+                $winningEvent = $this->carryCurrentProviderCorrelation($winningEvent, $curEvent);
+            }
+
             // Build target manifest events
             if ($winningEvent !== null) {
                 $targetEvents[$id] = $winningEvent;
@@ -128,6 +132,42 @@ final class Reconciler
         ];
 
         return new ReconciliationResult($targetManifest, $actions);
+    }
+
+    /**
+     * Preserve provider linkage from current manifest when the reconciled winner
+     * does not carry it (common when FPP is authoritative for state changes).
+     *
+     * @param array<string,mixed> $winningEvent
+     * @param array<string,mixed>|null $currentEvent
+     * @return array<string,mixed>
+     */
+    private function carryCurrentProviderCorrelation(array $winningEvent, ?array $currentEvent): array
+    {
+        if (!is_array($currentEvent)) {
+            return $winningEvent;
+        }
+
+        $winningCorrelation = is_array($winningEvent['correlation'] ?? null) ? $winningEvent['correlation'] : [];
+        $currentCorrelation = is_array($currentEvent['correlation'] ?? null) ? $currentEvent['correlation'] : [];
+
+        $winningSourceUid = $winningCorrelation['sourceEventUid'] ?? null;
+        $currentSourceUid = $currentCorrelation['sourceEventUid'] ?? null;
+        if ((!is_string($winningSourceUid) || $winningSourceUid === '') && is_string($currentSourceUid) && $currentSourceUid !== '') {
+            $winningCorrelation['sourceEventUid'] = $currentSourceUid;
+        }
+
+        $winningGoogleIds = $winningCorrelation['googleEventIds'] ?? null;
+        $currentGoogleIds = $currentCorrelation['googleEventIds'] ?? null;
+        if (!is_array($winningGoogleIds) && is_array($currentGoogleIds) && $currentGoogleIds !== []) {
+            $winningCorrelation['googleEventIds'] = $currentGoogleIds;
+        }
+
+        if ($winningCorrelation !== []) {
+            $winningEvent['correlation'] = $winningCorrelation;
+        }
+
+        return $winningEvent;
     }
 
     /**

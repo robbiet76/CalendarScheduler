@@ -30,6 +30,7 @@ final class ApplyRunner
         ApplyOptions $options
     ): void
     {
+        $targetManifest = $result->targetManifest();
         $executable = $result->executableActions();
         $blocked = $result->blockedActions();
 
@@ -66,7 +67,7 @@ final class ApplyRunner
                 }
 
                 // Build full target schedule from manifest (deletes expressed by absence)
-                $target = $result->targetManifest();
+                $target = $targetManifest;
                 $targetEvents = $target['events'] ?? [];
                 if (!is_array($targetEvents)) {
                     $targetEvents = [];
@@ -144,17 +145,94 @@ final class ApplyRunner
                 }
 
                 if (!$options->isPlan() && !$options->isDryRun()) {
-                    $this->googleExecutor->applyActions($calendarActions);
+                    $googleResults = $this->googleExecutor->applyActions($calendarActions);
+                    $targetManifest = $this->applyGoogleMutationResultsToManifest($targetManifest, $googleResults);
                     $calendarApplied = true;
                 }
             }
 
             // Persist canonical manifest ONLY during real apply
             if (!$options->isPlan() && !$options->isDryRun()) {
-                $this->manifestWriter->applyTargetManifest($result->targetManifest());
+                $this->manifestWriter->applyTargetManifest($targetManifest);
             }
         } catch (\Throwable $e) {
             throw $e;
         }
+    }
+
+    /**
+     * Persist Google provider linkage into manifest subEvent payloads so subsequent
+     * update/delete operations can resolve concrete googleEventId values.
+     *
+     * @param array<string,mixed> $manifest
+     * @param array<int,\CalendarScheduler\Adapter\Calendar\Google\GoogleMutationResult> $results
+     * @return array<string,mixed>
+     */
+    private function applyGoogleMutationResultsToManifest(array $manifest, array $results): array
+    {
+        $events = $manifest['events'] ?? [];
+        if (!is_array($events) || $results === []) {
+            return $manifest;
+        }
+
+        foreach ($results as $result) {
+            if (!($result instanceof \CalendarScheduler\Adapter\Calendar\Google\GoogleMutationResult)) {
+                continue;
+            }
+
+            if (
+                $result->op !== \CalendarScheduler\Adapter\Calendar\Google\GoogleMutation::OP_CREATE
+                && $result->op !== \CalendarScheduler\Adapter\Calendar\Google\GoogleMutation::OP_UPDATE
+            ) {
+                continue;
+            }
+
+            if (!is_string($result->googleEventId) || $result->googleEventId === '') {
+                continue;
+            }
+
+            $id = $result->manifestEventId;
+            if (!is_array($events[$id] ?? null)) {
+                continue;
+            }
+
+            $event = $events[$id];
+            $subEvents = $event['subEvents'] ?? null;
+            if (!is_array($subEvents)) {
+                continue;
+            }
+
+            foreach ($subEvents as $i => $sub) {
+                if (!is_array($sub)) {
+                    continue;
+                }
+
+                $stateHash = $sub['stateHash'] ?? null;
+                if (!is_string($stateHash) || $stateHash === '') {
+                    continue;
+                }
+
+                if ($stateHash !== $result->subEventHash) {
+                    continue;
+                }
+
+                $payload = is_array($sub['payload'] ?? null) ? $sub['payload'] : [];
+                $payload['googleEventId'] = $result->googleEventId;
+                $sub['payload'] = $payload;
+                $subEvents[$i] = $sub;
+                break;
+            }
+
+            $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+            $googleEventIds = is_array($correlation['googleEventIds'] ?? null) ? $correlation['googleEventIds'] : [];
+            $googleEventIds[$result->subEventHash] = $result->googleEventId;
+            $correlation['googleEventIds'] = $googleEventIds;
+            $event['correlation'] = $correlation;
+            $event['subEvents'] = array_values($subEvents);
+            $events[$id] = $event;
+        }
+
+        $manifest['events'] = $events;
+        return $manifest;
     }
 }

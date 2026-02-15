@@ -25,8 +25,9 @@ final class GoogleApplyExecutor
      * while allowing ApplyRunner to pass actions at the orchestration boundary.
      *
      * @param ReconciliationAction[] $actions
+     * @return GoogleMutationResult[]
      */
-    public function applyActions(array $actions): void
+    public function applyActions(array $actions): array
     {
         $mutations = [];
 
@@ -37,19 +38,22 @@ final class GoogleApplyExecutor
             }
         }
 
-        $this->apply($mutations);
+        return $this->apply($mutations);
     }
 
     /**
      * Apply a batch of Google mutations to Google Calendar.
      *
      * @param GoogleMutation[] $mutations
+     * @return GoogleMutationResult[]
      */
-    public function apply(array $mutations): void
+    public function apply(array $mutations): array
     {
+        $results = [];
         foreach ($mutations as $mutation) {
-            $this->applyOne($mutation);
+            $results[] = $this->applyOne($mutation);
         }
+        return $results;
     }
 
     private function applyOne(GoogleMutation $mutation): GoogleMutationResult
@@ -60,7 +64,13 @@ final class GoogleApplyExecutor
                     $mutation->calendarId,
                     $mutation->payload
                 );
-                return new GoogleMutationResult($mutation->op, $mutation->calendarId, $eventId);
+                return new GoogleMutationResult(
+                    $mutation->op,
+                    $mutation->calendarId,
+                    $eventId,
+                    $mutation->manifestEventId,
+                    $mutation->subEventHash
+                );
 
             case GoogleMutation::OP_UPDATE:
                 $this->client->updateEvent(
@@ -68,14 +78,26 @@ final class GoogleApplyExecutor
                     $mutation->googleEventId,
                     $mutation->payload
                 );
-                return new GoogleMutationResult($mutation->op, $mutation->calendarId, $mutation->googleEventId);
+                return new GoogleMutationResult(
+                    $mutation->op,
+                    $mutation->calendarId,
+                    $mutation->googleEventId,
+                    $mutation->manifestEventId,
+                    $mutation->subEventHash
+                );
 
             case GoogleMutation::OP_DELETE:
                 $this->client->deleteEvent(
                     $mutation->calendarId,
                     $mutation->googleEventId
                 );
-                return new GoogleMutationResult($mutation->op, $mutation->calendarId, $mutation->googleEventId);
+                return new GoogleMutationResult(
+                    $mutation->op,
+                    $mutation->calendarId,
+                    $mutation->googleEventId,
+                    $mutation->manifestEventId,
+                    $mutation->subEventHash
+                );
 
             default:
                 throw new \RuntimeException(
