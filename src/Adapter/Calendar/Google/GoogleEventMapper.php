@@ -25,6 +25,7 @@ final class GoogleEventMapper
     private array $diagnostics = [
         'unmappable_skipped' => 0,
         'update_noop_nomappable' => 0,
+        'update_format_only' => 0,
         'update_skipped_missing_delete_ids' => 0,
         'unmappable_reasons' => [],
     ];
@@ -140,6 +141,17 @@ final class GoogleEventMapper
     {
         $createMutations = $this->mapCreate($action, $subEvents, $calendarId);
         if ($createMutations === []) {
+            $formatOnlyUpdates = $this->mapFormatOnlyUpdates($action, $subEvents, $calendarId);
+            if ($formatOnlyUpdates !== []) {
+                $this->diagnostics['update_format_only'] += count($formatOnlyUpdates);
+                $this->debug(
+                    'GoogleEventMapper: update mapped as format-only patch(es) ' .
+                    'identityHash=' . $action->identityHash .
+                    ' count=' . count($formatOnlyUpdates)
+                );
+                return $formatOnlyUpdates;
+            }
+
             $this->diagnostics['update_noop_nomappable']++;
             $this->debug(
                 'GoogleEventMapper: update reduced to no-op (no mappable create payloads) ' .
@@ -171,6 +183,120 @@ final class GoogleEventMapper
         ];
     }
 
+    /**
+     * Build format-only update mutations when timing is unmappable.
+     *
+     * This allows canonical description/metadata normalization to be applied
+     * without attempting start/end timing rewrites.
+     *
+     * @param array<int, array<string,mixed>> $subEvents
+     * @return list<GoogleMutation>
+     */
+    private function mapFormatOnlyUpdates(
+        ReconciliationAction $action,
+        array $subEvents,
+        string $calendarId
+    ): array {
+        $mutations = [];
+        $seenIds = [];
+
+        foreach ($subEvents as $subEvent) {
+            if (!is_array($subEvent)) {
+                continue;
+            }
+
+            $eventId = $this->extractGoogleEventId($action, $subEvent);
+            if (!is_string($eventId) || $eventId === '') {
+                continue;
+            }
+            if (isset($seenIds[$eventId])) {
+                continue;
+            }
+            $seenIds[$eventId] = true;
+
+            $payload = $this->buildFormatOnlyPayload($action, $subEvent);
+            $subEventHash = $this->deriveSubEventHash($subEvent);
+
+            $mutations[] = new GoogleMutation(
+                op: GoogleMutation::OP_UPDATE,
+                calendarId: $calendarId,
+                googleEventId: $eventId,
+                payload: $payload,
+                manifestEventId: $action->identityHash,
+                subEventHash: $subEventHash
+            );
+        }
+
+        return $mutations;
+    }
+
+    /**
+     * Build a payload that only normalizes description + private metadata.
+     *
+     * @param array<string,mixed> $subEvent
+     * @return array<string,mixed>
+     */
+    private function buildFormatOnlyPayload(ReconciliationAction $action, array $subEvent): array
+    {
+        $payloadIn = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
+        $behaviorIn = is_array($subEvent['behavior'] ?? null) ? $subEvent['behavior'] : [];
+        $timing = is_array($subEvent['timing'] ?? null) ? $subEvent['timing'] : [];
+
+        $summary = is_string($payloadIn['summary'] ?? null) && trim((string)$payloadIn['summary']) !== ''
+            ? (string)$payloadIn['summary']
+            : (string)($action->event['identity']['target'] ?? '');
+        $descriptionIn = is_string($payloadIn['description'] ?? null)
+            ? (string)$payloadIn['description']
+            : '';
+
+        $identity = is_array($action->event['identity'] ?? null) ? $action->event['identity'] : [];
+        $identityType = is_string($identity['type'] ?? null) ? (string)$identity['type'] : '';
+        $enabled = (bool)($behaviorIn['enabled'] ?? ($payloadIn['enabled'] ?? true));
+        $repeat = is_string($behaviorIn['repeat'] ?? null)
+            ? (string)$behaviorIn['repeat']
+            : (string)($payloadIn['repeat'] ?? 'none');
+        $stopType = is_string($behaviorIn['stopType'] ?? null)
+            ? (string)$behaviorIn['stopType']
+            : (string)($payloadIn['stopType'] ?? 'graceful');
+
+        $startTime = is_array($timing['start_time'] ?? null) ? $timing['start_time'] : null;
+        $endTime = is_array($timing['end_time'] ?? null) ? $timing['end_time'] : null;
+        $description = $this->composeManagedDescription(
+            $descriptionIn,
+            $identityType,
+            $enabled,
+            $repeat,
+            $stopType,
+            $startTime,
+            $endTime
+        );
+
+        $subEventHash = $this->deriveSubEventHash($subEvent);
+        return [
+            'summary' => $summary,
+            'description' => $description,
+            'extendedProperties' => [
+                'private' => GoogleEventMetadataSchema::privateMetadata(
+                    $action->identityHash,
+                    $subEventHash,
+                    'google',
+                    $identityType !== '' ? $identityType : null,
+                    $enabled,
+                    $repeat !== '' ? $repeat : null,
+                    $stopType !== '' ? $stopType : null,
+                    is_string($timing['start_time']['symbolic'] ?? null)
+                        ? trim((string)$timing['start_time']['symbolic'])
+                        : null,
+                    isset($timing['start_time']['offset']) ? (int)$timing['start_time']['offset'] : null,
+                    is_string($timing['end_time']['symbolic'] ?? null)
+                        ? trim((string)$timing['end_time']['symbolic'])
+                        : null,
+                    isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : null
+                ),
+            ],
+        ];
+    }
+
     private function isUnmappableTimingError(RuntimeException $e): bool
     {
         $msg = $e->getMessage();
@@ -184,12 +310,18 @@ final class GoogleEventMapper
     {
         $unmappableSkipped = (int)($this->diagnostics['unmappable_skipped'] ?? 0);
         $updateNoopNoMappable = (int)($this->diagnostics['update_noop_nomappable'] ?? 0);
+        $updateFormatOnly = (int)($this->diagnostics['update_format_only'] ?? 0);
         $updateSkippedMissingDeleteIds = (int)($this->diagnostics['update_skipped_missing_delete_ids'] ?? 0);
         $reasons = is_array($this->diagnostics['unmappable_reasons'] ?? null)
             ? $this->diagnostics['unmappable_reasons']
             : [];
 
-        if ($unmappableSkipped === 0 && $updateNoopNoMappable === 0 && $updateSkippedMissingDeleteIds === 0) {
+        if (
+            $unmappableSkipped === 0
+            && $updateNoopNoMappable === 0
+            && $updateFormatOnly === 0
+            && $updateSkippedMissingDeleteIds === 0
+        ) {
             return;
         }
 
@@ -206,6 +338,7 @@ final class GoogleEventMapper
             'GoogleEventMapper summary:' .
             ' unmappable_skipped=' . $unmappableSkipped .
             ' update_noop_nomappable=' . $updateNoopNoMappable .
+            ' update_format_only=' . $updateFormatOnly .
             ' update_skipped_missing_delete_ids=' . $updateSkippedMissingDeleteIds .
             $reasonSummary
         );
