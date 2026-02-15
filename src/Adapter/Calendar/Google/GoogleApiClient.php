@@ -78,11 +78,24 @@ final class GoogleApiClient
     public function deleteEvent(string $calendarId, string $eventId): void
     {
         $this->ensureAuthenticated();
-        $this->requestJson(
-            'DELETE',
-            "/calendars/" . rawurlencode($calendarId) . "/events/" . rawurlencode($eventId),
-            null
-        );
+        try {
+            $this->requestJson(
+                'DELETE',
+                "/calendars/" . rawurlencode($calendarId) . "/events/" . rawurlencode($eventId),
+                null
+            );
+        } catch (\RuntimeException $e) {
+            $message = $e->getMessage();
+            // Treat already-deleted/not-found as idempotent success.
+            if (strpos($message, 'HTTP 404') !== false || strpos($message, 'HTTP 410') !== false) {
+                error_log(
+                    'GoogleApiClient: delete skipped (already absent) calendarId=' .
+                    $calendarId . ' eventId=' . $eventId
+                );
+                return;
+            }
+            throw $e;
+        }
     }
 
     /**

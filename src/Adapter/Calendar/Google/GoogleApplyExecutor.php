@@ -38,6 +38,8 @@ final class GoogleApplyExecutor
             }
         }
 
+        $this->mapper->emitDiagnosticsSummary();
+
         return $this->apply($mutations);
     }
 

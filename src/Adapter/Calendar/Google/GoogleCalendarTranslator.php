@@ -14,6 +14,13 @@ use DateTimeZone;
  */
 final class GoogleCalendarTranslator
 {
+    private bool $debugCalendar;
+
+    public function __construct()
+    {
+        $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+    }
+
     /**
      * Canonical entrypoint for Calendar I/O ingestion.
      *
@@ -93,14 +100,16 @@ final class GoogleCalendarTranslator
 
             $uid = $provenance['uid'] ?? null;
 
-            // DEBUG: log raw RRULE + BYDAY for calendar ingestion
-            if (is_array($rrule) && isset($rrule['byday'])) {
-                error_log(
-                    'RAW RRULE BYDAY [calendar]: ' .
-                    json_encode($rrule['byday'])
-                );
-            } else {
-                error_log('RAW RRULE BYDAY [calendar]: null');
+            // Optional low-level RRULE tracing (very noisy, off by default)
+            if ($this->debugCalendar) {
+                if (is_array($rrule) && isset($rrule['byday'])) {
+                    error_log(
+                        'RAW RRULE BYDAY [calendar]: ' .
+                        json_encode($rrule['byday'])
+                    );
+                } else {
+                    error_log('RAW RRULE BYDAY [calendar]: null');
+                }
             }
 
             $out[] = [

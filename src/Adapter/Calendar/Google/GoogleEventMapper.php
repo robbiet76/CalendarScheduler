@@ -19,6 +19,21 @@ use RuntimeException;
  */
 final class GoogleEventMapper
 {
+    private bool $debugCalendar;
+
+    /** @var array<string,mixed> */
+    private array $diagnostics = [
+        'unmappable_skipped' => 0,
+        'update_noop_nomappable' => 0,
+        'update_fallback_create_only' => 0,
+        'unmappable_reasons' => [],
+    ];
+
+    public function __construct()
+    {
+        $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+    }
+
     /**
      * Map a reconciliation action into one or more Google mutations.
      *
@@ -80,11 +95,17 @@ final class GoogleEventMapper
                 if (!$this->isUnmappableTimingError($e)) {
                     throw $e;
                 }
-                error_log(
+                $reason = $e->getMessage();
+                $this->diagnostics['unmappable_skipped']++;
+                if (!isset($this->diagnostics['unmappable_reasons'][$reason])) {
+                    $this->diagnostics['unmappable_reasons'][$reason] = 0;
+                }
+                $this->diagnostics['unmappable_reasons'][$reason]++;
+                $this->debug(
                     'GoogleEventMapper: skipping create for unmappable timing ' .
                     'identityHash=' . $action->identityHash .
                     ' subEventHash=' . $subEventHash .
-                    ' reason=' . $e->getMessage()
+                    ' reason=' . $reason
                 );
                 continue;
             }
@@ -119,7 +140,8 @@ final class GoogleEventMapper
     {
         $createMutations = $this->mapCreate($action, $subEvents, $calendarId);
         if ($createMutations === []) {
-            error_log(
+            $this->diagnostics['update_noop_nomappable']++;
+            $this->debug(
                 'GoogleEventMapper: update reduced to no-op (no mappable create payloads) ' .
                 'identityHash=' . $action->identityHash
             );
@@ -135,7 +157,8 @@ final class GoogleEventMapper
             if (strpos($e->getMessage(), 'no resolvable Google event ids') === false) {
                 throw $e;
             }
-            error_log(
+            $this->diagnostics['update_fallback_create_only']++;
+            $this->debug(
                 'GoogleEventMapper: update fallback to create-only (missing delete ids) ' .
                 'identityHash=' . $action->identityHash
             );
@@ -154,6 +177,44 @@ final class GoogleEventMapper
             || strpos($msg, 'requires hard end_date') !== false
             || strpos($msg, 'does not support symbolic start_time') !== false
             || strpos($msg, 'does not support symbolic end_time') !== false;
+    }
+
+    public function emitDiagnosticsSummary(): void
+    {
+        $unmappableSkipped = (int)($this->diagnostics['unmappable_skipped'] ?? 0);
+        $updateNoopNoMappable = (int)($this->diagnostics['update_noop_nomappable'] ?? 0);
+        $updateFallbackCreateOnly = (int)($this->diagnostics['update_fallback_create_only'] ?? 0);
+        $reasons = is_array($this->diagnostics['unmappable_reasons'] ?? null)
+            ? $this->diagnostics['unmappable_reasons']
+            : [];
+
+        if ($unmappableSkipped === 0 && $updateNoopNoMappable === 0 && $updateFallbackCreateOnly === 0) {
+            return;
+        }
+
+        $reasonParts = [];
+        foreach ($reasons as $reason => $count) {
+            if (is_string($reason) && is_int($count) && $count > 0) {
+                $reasonParts[] = $reason . '=' . $count;
+            }
+        }
+        sort($reasonParts);
+        $reasonSummary = $reasonParts !== [] ? ' unmappable_reasons={' . implode(', ', $reasonParts) . '}' : '';
+
+        error_log(
+            'GoogleEventMapper summary:' .
+            ' unmappable_skipped=' . $unmappableSkipped .
+            ' update_noop_nomappable=' . $updateNoopNoMappable .
+            ' update_fallback_create_only=' . $updateFallbackCreateOnly .
+            $reasonSummary
+        );
+    }
+
+    private function debug(string $message): void
+    {
+        if ($this->debugCalendar) {
+            error_log($message);
+        }
     }
 
     /**
