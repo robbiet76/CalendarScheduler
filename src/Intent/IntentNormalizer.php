@@ -394,10 +394,39 @@ final class IntentNormalizer
                     : 'graceful'
             );
 
-        // Preserve command metadata (if present) as part of state.
+        // Preserve command metadata (if present) as part of state with stable defaults.
         $command = null;
         if (isset($payload['command']) && is_array($payload['command'])) {
-            $command = $payload['command'];
+            $rawCommand = $payload['command'];
+            $command = [];
+
+            // Normalize common command fields that may be omitted on one side.
+            $command['name'] = isset($rawCommand['name']) ? (string)$rawCommand['name'] : '';
+            $command['args'] = is_array($rawCommand['args'] ?? null)
+                ? array_values($rawCommand['args'])
+                : [];
+            $command['multisyncCommand'] = \CalendarScheduler\Platform\FPPSemantics::normalizeBool(
+                $rawCommand['multisyncCommand'] ?? false
+            );
+            $command['multisyncHosts'] = isset($rawCommand['multisyncHosts'])
+                ? (string)$rawCommand['multisyncHosts']
+                : '';
+
+            // Preserve any additional command options deterministically.
+            $extra = [];
+            foreach ($rawCommand as $key => $value) {
+                if (!is_string($key)) {
+                    continue;
+                }
+                if (isset($command[$key])) {
+                    continue;
+                }
+                $extra[$key] = $value;
+            }
+            ksort($extra);
+            foreach ($extra as $key => $value) {
+                $command[$key] = $value;
+            }
         }
 
         return [
