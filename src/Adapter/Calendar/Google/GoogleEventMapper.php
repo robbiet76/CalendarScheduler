@@ -514,18 +514,22 @@ final class GoogleEventMapper
             '# Edit values below. Free-form notes can be added at the bottom.',
             '',
             '[settings]',
+            '# Edit FPP Scheduler Settings',
             '# Schedule Type: Playlist | Sequence | Command',
-            'type = ' . $this->formatTypeForDescription($type),
             '# Enabled: True | False',
-            'enabled = ' . ($enabled ? 'True' : 'False'),
-            '# Repeat: None | Immediate | 5 Min. | 10 Min. | 15 Min. | 20 Min. | 30 Min. | 60 Min.',
-            'repeat = ' . $this->formatRepeatForDescription($repeat),
+            '# Repeat: None | Immediate | 5 | 10 | 15 | 20 | 30 | 60 (Min.)',
             '# Stop Type: Graceful | Graceful Loop | Hard Stop',
+            '',
+            'type = ' . $this->formatTypeForDescription($type),
+            'enabled = ' . ($enabled ? 'True' : 'False'),
+            'repeat = ' . $this->formatRepeatForDescription($repeat),
             'stopType = ' . $this->formatStopTypeForDescription($stopType),
             '',
             '[symbolic_time]',
+            '# Edit Symbolic Time Settings',
             '# Start Time/End Time: Dawn | SunRise | SunSet | Dusk',
-            '# Leave blank to use hard clock time from event start/end.',
+            '# Start Time/End Time Offset Min: (Enter +/- minutes)',
+            '# Leave values blank to use hard clock time from event start/end.',
         ];
 
         $startSym = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
@@ -543,6 +547,8 @@ final class GoogleEventMapper
         $settings[] = '# Notes:';
         $settings[] = '# - Target comes from calendar title (summary), not description.';
         $settings[] = '# - Offsets are ignored when start/end is blank.';
+        $settings[] = '# - Calendar Event Title should match Playlist/Sequence/Command name.';
+        $settings[] = '# -------------------- USER NOTES BELOW --------------------';
 
         $sections = [implode("\n", $settings)];
 
@@ -617,12 +623,12 @@ final class GoogleEventMapper
             return 'None';
         }
         if (preg_match('/^(\d+)min$/', $r, $m) === 1) {
-            return $m[1] . ' Min.';
+            return $m[1];
         }
         if (ctype_digit($r)) {
             $n = (int)$r;
             if ($n > 0) {
-                return (string)$n . ' Min.';
+                return (string)$n;
             }
         }
 
