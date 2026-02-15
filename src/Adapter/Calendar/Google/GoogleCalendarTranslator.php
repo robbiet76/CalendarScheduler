@@ -15,10 +15,12 @@ use DateTimeZone;
 final class GoogleCalendarTranslator
 {
     private bool $debugCalendar;
+    private DateTimeZone $localTimezone;
 
     public function __construct()
     {
         $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+        $this->localTimezone = $this->resolveLocalTimezone();
     }
 
     /**
@@ -361,8 +363,7 @@ final class GoogleCalendarTranslator
                 }
             }
 
-            $local = new DateTimeZone(date_default_timezone_get());
-            return $dt->setTimezone($local)->format(DATE_ATOM);
+            return $dt->setTimezone($this->localTimezone)->format(DATE_ATOM);
         } catch (\Throwable) {
             return null;
         }
@@ -477,7 +478,7 @@ final class GoogleCalendarTranslator
             }
         }
         if ($tzObj === null) {
-            $tzObj = new DateTimeZone(date_default_timezone_get());
+            $tzObj = $this->localTimezone;
         }
 
         $startIso = $this->formatLocalDateTimeToAtom($dtstart, $tzObj);
@@ -514,5 +515,30 @@ final class GoogleCalendarTranslator
         }
 
         return $dt->setTimezone($tz)->format(DATE_ATOM);
+    }
+
+    private function resolveLocalTimezone(): DateTimeZone
+    {
+        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        if (is_file($envPath)) {
+            $raw = @file_get_contents($envPath);
+            if (is_string($raw) && $raw !== '') {
+                $json = @json_decode($raw, true);
+                $tzName = is_array($json) ? ($json['timezone'] ?? null) : null;
+                if (is_string($tzName) && trim($tzName) !== '') {
+                    try {
+                        return new DateTimeZone(trim($tzName));
+                    } catch (\Throwable) {
+                        // fall through
+                    }
+                }
+            }
+        }
+
+        try {
+            return new DateTimeZone(date_default_timezone_get());
+        } catch (\Throwable) {
+            return new DateTimeZone('UTC');
+        }
     }
 }
