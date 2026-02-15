@@ -74,12 +74,26 @@ final class GoogleEventMapper
             }
 
             $subEventHash = $this->deriveSubEventHash($subEvent);
+            try {
+                $payload = $this->buildPayload($action, $subEvent);
+            } catch (RuntimeException $e) {
+                if (!$this->isUnmappableTimingError($e)) {
+                    throw $e;
+                }
+                error_log(
+                    'GoogleEventMapper: skipping create for unmappable timing ' .
+                    'identityHash=' . $action->identityHash .
+                    ' subEventHash=' . $subEventHash .
+                    ' reason=' . $e->getMessage()
+                );
+                continue;
+            }
 
             $mutations[] = new GoogleMutation(
                 op: GoogleMutation::OP_CREATE,
                 calendarId: $calendarId,
                 googleEventId: null,
-                payload: $this->buildPayload($action, $subEvent),
+                payload: $payload,
                 manifestEventId: $action->identityHash,
                 subEventHash: $subEventHash
             );
@@ -103,6 +117,15 @@ final class GoogleEventMapper
      */
     private function mapUpdate(ReconciliationAction $action, array $subEvents, string $calendarId): array
     {
+        $createMutations = $this->mapCreate($action, $subEvents, $calendarId);
+        if ($createMutations === []) {
+            error_log(
+                'GoogleEventMapper: update reduced to no-op (no mappable create payloads) ' .
+                'identityHash=' . $action->identityHash
+            );
+            return [];
+        }
+
         $deleteMutations = [];
         try {
             $deleteMutations = $this->mapDelete($action, $calendarId);
@@ -120,8 +143,17 @@ final class GoogleEventMapper
 
         return [
             ...$deleteMutations,
-            ...$this->mapCreate($action, $subEvents, $calendarId),
+            ...$createMutations,
         ];
+    }
+
+    private function isUnmappableTimingError(RuntimeException $e): bool
+    {
+        $msg = $e->getMessage();
+        return strpos($msg, 'requires hard start_date') !== false
+            || strpos($msg, 'requires hard end_date') !== false
+            || strpos($msg, 'does not support symbolic start_time') !== false
+            || strpos($msg, 'does not support symbolic end_time') !== false;
     }
 
     /**
