@@ -38,17 +38,26 @@ final class ApplyRunner
             ReconciliationAction::TARGET_FPP => [],
             ReconciliationAction::TARGET_CALENDAR => [],
         ];
+        $disallowed = [];
 
         foreach ($executable as $action) {
-            if (isset($actionsByTarget[$action->target])) {
-                $actionsByTarget[$action->target][] = $action;
+            if (!isset($actionsByTarget[$action->target])) {
+                continue;
             }
+            if (!$options->canWrite($action->target)) {
+                $disallowed[] = $action;
+                continue;
+            }
+            $actionsByTarget[$action->target][] = $action;
         }
 
-        if ($blocked !== [] && $options->failOnBlockedActions) {
+        if (($blocked !== [] || $disallowed !== []) && $options->failOnBlockedActions) {
             $messages = [];
             foreach ($blocked as $action) {
                 $messages[] = "Blocked: {$action->identityHash} ({$action->reason})";
+            }
+            foreach ($disallowed as $action) {
+                $messages[] = "Blocked by target policy: {$action->identityHash} ({$action->target} not writable)";
             }
             throw new \RuntimeException('Apply blocked: ' . implode('; ', $messages));
         }

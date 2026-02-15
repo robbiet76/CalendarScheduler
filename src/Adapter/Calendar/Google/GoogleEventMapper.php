@@ -562,6 +562,13 @@ final class GoogleEventMapper
 
     private function stripManagedSections(string $description): string
     {
+        $divider = '# -------------------- USER NOTES BELOW --------------------';
+        $pos = strpos($description, $divider);
+        if ($pos !== false) {
+            $notes = substr($description, $pos + strlen($divider));
+            return trim((string)$notes);
+        }
+
         $lines = preg_split('/\r\n|\r|\n/', $description);
         if (!is_array($lines) || $lines === []) {
             return trim($description);
@@ -579,10 +586,7 @@ final class GoogleEventMapper
                 $seenMarker = true;
                 continue;
             }
-            if ($seenMarker && str_starts_with($trim, '#')) {
-                continue;
-            }
-            if ($seenMarker && $trim === '') {
+            if ($seenMarker && $trim === '# edit values below. free-form notes can be added at the bottom.') {
                 continue;
             }
 

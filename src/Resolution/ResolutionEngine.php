@@ -72,17 +72,8 @@ final class ResolutionEngine implements ResolutionEngineInterface
                     $bundles[$i + 1]->getSegmentScope()->getEnd()
                 );
                 // Reuse subevents from the first bundle
-                $mergedBundleUid = $this->buildBundleUid(
-                    // We need the original event, but we only have the ResolvedBundle.
-                    // Since bundleUid, parentUid, etc. are always from the same event,
-                    // we can pass a dummy SnapshotEvent with only the required fields.
-                    // But instead, we rely on the fact that bundleUid is only a hash of parentUid and scope.
-                    // So, to avoid breaking logic, let's assume buildBundleUid can be used with a dummy event:
-                    (object)[
-                        'parentUid' => $current->getParentUid(),
-                        'sourceEventUid' => $current->getSourceEventUid(),
-                        // These fields are not used in buildBundleUid for hashing
-                    ],
+                $mergedBundleUid = $this->buildBundleUidFromParentUid(
+                    $current->getParentUid(),
                     $mergedScope
                 );
                 $merged = new \CalendarScheduler\Resolution\Dto\ResolvedBundle(
@@ -677,10 +668,20 @@ final class ResolutionEngine implements ResolutionEngineInterface
         SnapshotEvent $event,
         ResolutionScope $segmentScope
     ): string {
+        return $this->buildBundleUidFromParentUid($event->parentUid, $segmentScope);
+    }
+
+    /**
+     * Deterministic bundle identity from a parent UID and segment scope.
+     */
+    private function buildBundleUidFromParentUid(
+        string $parentUid,
+        ResolutionScope $segmentScope
+    ): string {
         return hash(
             'sha256',
             implode('|', [
-                $event->parentUid,
+                $parentUid,
                 $segmentScope->getStart()->format('Y-m-d'),
                 $segmentScope->getEnd()->format('Y-m-d'),
             ])

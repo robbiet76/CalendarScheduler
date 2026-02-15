@@ -9,7 +9,6 @@ declare(strict_types=1);
 
 use CalendarScheduler\Apply\ApplyRunner;
 use CalendarScheduler\Apply\ManifestWriter;
-use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyTargets;
@@ -48,12 +47,6 @@ $DEFAULT_SCHEDULE_PATH =
 $DEFAULT_MANIFEST_PATH =
     '/home/fpp/media/config/calendar-scheduler/manifest.json';
 
-$DEFAULT_CALENDAR_SNAPSHOT_PATH =
-    '/home/fpp/media/config/calendar-scheduler/calendar/calendar-snapshot.json';
-
-// Optional: if your Google adapter reads from an intents file instead of snapshot,
-// override via --calendar or env var in the future.
-
 // -----------------------------------------------------------------------------
 // Argument parsing
 // -----------------------------------------------------------------------------
@@ -72,7 +65,6 @@ $opts = getopt('', [
 
 $dryRun = array_key_exists('dry-run', $opts);
 $quiet  = array_key_exists('quiet', $opts);
-$refreshCalendar = array_key_exists('refresh-calendar', $opts);
 $apply = array_key_exists('apply', $opts);
 $plan = array_key_exists('plan', $opts);
 
@@ -158,40 +150,6 @@ if ($afterEpoch <= $beforeEpoch) {
     throw new RuntimeException('fpp-env.json was not refreshed (generatedAtEpoch did not advance)');
 }
 
-# -------------------------------------------------------------------------
-# Refresh Google Calendar snapshot (authoritative source)
-# -------------------------------------------------------------------------
-
-if ($refreshCalendar || $apply) {
-    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-
-    if (is_dir($googleConfigPath) || is_file($googleConfigPath)) {
-        $googleConfig = new GoogleConfig($googleConfigPath);
-        $googleClient = new GoogleApiClient($googleConfig);
-
-        // Ensure OAuth + token refresh
-        $googleClient->ensureAuthenticated();
-
-        // Fetch raw Google events
-        $calendarId = $googleConfig->getCalendarId();
-        $rawEvents = $googleClient->listEvents($calendarId);
-
-        // Translate into snapshot rows
-        $translator = new \CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator();
-        $snapshotRows = $translator->ingest($rawEvents, 'google');
-
-        // Persist snapshot (authoritative, overwrite)
-        $snapshotPath = $DEFAULT_CALENDAR_SNAPSHOT_PATH;
-        $json = json_encode($snapshotRows, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            throw new RuntimeException('Failed to encode calendar snapshot JSON');
-        }
-        if (file_put_contents($snapshotPath, $json) === false) {
-            throw new RuntimeException("Failed to write calendar snapshot: {$snapshotPath}");
-        }
-    }
-}
-
 try {
     $engine = new \CalendarScheduler\Engine\SchedulerEngine();
 
@@ -233,8 +191,8 @@ $countUpdate = $totals['update'];
 $countDelete = $totals['delete'];
 
 if ($apply) {
-    // Writable targets are expressed via ApplyTargets (must align with ReconciliationAction::TARGET_*).
-    $targets = ApplyTargets::fppOnly();
+    // Writable targets are expressed via ApplyTargets.
+    $targets = ApplyTargets::all();
 
     if ($plan) {
         $options = ApplyOptions::plan();
