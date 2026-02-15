@@ -133,6 +133,42 @@ final class FppEventTimestampStore
         return $out;
     }
 
+    /**
+     * Load updatedAtEpoch indexed by event stateHash.
+     *
+     * This is used as a compatibility fallback when identity-hash contracts change
+     * but event executable state remains unchanged.
+     *
+     * @return array<string,int>
+     */
+    public function loadUpdatedAtByStateHash(string $path): array
+    {
+        $doc = $this->load($path);
+        $events = is_array($doc['events'] ?? null) ? $doc['events'] : [];
+
+        $out = [];
+        foreach ($events as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $stateHash = $row['stateHash'] ?? null;
+            $ts = $row['updatedAtEpoch'] ?? null;
+            if (!is_string($stateHash) || $stateHash === '' || !is_numeric($ts)) {
+                continue;
+            }
+            $n = (int)$ts;
+            if ($n <= 0) {
+                continue;
+            }
+            // Keep first-seen timestamp for identical state hashes (stable deterministic choice).
+            if (!isset($out[$stateHash])) {
+                $out[$stateHash] = $n;
+            }
+        }
+
+        return $out;
+    }
+
     private function buildNormalizationContext(): NormalizationContext
     {
         $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';

@@ -174,8 +174,9 @@ final class SchedulerEngine
         $fppSnapshotEpoch = is_int($fppMtime) ? $fppMtime : time();
 
         $fppEventTimestampPath = '/home/fpp/media/config/calendar-scheduler/fpp/event-timestamps.json';
-        $fppUpdatedAtById = (new FppEventTimestampStore())
-            ->loadUpdatedAtByIdentity($fppEventTimestampPath);
+        $timestampStore = new FppEventTimestampStore();
+        $fppUpdatedAtById = $timestampStore->loadUpdatedAtByIdentity($fppEventTimestampPath);
+        $fppUpdatedAtByStateHash = $timestampStore->loadUpdatedAtByStateHash($fppEventTimestampPath);
 
         // -----------------------------------------------------------------
         // Load current manifest
@@ -457,6 +458,19 @@ final class SchedulerEngine
             $hash = $intent->identityHash;
 
             $fppIntents[$hash] = $intent;
+
+            if (!isset($computedFppUpdatedAtById[$hash]) || $computedFppUpdatedAtById[$hash] <= 0) {
+                $eventStateHash = $intent->eventStateHash;
+                if (
+                    is_string($eventStateHash)
+                    && $eventStateHash !== ''
+                    && isset($fppUpdatedAtByStateHash[$eventStateHash])
+                    && $fppUpdatedAtByStateHash[$eventStateHash] > 0
+                ) {
+                    $computedFppUpdatedAtById[$hash] = $fppUpdatedAtByStateHash[$eventStateHash];
+                    continue;
+                }
+            }
 
             if (!isset($computedFppUpdatedAtById[$hash]) || $computedFppUpdatedAtById[$hash] <= 0) {
                 $ts = $event['updatedAtEpoch'] ?? $event['sourceUpdatedAt'] ?? 0;
