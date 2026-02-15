@@ -75,6 +75,7 @@ final class SchedulerEngine
 
         $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
         $holidays = [];
+        $contextTimezone = new \DateTimeZone('UTC');
 
         if (is_file($fppEnvPath)) {
             $fppEnvRaw = json_decode(
@@ -88,10 +89,19 @@ final class SchedulerEngine
             ) {
                 $holidays = $fppEnvRaw['rawLocale']['holidays'];
             }
+
+            $tzName = $fppEnvRaw['timezone'] ?? null;
+            if (is_string($tzName) && trim($tzName) !== '') {
+                try {
+                    $contextTimezone = new \DateTimeZone(trim($tzName));
+                } catch (\Throwable) {
+                    // Keep UTC fallback when fpp-env timezone is invalid.
+                }
+            }
         }
 
         $context = new NormalizationContext(
-            new \DateTimeZone('UTC'),
+            $contextTimezone,
             new \CalendarScheduler\Platform\FPPSemantics(),
             new \CalendarScheduler\Platform\HolidayResolver($holidays)
         );
@@ -385,6 +395,12 @@ final class SchedulerEngine
                                 'value' => array_values($plannerIntent->weeklyDays),
                             ]
                             : null,
+                        'timezone' => (
+                            is_string($plannerIntent->timezone ?? null)
+                            && trim((string)$plannerIntent->timezone) !== ''
+                        )
+                            ? trim((string)$plannerIntent->timezone)
+                            : $context->timezone->getName(),
                     ],
                     'payload' => array_merge(
                         $payload,
