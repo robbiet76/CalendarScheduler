@@ -225,10 +225,12 @@ final class GoogleEventMapper
     {
         $timing = $subEvent['timing'] ?? null;
         $payloadIn = $subEvent['payload'] ?? null;
+        $behaviorIn = $subEvent['behavior'] ?? null;
 
         if (!is_array($timing) || !is_array($payloadIn)) {
             throw new RuntimeException('Invalid SubEvent manifest shape: expected timing+payload arrays');
         }
+        $behaviorIn = is_array($behaviorIn) ? $behaviorIn : [];
 
         $tz = is_string($timing['timezone'] ?? null) && $timing['timezone'] !== ''
             ? $timing['timezone']
@@ -241,9 +243,31 @@ final class GoogleEventMapper
             ? (string)$payloadIn['summary']
             : (string)($action->event['identity']['target'] ?? '');
 
-        $description = is_string($payloadIn['description'] ?? null)
+        $descriptionIn = is_string($payloadIn['description'] ?? null)
             ? (string)$payloadIn['description']
             : '';
+
+        $identity = is_array($action->event['identity'] ?? null) ? $action->event['identity'] : [];
+        $identityType = is_string($identity['type'] ?? null) ? (string)$identity['type'] : '';
+        $identityTarget = is_string($identity['target'] ?? null) ? (string)$identity['target'] : '';
+        $enabled = (bool)($behaviorIn['enabled'] ?? ($payloadIn['enabled'] ?? true));
+        $repeat = is_string($behaviorIn['repeat'] ?? null)
+            ? (string)$behaviorIn['repeat']
+            : (string)($payloadIn['repeat'] ?? 'none');
+        $stopType = is_string($behaviorIn['stopType'] ?? null)
+            ? (string)$behaviorIn['stopType']
+            : (string)($payloadIn['stopType'] ?? 'graceful');
+
+        $description = $this->composeManagedDescription(
+            $descriptionIn,
+            $identityType,
+            $identityTarget,
+            $enabled,
+            $repeat,
+            $stopType,
+            is_array($timing['start_time'] ?? null) ? $timing['start_time'] : null,
+            is_array($timing['end_time'] ?? null) ? $timing['end_time'] : null
+        );
 
         $payload = [
             'summary'     => $summary,
@@ -261,6 +285,56 @@ final class GoogleEventMapper
         ];
 
         return $payload;
+    }
+
+    private function composeManagedDescription(
+        string $existingDescription,
+        string $type,
+        string $target,
+        bool $enabled,
+        string $repeat,
+        string $stopType,
+        ?array $startTime,
+        ?array $endTime
+    ): string {
+        $settings = [
+            '[settings]',
+            'type = ' . $type,
+            'target = ' . $target,
+            'enabled = ' . ($enabled ? 'true' : 'false'),
+            'repeat = ' . $repeat,
+            'stopType = ' . $stopType,
+        ];
+
+        $sections = [implode("\n", $settings)];
+
+        $symbolicLines = ['[symbolic_time]'];
+        $hasSymbolic = false;
+
+        $startSym = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
+        if ($startSym !== '') {
+            $hasSymbolic = true;
+            $symbolicLines[] = 'start = ' . $startSym;
+            $symbolicLines[] = 'start_offset = ' . (string)((int)($startTime['offset'] ?? 0));
+        }
+
+        $endSym = is_string($endTime['symbolic'] ?? null) ? trim((string)$endTime['symbolic']) : '';
+        if ($endSym !== '') {
+            $hasSymbolic = true;
+            $symbolicLines[] = 'end = ' . $endSym;
+            $symbolicLines[] = 'end_offset = ' . (string)((int)($endTime['offset'] ?? 0));
+        }
+
+        if ($hasSymbolic) {
+            $sections[] = implode("\n", $symbolicLines);
+        }
+
+        $existingDescription = trim($existingDescription);
+        if ($existingDescription !== '') {
+            $sections[] = $existingDescription;
+        }
+
+        return implode("\n\n", $sections);
     }
 
     /**
