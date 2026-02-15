@@ -86,6 +86,16 @@ final class IntentNormalizer
         // Any hard time present alongside a symbolic value is display-only and must be ignored.
         $timingArr = $this->normalizeSymbolicTimes($timingArr);
 
+        // Calendar invariants:
+        // - Calendar-side events must always carry concrete hard dates.
+        // - Symbolic-only dates are only valid on the FPP side.
+        $this->assertCalendarHardDates(
+            (string)($event['source'] ?? ''),
+            (string)($event['type'] ?? ''),
+            (string)($event['target'] ?? ''),
+            $timingArr
+        );
+
         // All-day normalization:
         // When all_day = true, time fields are semantically irrelevant
         // and MUST be nulled for identity stability across providers.
@@ -603,6 +613,35 @@ final class IntentNormalizer
         }
 
         return $timing;
+    }
+
+    /**
+     * Calendar source invariant:
+     * - start_date.hard and end_date.hard must always be present.
+     * - symbolic-only dates are invalid for calendar events.
+     *
+     * @param array<string,mixed> $timing
+     */
+    private function assertCalendarHardDates(
+        string $source,
+        string $type,
+        string $target,
+        array $timing
+    ): void {
+        if ($source !== 'calendar') {
+            return;
+        }
+
+        foreach (['start_date', 'end_date'] as $key) {
+            $date = $timing[$key] ?? null;
+            $hard = is_array($date) ? ($date['hard'] ?? null) : null;
+
+            if (!is_string($hard) || trim($hard) === '') {
+                throw new \RuntimeException(
+                    "Calendar event missing required {$key}.hard (type={$type}, target={$target})"
+                );
+            }
+        }
     }
     /**
      * Debug canonical identity inputs immediately before identity hashing.
