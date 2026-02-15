@@ -293,6 +293,7 @@ final class IntentNormalizer
     {
         $timing = is_array($subEvent['timing'] ?? null) ? $subEvent['timing'] : [];
         $payload = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
+        $behavior = is_array($subEvent['behavior'] ?? null) ? $subEvent['behavior'] : [];
 
         $lowerOrNull = function ($v): ?string {
             if (!is_string($v)) {
@@ -365,16 +366,27 @@ final class IntentNormalizer
         };
 
         // Execution behavior fields must be stable across sources.
-        $enabled = \CalendarScheduler\Platform\FPPSemantics::normalizeEnabled($payload['enabled'] ?? true);
-        $repeat  = isset($payload['repeat']) && is_string($payload['repeat'])
-            ? strtolower(trim($payload['repeat']))
-            : (\CalendarScheduler\Platform\FPPSemantics::repeatToSemantic(
-                \CalendarScheduler\Platform\FPPSemantics::defaultRepeatForType((string)($subEvent['type'] ?? 'playlist'))
-            ));
+        // Prefer explicit behavior block, then payload fallback.
+        $enabled = \CalendarScheduler\Platform\FPPSemantics::normalizeEnabled(
+            $behavior['enabled'] ?? ($payload['enabled'] ?? true)
+        );
+        $repeat  = isset($behavior['repeat']) && is_string($behavior['repeat'])
+            ? strtolower(trim($behavior['repeat']))
+            : (
+                isset($payload['repeat']) && is_string($payload['repeat'])
+                    ? strtolower(trim($payload['repeat']))
+                    : (\CalendarScheduler\Platform\FPPSemantics::repeatToSemantic(
+                        \CalendarScheduler\Platform\FPPSemantics::defaultRepeatForType((string)($subEvent['type'] ?? 'playlist'))
+                    ))
+            );
 
-        $stopType = isset($payload['stopType']) && is_string($payload['stopType'])
-            ? strtolower(trim($payload['stopType']))
-            : 'graceful';
+        $stopType = isset($behavior['stopType']) && is_string($behavior['stopType'])
+            ? strtolower(trim($behavior['stopType']))
+            : (
+                isset($payload['stopType']) && is_string($payload['stopType'])
+                    ? strtolower(trim($payload['stopType']))
+                    : 'graceful'
+            );
 
         // Preserve command metadata (if present) as part of state.
         $command = null;
