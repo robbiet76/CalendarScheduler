@@ -200,6 +200,7 @@ final class SchedulerEngine
             $fppEvents,
             $calendarUpdatedAtById,
             $fppUpdatedAtById,
+            $fppUpdatedAtByStateHash,
             $context,
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch
@@ -214,6 +215,7 @@ final class SchedulerEngine
      * @param array<int,array<string,mixed>> $fppEvents
      * @param array<string,int> $calendarUpdatedAtById
      * @param array<string,int> $fppUpdatedAtById
+     * @param array<string,int> $fppUpdatedAtByStateHash
      */
     public function run(
         array $currentManifest,
@@ -221,6 +223,7 @@ final class SchedulerEngine
         array $fppEvents,
         array $calendarUpdatedAtById,
         array $fppUpdatedAtById,
+        array $fppUpdatedAtByStateHash,
         NormalizationContext $context,
         int $calendarSnapshotEpoch,
         int $fppSnapshotEpoch
