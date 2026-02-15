@@ -16,6 +16,8 @@ use DateTimeZone;
  */
 final class GoogleCalendarTranslator
 {
+    private const MANAGED_FORMAT_VERSION = '1';
+
     private bool $debugCalendar;
     private DateTimeZone $localTimezone;
 
@@ -620,6 +622,11 @@ final class GoogleCalendarTranslator
 
         ksort($settings);
 
+        $currentFormatVersion = is_string($metadata['formatVersion'] ?? null)
+            ? trim((string)$metadata['formatVersion'])
+            : '';
+        $needsFormatRefresh = ($currentFormatVersion !== self::MANAGED_FORMAT_VERSION);
+
         return [
             'manifestEventId' => is_string($metadata['manifestEventId'] ?? null)
                 ? $metadata['manifestEventId']
@@ -631,6 +638,8 @@ final class GoogleCalendarTranslator
                 ? $metadata['provider']
                 : 'google',
             'schemaVersion' => GoogleEventMetadataSchema::VERSION,
+            'formatVersion' => self::MANAGED_FORMAT_VERSION,
+            'needsFormatRefresh' => $needsFormatRefresh,
             'settings' => $settings,
         ];
     }

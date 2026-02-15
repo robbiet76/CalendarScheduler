@@ -19,6 +19,8 @@ use RuntimeException;
  */
 final class GoogleEventMapper
 {
+    private const MANAGED_FORMAT_VERSION = '1';
+
     private bool $debugCalendar;
 
     /** @var array<string,mixed> */
@@ -280,6 +282,7 @@ final class GoogleEventMapper
                     $action->identityHash,
                     $subEventHash,
                     'google',
+                    self::MANAGED_FORMAT_VERSION,
                     $identityType !== '' ? $identityType : null,
                     $enabled,
                     $repeat !== '' ? $repeat : null,
@@ -481,6 +484,7 @@ final class GoogleEventMapper
                     $action->identityHash,
                     $subEventHash,
                     'google',
+                    self::MANAGED_FORMAT_VERSION,
                     $identityType !== '' ? $identityType : null,
                     $enabled,
                     $repeat !== '' ? $repeat : null,

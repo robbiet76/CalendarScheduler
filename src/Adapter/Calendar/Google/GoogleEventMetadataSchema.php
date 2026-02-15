@@ -17,6 +17,7 @@ final class GoogleEventMetadataSchema
     public const KEY_SUB_EVENT_HASH = 'cs.subEventHash';
     public const KEY_PROVIDER = 'cs.provider';
     public const KEY_SCHEMA_VERSION = 'cs.schemaVersion';
+    public const KEY_FORMAT_VERSION = 'cs.formatVersion';
     public const KEY_TYPE = 'cs.type';
     public const KEY_ENABLED = 'cs.enabled';
     public const KEY_REPEAT = 'cs.repeat';
@@ -40,6 +41,7 @@ final class GoogleEventMetadataSchema
         string $manifestEventId,
         string $subEventHash,
         string $provider = 'google',
+        ?string $formatVersion = null,
         ?string $type = null,
         ?bool $enabled = null,
         ?string $repeat = null,
@@ -55,6 +57,9 @@ final class GoogleEventMetadataSchema
             self::KEY_PROVIDER => $provider,
             self::KEY_SCHEMA_VERSION => self::VERSION,
         ];
+        if (is_string($formatVersion) && trim($formatVersion) !== '') {
+            $out[self::KEY_FORMAT_VERSION] = trim($formatVersion);
+        }
 
         if (is_string($type) && trim($type) !== '') {
             $out[self::KEY_TYPE] = trim($type);
@@ -90,6 +95,7 @@ final class GoogleEventMetadataSchema
         $subEventHash = self::readString($private, self::KEY_SUB_EVENT_HASH);
         $provider = self::readString($private, self::KEY_PROVIDER);
         $schemaVersion = self::readString($private, self::KEY_SCHEMA_VERSION);
+        $formatVersion = self::readString($private, self::KEY_FORMAT_VERSION);
 
         $settings = [];
 
@@ -130,6 +136,7 @@ final class GoogleEventMetadataSchema
             'subEventHash' => $subEventHash,
             'provider' => $provider,
             'schemaVersion' => $schemaVersion,
+            'formatVersion' => $formatVersion,
             'settings' => $settings,
         ];
     }
@@ -147,6 +154,7 @@ final class GoogleEventMetadataSchema
                 'subEventHash' => null,
                 'provider' => null,
                 'schemaVersion' => null,
+                'formatVersion' => null,
                 'settings' => [],
             ];
         }

@@ -241,6 +241,13 @@ final class Reconciler
             $calState = $this->readEventStateHashOrEmpty($calEvent);
             $fppState = $this->readEventStateHashOrEmpty($fppEvent);
             if ($calState !== '' && $calState === $fppState) {
+                if ($this->eventNeedsCalendarFormatRefresh($calEvent)) {
+                    return [
+                        'winner' => 'fpp',
+                        'event' => $fppEvent,
+                        'reason' => 'stateHash equal but calendar format refresh required',
+                    ];
+                }
                 return [
                     'winner' => 'calendar',
                     'event' => $calEvent,
@@ -353,7 +360,8 @@ final class Reconciler
             $authority,
             $calEvent,
             $winningEvent,
-            $reason
+            $reason,
+            $this->eventNeedsCalendarFormatRefresh($calEvent)
         );
         $actions[] = new ReconciliationAction(
             ReconciliationAction::TYPE_NOOP,
@@ -379,7 +387,8 @@ final class Reconciler
         string $authority,
         ?array $existing,
         ?array $desired,
-        string $reason
+        string $reason,
+        bool $forceUpdate = false
     ): ?ReconciliationAction {
         // desired is null => delete
         if ($desired === null) {
@@ -419,7 +428,7 @@ final class Reconciler
         $exState = $this->readEventStateHashOrEmpty($existing);
         $deState = $this->readEventStateHashOrEmpty($desired);
 
-        if ($exState !== '' && $deState !== '' && $exState === $deState) {
+        if (!$forceUpdate && $exState !== '' && $deState !== '' && $exState === $deState) {
             return new ReconciliationAction(
                 ReconciliationAction::TYPE_NOOP,
                 $target,
@@ -435,9 +444,37 @@ final class Reconciler
             $target,
             $authority,
             $id,
-            $reason . '; update',
+            $reason . ($forceUpdate ? '; force format refresh update' : '; update'),
             $desired
         );
+    }
+
+    /**
+     * Detect whether a calendar event should be force-updated to refresh managed description format.
+     *
+     * @param array<string,mixed>|null $event
+     */
+    private function eventNeedsCalendarFormatRefresh(?array $event): bool
+    {
+        if (!is_array($event)) {
+            return false;
+        }
+
+        $subEvents = $event['subEvents'] ?? null;
+        if (!is_array($subEvents) || $subEvents === []) {
+            return false;
+        }
+
+        $first = $subEvents[0] ?? null;
+        if (!is_array($first)) {
+            return false;
+        }
+
+        $payload = is_array($first['payload'] ?? null) ? $first['payload'] : [];
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $needs = $metadata['needsFormatRefresh'] ?? false;
+
+        return $needs === true;
     }
 
     // ---------------------------------------------------------------------
