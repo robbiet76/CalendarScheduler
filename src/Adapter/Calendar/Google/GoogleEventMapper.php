@@ -513,45 +513,41 @@ final class GoogleEventMapper
         ?array $startTime,
         ?array $endTime
     ): string {
-        $settings = [
-            '# Managed by Calendar Scheduler',
-            '# Edit values below. Free-form notes can be added at the bottom.',
-            '',
-            '[settings]',
-            '# Edit FPP Scheduler Settings',
-            '# Schedule Type: Playlist | Sequence | Command',
-            '# Enabled: True | False',
-            '# Repeat: None | Immediate | 5 | 10 | 15 | 20 | 30 | 60 (Min.)',
-            '# Stop Type: Graceful | Graceful Loop | Hard Stop',
-            '',
-            'type = ' . $this->formatTypeForDescription($type),
-            'enabled = ' . ($enabled ? 'True' : 'False'),
-            'repeat = ' . $this->formatRepeatForDescription($repeat),
-            'stopType = ' . $this->formatStopTypeForDescription($stopType),
-            '',
-            '[symbolic_time]',
-            '# Edit Symbolic Time Settings',
-            '# Start Time/End Time: Dawn | SunRise | SunSet | Dusk',
-            '# Start Time/End Time Offset Min: (Enter +/- minutes)',
-            '# Leave values blank to use hard clock time from event start/end.',
-        ];
-
         $startSym = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
         $endSym = is_string($endTime['symbolic'] ?? null) ? trim((string)$endTime['symbolic']) : '';
         $startOffset = isset($startTime['offset']) ? (int)($startTime['offset']) : 0;
         $endOffset = isset($endTime['offset']) ? (int)($endTime['offset']) : 0;
 
+        $settings = [];
+        $settings[] = '# Managed by Calendar Scheduler';
+        $settings[] = '# Edit values below. Free-form notes can be added at the bottom.';
+        $settings[] = '';
+        $settings[] = '[settings]';
+        $settings[] = '# Edit FPP Scheduler Settings';
+        $settings[] = '# Schedule Type: Playlist | Sequence | Command';
+        $settings[] = '# Enabled: True | False';
+        $settings[] = '# Repeat: None | Immediate | 5 | 10 | 15 | 20 | 30 | 60 (Min.)';
+        $settings[] = '# Stop Type: Graceful | Graceful Loop | Hard Stop';
+        $settings[] = '';
+        $settings[] = 'type = ' . $this->formatTypeForDescription($type);
+        $settings[] = 'enabled = ' . ($enabled ? 'True' : 'False');
+        $settings[] = 'repeat = ' . $this->formatRepeatForDescription($repeat);
+        $settings[] = 'stopType = ' . $this->formatStopTypeForDescription($stopType);
+        $settings[] = '';
+        $settings[] = '[symbolic_time]';
+        $settings[] = '# Edit Symbolic Time Settings';
+        $settings[] = '# Start Time/End Time: Dawn | SunRise | SunSet | Dusk';
+        $settings[] = '# Start Time/End Time Offset Min: (Enter +/- minutes)';
+        $settings[] = '# Leave values blank to use hard clock time from event start/end.';
+        $settings[] = '';
         $settings[] = 'start = ' . $startSym;
-        $settings[] = '# Start Time Offset Min:';
         $settings[] = 'start_offset = ' . (string)$startOffset;
         $settings[] = 'end = ' . $endSym;
-        $settings[] = '# End Time Offset Min:';
         $settings[] = 'end_offset = ' . (string)$endOffset;
         $settings[] = '';
         $settings[] = '# Notes:';
-        $settings[] = '# - Target comes from calendar title (summary), not description.';
-        $settings[] = '# - Offsets are ignored when start/end is blank.';
         $settings[] = '# - Calendar Event Title should match Playlist/Sequence/Command name.';
+        $settings[] = '';
         $settings[] = '# -------------------- USER NOTES BELOW --------------------';
 
         $sections = [implode("\n", $settings)];
