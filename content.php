@@ -19,7 +19,9 @@
   }
 
   .cs-kpi {
-    margin-bottom: 8px;
+    margin-right: 10px;
+    margin-bottom: 6px;
+    display: inline-block;
   }
 
   .cs-kpi .badge {
@@ -45,7 +47,7 @@
   </div>
 
   <div class="row g-2">
-    <div class="col-lg-6">
+    <div class="col-12">
       <div class="backdrop mb-3">
         <h4 class="cs-panel-title">1) Connection Setup</h4>
         <p class="cs-muted">First-time OAuth and calendar selection. Additional providers can be added over time.</p>
@@ -73,44 +75,25 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="col-lg-6">
-      <div class="backdrop mb-3">
-        <h4 class="cs-panel-title">2) Sync Preview</h4>
-        <p class="cs-muted">Preview auto-refreshes on page load and after each change. User chooses when to apply.</p>
-
-        <div class="alert alert-warning" role="alert">
-          Preview status: <strong id="csPreviewState">Needs Review</strong> |
-          Last refresh: <span id="csPreviewTime">Pending</span>
-        </div>
-
-        <div class="cs-kpi">
-          <span class="badge text-bg-warning" id="csKpiCalendar">0</span>
-          Calendar Changes
-        </div>
-        <div class="cs-kpi">
-          <span class="badge text-bg-warning" id="csKpiFpp">0</span>
-          FPP Changes
-        </div>
-        <div class="cs-kpi">
-          <span class="badge text-bg-success" id="csKpiNoop">No</span>
-          In Sync
-        </div>
-        <div class="cs-kpi">
-          <span class="badge text-bg-secondary" id="csKpiTotal">0</span>
-          Total Actions
-        </div>
-
-        <div class="mt-3">
-          <button class="buttons btn-detract" id="csRefreshPreviewBtn" type="button">Refresh Preview</button>
-        </div>
-      </div>
+  <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap" role="alert">
+    <div>
+      Status: <strong id="csPreviewState">Needs Review</strong> |
+      Last refresh: <span id="csPreviewTime">Pending</span>
+      <span class="cs-kpi"><span class="badge text-bg-warning" id="csKpiCalendar">0</span> Calendar</span>
+      <span class="cs-kpi"><span class="badge text-bg-warning" id="csKpiFpp">0</span> FPP</span>
+      <span class="cs-kpi"><span class="badge text-bg-success" id="csKpiNoop">No</span> In Sync</span>
+      <span class="cs-kpi"><span class="badge text-bg-secondary" id="csKpiTotal">0</span> Total</span>
+    </div>
+    <div class="mt-2 mt-md-0">
+      <button class="buttons btn-detract" id="csRefreshPreviewBtn" type="button">Refresh Preview</button>
     </div>
   </div>
 
   <div class="backdrop mb-3">
-    <h4 class="cs-panel-title">3) Pending Actions</h4>
-    <p class="cs-muted">Current preview action list (placeholder data until endpoint wiring).</p>
+    <h4 class="cs-panel-title">2) Pending Actions</h4>
+    <p class="cs-muted">Primary view of all pending create/update/delete changes.</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover">
         <thead>
@@ -135,7 +118,7 @@
 
   <div class="alert alert-danger d-flex justify-content-between align-items-center flex-wrap" role="alert">
     <div>
-      <strong>4) Apply Changes</strong><br>
+      <strong>3) Apply Changes</strong><br>
       Apply uses the latest preview and writes updates to FPP and calendar.
     </div>
     <div class="mt-2 mt-md-0">
