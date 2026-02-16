@@ -1,7 +1,7 @@
 {
-  "name": "Google Calendar Scheduler",
+  "name": "Calendar Scheduler",
   "shortName": "GoogleCalendarScheduler",
-  "description": "Test",
+  "description": "Sync and reconcile FPP schedule entries with calendar providers.",
   "author": "Test",
   "version": "0.0.1",
   "pluginType": "media",

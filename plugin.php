@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * GoogleCalendarScheduler plugin lifecycle hook
+ * Calendar Scheduler plugin lifecycle hook
  *
  * Purpose:
  * - Export FPP-derived environment data at plugin load / startup
@@ -19,7 +19,7 @@ if (PHP_SAPI === 'cli') {
     return;
 }
 
-$pluginName = 'GoogleCalendarScheduler';
+$pluginName = 'CalendarScheduler';
 $pluginRoot = __DIR__;
 
 $exporter   = $pluginRoot . '/bin/gcs-export';
@@ -31,7 +31,7 @@ $envFile    = $runtimeDir . '/fpp-env.json';
 // ---------------------------------------------------------------------
 if (!is_dir($runtimeDir)) {
     if (!@mkdir($runtimeDir, 0755, true) && !is_dir($runtimeDir)) {
-        error_log('[GCS] Failed to create runtime directory: ' . $runtimeDir);
+        error_log('[CS] Failed to create runtime directory: ' . $runtimeDir);
         return;
     }
 }
@@ -55,8 +55,8 @@ if (is_executable($exporter)) {
     );
 
     if ($rc !== 0) {
-        error_log("[GCS] gcs-export failed with exit code {$rc}");
+        error_log("[CS] gcs-export failed with exit code {$rc}");
     }
 } else {
-    error_log('[GCS] gcs-export binary missing or not executable');
+    error_log('[CS] gcs-export binary missing or not executable');
 }
