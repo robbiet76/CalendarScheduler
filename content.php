@@ -145,6 +145,8 @@
     var manualAuthWatchTimer = null;
     var manualAuthInProgress = false;
     var manualCodePrompted = false;
+    var manualAuthCanPrompt = false;
+    var manualAuthStartedAt = 0;
 
     function byId(id) {
       return document.getElementById(id);
@@ -354,6 +356,8 @@
     function clearManualAuthState() {
       manualAuthInProgress = false;
       manualCodePrompted = false;
+      manualAuthCanPrompt = false;
+      manualAuthStartedAt = 0;
       clearManualAuthWatch();
     }
 
@@ -409,7 +413,11 @@
     }
 
     function maybePromptForManualCode() {
-      if (!manualAuthInProgress || providerConnected || manualCodePrompted) {
+      if (!manualAuthInProgress || providerConnected || manualCodePrompted || !manualAuthCanPrompt) {
+        return;
+      }
+      // Avoid prompting immediately while auth window is still being opened.
+      if (manualAuthStartedAt > 0 && (Date.now() - manualAuthStartedAt) < 3000) {
         return;
       }
       manualCodePrompted = true;
@@ -422,6 +430,8 @@
         return;
       }
       manualCodePrompted = false;
+      manualAuthCanPrompt = false;
+      setError("OAuth code entry dismissed. Click Connect Provider when you are ready to try again.");
     }
 
     function watchManualAuthPopup(popupWindow) {
@@ -429,7 +439,7 @@
       manualAuthWatchTimer = window.setInterval(function () {
         if (!popupWindow || popupWindow.closed) {
           clearManualAuthWatch();
-          maybePromptForManualCode();
+          manualAuthCanPrompt = true;
           return;
         }
 
@@ -447,8 +457,7 @@
         var code = extractQueryParam(href, "code");
         var err = extractQueryParam(href, "error");
         if (err) {
-          clearManualAuthWatch();
-          manualAuthInProgress = false;
+          clearManualAuthState();
           setError("OAuth authorization failed: " + err);
           return;
         }
@@ -468,10 +477,9 @@
       var url = byId("csConnectBtn").dataset.authUrl || "";
       if (!url) {
         setError(message + " Manual OAuth URL is unavailable.");
+        clearManualAuthState();
         return;
       }
-      manualAuthInProgress = true;
-      manualCodePrompted = false;
       setError(message + " Falling back to manual OAuth URL.");
       if (popupWindow && !popupWindow.closed) {
         popupWindow.location.href = url;
@@ -479,7 +487,13 @@
         popupWindow = window.open(url, "_blank");
       }
       if (popupWindow) {
+        manualAuthInProgress = true;
+        manualCodePrompted = false;
+        manualAuthCanPrompt = false;
+        manualAuthStartedAt = Date.now();
         watchManualAuthPopup(popupWindow);
+      } else {
+        clearManualAuthState();
       }
     }
 
