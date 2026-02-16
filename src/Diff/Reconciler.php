@@ -279,10 +279,21 @@ final class Reconciler
                 ];
             }
 
+            // Presence-vs-absence tie: preserve the side that is present.
+            // This avoids destructive deletes when both snapshots were taken
+            // at the same epoch and no newer evidence exists.
+            if ($calEvent !== null) {
+                return [
+                    'winner' => 'calendar',
+                    'event' => $calEvent,
+                    'reason' => "tie ($calTs == $fppTs): present side wins (calendar present)",
+                ];
+            }
+
             return [
                 'winner' => 'fpp',
                 'event' => $fppEvent,
-                'reason' => "tie ($calTs == $fppTs): fpp wins",
+                'reason' => "tie ($calTs == $fppTs): present side wins (fpp present)",
             ];
         }
 
