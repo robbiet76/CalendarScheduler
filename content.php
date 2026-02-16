@@ -64,7 +64,7 @@
 
         <div class="mt-3">
           <button class="buttons btn-success" type="button">Connect Provider</button>
-          <button class="buttons btn-pleasant" type="button">Resync Calendar List</button>
+          <button class="buttons btn-detract" type="button">Resync Calendar List</button>
         </div>
       </div>
     </div>
@@ -97,7 +97,7 @@
         </div>
 
         <div class="mt-3">
-          <button class="buttons btn-pleasant" type="button">Refresh Preview</button>
+          <button class="buttons btn-detract" type="button">Refresh Preview</button>
         </div>
       </div>
     </div>
