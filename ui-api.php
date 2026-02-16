@@ -12,7 +12,6 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
-use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Engine\SchedulerEngine;
 use CalendarScheduler\Engine\SchedulerRunResult;
 use CalendarScheduler\Platform;
@@ -238,6 +237,192 @@ function cs_set_calendar_id(string $calendarId): void
     }
 }
 
+/**
+ * @return array{client_id:string,client_secret:string,scopes:string}
+ */
+function cs_google_device_auth_config(): array
+{
+    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+    $oauth = $config->getOauth();
+    $clientPath = $config->getClientSecretPath();
+
+    $raw = @file_get_contents($clientPath);
+    if ($raw === false) {
+        throw new \RuntimeException("Unable to read Google client file: {$clientPath}");
+    }
+    $json = json_decode($raw, true);
+    if (!is_array($json)) {
+        throw new \RuntimeException("Invalid JSON in Google client file: {$clientPath}");
+    }
+
+    $clientBlock = $json['web'] ?? $json['installed'] ?? null;
+    if (!is_array($clientBlock)) {
+        throw new \RuntimeException("Google client file missing 'web' or 'installed' block");
+    }
+
+    $clientId = $clientBlock['client_id'] ?? null;
+    $clientSecret = $clientBlock['client_secret'] ?? null;
+    if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
+        throw new \RuntimeException('Google client_id/client_secret missing');
+    }
+
+    $scopes = $oauth['scopes'] ?? [];
+    if (!is_array($scopes) || count($scopes) === 0) {
+        throw new \RuntimeException('Google oauth.scopes missing');
+    }
+
+    return [
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'scopes' => implode(' ', $scopes),
+    ];
+}
+
+/**
+ * @param array<string,string> $form
+ * @return array<string,mixed>
+ */
+function cs_http_post_form_json(string $url, array $form): array
+{
+    if (!function_exists('curl_init')) {
+        throw new \RuntimeException('cURL extension is required for OAuth device flow');
+    }
+
+    $ch = curl_init($url);
+    if ($ch === false) {
+        throw new \RuntimeException('Failed to initialize cURL');
+    }
+
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($form, '', '&', PHP_QUERY_RFC3986));
+
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($raw === false || $errno !== 0) {
+        throw new \RuntimeException("OAuth request failed ({$errno}): {$error}");
+    }
+
+    $decoded = json_decode((string) $raw, true);
+    if (!is_array($decoded)) {
+        throw new \RuntimeException("OAuth endpoint returned non-JSON (HTTP {$status})");
+    }
+
+    return $decoded;
+}
+
+/**
+ * @param array<string,mixed> $token
+ */
+function cs_write_google_token(array $token): void
+{
+    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+    $tokenPath = $config->getTokenPath();
+    $oauth = $config->getOauth();
+    $scopes = $oauth['scopes'] ?? [];
+    $scopeValue = is_array($scopes) ? implode(' ', $scopes) : '';
+
+    $now = time();
+    $expiresIn = isset($token['expires_in']) ? (int) $token['expires_in'] : 0;
+    $normalized = [
+        'access_token' => (string) ($token['access_token'] ?? ''),
+        'refresh_token' => (string) ($token['refresh_token'] ?? ''),
+        'token_type' => (string) ($token['token_type'] ?? 'Bearer'),
+        'scope' => (string) ($token['scope'] ?? $scopeValue),
+        'expires_in' => $expiresIn,
+        'expires_at' => $expiresIn > 0 ? ($now + $expiresIn - 30) : 0,
+        'created_at' => $now,
+    ];
+
+    if ($normalized['access_token'] === '') {
+        throw new \RuntimeException('Token exchange returned no access_token');
+    }
+
+    if ($normalized['refresh_token'] === '' && is_file($tokenPath)) {
+        $existing = json_decode((string) @file_get_contents($tokenPath), true);
+        if (is_array($existing) && isset($existing['refresh_token']) && is_string($existing['refresh_token'])) {
+            $normalized['refresh_token'] = $existing['refresh_token'];
+        }
+    }
+
+    $json = json_encode($normalized, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        throw new \RuntimeException('Unable to encode token JSON');
+    }
+
+    if (@file_put_contents($tokenPath, $json . "\n") === false) {
+        throw new \RuntimeException("Unable to write token file: {$tokenPath}");
+    }
+    @chmod($tokenPath, 0600);
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function cs_google_device_start(): array
+{
+    $auth = cs_google_device_auth_config();
+
+    $resp = cs_http_post_form_json(
+        'https://oauth2.googleapis.com/device/code',
+        [
+            'client_id' => $auth['client_id'],
+            'scope' => $auth['scopes'],
+        ]
+    );
+
+    if (!isset($resp['device_code'], $resp['user_code'])) {
+        $error = is_string($resp['error'] ?? null) ? $resp['error'] : 'unknown_error';
+        throw new \RuntimeException("Device auth start failed: {$error}");
+    }
+
+    return $resp;
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function cs_google_device_poll(string $deviceCode): array
+{
+    $auth = cs_google_device_auth_config();
+
+    $resp = cs_http_post_form_json(
+        'https://oauth2.googleapis.com/token',
+        [
+            'client_id' => $auth['client_id'],
+            'client_secret' => $auth['client_secret'],
+            'device_code' => $deviceCode,
+            'grant_type' => 'urn:ietf:params:oauth:grant-type:device_code',
+        ]
+    );
+
+    if (isset($resp['error'])) {
+        $error = is_string($resp['error']) ? $resp['error'] : 'unknown_error';
+        if (in_array($error, ['authorization_pending', 'slow_down'], true)) {
+            return [
+                'status' => 'pending',
+                'error' => $error,
+            ];
+        }
+        if (in_array($error, ['access_denied', 'expired_token'], true)) {
+            return [
+                'status' => 'failed',
+                'error' => $error,
+            ];
+        }
+        throw new \RuntimeException("Device auth poll failed: {$error}");
+    }
+
+    cs_write_google_token($resp);
+    return ['status' => 'connected'];
+}
+
 function cs_apply(SchedulerRunResult $result): array
 {
     $targets = ApplyTargets::all();
@@ -285,6 +470,33 @@ try {
         }
         cs_set_calendar_id(trim($calendarId));
         cs_respond(['ok' => true]);
+    }
+
+    if ($action === 'auth_device_start') {
+        $resp = cs_google_device_start();
+        cs_respond([
+            'ok' => true,
+            'device' => [
+                'device_code' => $resp['device_code'] ?? '',
+                'user_code' => $resp['user_code'] ?? '',
+                'verification_url' => $resp['verification_url'] ?? ($resp['verification_uri'] ?? ''),
+                'verification_url_complete' => $resp['verification_url_complete'] ?? ($resp['verification_uri_complete'] ?? ''),
+                'expires_in' => (int) ($resp['expires_in'] ?? 0),
+                'interval' => (int) ($resp['interval'] ?? 5),
+            ],
+        ]);
+    }
+
+    if ($action === 'auth_device_poll') {
+        $deviceCode = $input['device_code'] ?? '';
+        if (!is_string($deviceCode) || trim($deviceCode) === '') {
+            cs_respond(['ok' => false, 'error' => 'device_code is required'], 422);
+        }
+        $poll = cs_google_device_poll(trim($deviceCode));
+        cs_respond([
+            'ok' => true,
+            'poll' => $poll,
+        ]);
     }
 
     if ($action === 'preview') {

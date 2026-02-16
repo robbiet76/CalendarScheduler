@@ -140,6 +140,8 @@
   (function () {
     var API_URL = "plugin.php?plugin=GoogleCalendarScheduler&page=ui-api.php&nopage=1";
     var providerConnected = false;
+    var deviceAuthPollTimer = null;
+    var deviceAuthDeadlineEpoch = 0;
 
     function byId(id) {
       return document.getElementById(id);
@@ -328,6 +330,95 @@
       });
     }
 
+    function clearDeviceAuthPoll() {
+      if (deviceAuthPollTimer !== null) {
+        window.clearTimeout(deviceAuthPollTimer);
+        deviceAuthPollTimer = null;
+      }
+      deviceAuthDeadlineEpoch = 0;
+    }
+
+    function fallbackManualAuth(message) {
+      var url = byId("csConnectBtn").dataset.authUrl || "";
+      if (!url) {
+        setError(message + " Manual OAuth URL is unavailable.");
+        return;
+      }
+      setError(message + " Falling back to manual OAuth URL.");
+      window.open(url, "_blank");
+    }
+
+    function pollDeviceAuth(deviceCode, intervalSeconds) {
+      if (Date.now() >= deviceAuthDeadlineEpoch) {
+        clearDeviceAuthPoll();
+        fallbackManualAuth("Device authorization timed out.");
+        return;
+      }
+
+      fetchJson({ action: "auth_device_poll", device_code: deviceCode })
+        .then(function (res) {
+          var poll = res.poll || {};
+          if (poll.status === "connected") {
+            clearDeviceAuthPoll();
+            refreshAll();
+            return;
+          }
+
+          if (poll.status === "failed") {
+            clearDeviceAuthPoll();
+            fallbackManualAuth("Device authorization failed (" + (poll.error || "unknown") + ").");
+            return;
+          }
+
+          var nextInterval = intervalSeconds;
+          if (poll.error === "slow_down") {
+            nextInterval = Math.max(intervalSeconds + 2, intervalSeconds);
+          }
+          deviceAuthPollTimer = window.setTimeout(function () {
+            pollDeviceAuth(deviceCode, nextInterval);
+          }, nextInterval * 1000);
+        })
+        .catch(function (err) {
+          clearDeviceAuthPoll();
+          fallbackManualAuth("Device authorization polling error: " + err.message + ".");
+        });
+    }
+
+    function startDeviceAuthFlow() {
+      setLoadingState();
+      fetchJson({ action: "auth_device_start" })
+        .then(function (res) {
+          var device = res.device || {};
+          var deviceCode = device.device_code || "";
+          var userCode = device.user_code || "";
+          var verificationUrl = device.verification_url_complete || device.verification_url || "https://www.google.com/device";
+          var interval = Math.max(parseInt(device.interval || 5, 10), 3);
+          var expiresIn = Math.max(parseInt(device.expires_in || 900, 10), 60);
+
+          if (!deviceCode || !userCode) {
+            fallbackManualAuth("Device authorization response was incomplete.");
+            return;
+          }
+
+          clearDeviceAuthPoll();
+          deviceAuthDeadlineEpoch = Date.now() + (expiresIn * 1000);
+
+          window.open(verificationUrl, "_blank");
+          window.alert(
+            "Complete Google sign-in in the opened tab.\n\n" +
+            "If prompted, enter code: " + userCode + "\n\n" +
+            "This page will auto-detect completion."
+          );
+
+          deviceAuthPollTimer = window.setTimeout(function () {
+            pollDeviceAuth(deviceCode, interval);
+          }, interval * 1000);
+        })
+        .catch(function (err) {
+          fallbackManualAuth("Automatic device authorization could not start: " + err.message + ".");
+        });
+    }
+
     var refreshInFlight = false;
     function refreshAll() {
       if (refreshInFlight) {
@@ -350,14 +441,7 @@
         refreshAll();
         return;
       }
-
-      var url = this.dataset.authUrl || "";
-      if (!url) {
-        setError("OAuth URL is unavailable. Check Google client configuration.");
-        return;
-      }
-      window.open(url, "_blank");
-      setError("After completing OAuth in the new tab, return here and focus the page to auto-refresh.");
+      startDeviceAuthFlow();
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
