@@ -262,7 +262,24 @@ final class SchedulerEngine
                 ?? $event['sourceUpdatedAt']
                 ?? 0;
 
-            $calendarUpdatedAtByUid[$uid] = is_int($ts) ? $ts : (int)$ts;
+            $eventTs = is_int($ts) ? $ts : (int)$ts;
+            if ($eventTs <= 0) {
+                continue;
+            }
+
+            if (!isset($calendarUpdatedAtByUid[$uid]) || $eventTs > $calendarUpdatedAtByUid[$uid]) {
+                $calendarUpdatedAtByUid[$uid] = $eventTs;
+            }
+
+            // Overrides are grouped under the parent recurring UID for manifest
+            // identity generation. Ensure parent authority timestamp reflects the
+            // most recent change across both master and override rows.
+            $parentUid = $event['parentUid'] ?? null;
+            if (is_string($parentUid) && $parentUid !== '') {
+                if (!isset($calendarUpdatedAtByUid[$parentUid]) || $eventTs > $calendarUpdatedAtByUid[$parentUid]) {
+                    $calendarUpdatedAtByUid[$parentUid] = $eventTs;
+                }
+            }
         }
 
         // Resolution already produces PlannerIntent objects with correct timing.
