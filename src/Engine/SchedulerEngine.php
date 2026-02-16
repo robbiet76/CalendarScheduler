@@ -59,6 +59,8 @@ final class SchedulerEngine
      */
     public function runFromCli(array $argv, array $opts): SchedulerRunResult
     {
+        $runEpoch = time();
+
         // -----------------------------------------------------------------
         // Resolve paths
         // -----------------------------------------------------------------
@@ -159,7 +161,7 @@ final class SchedulerEngine
 
         // Snapshot is treated as volatile per-run observational state
         // Always advance epoch to ensure no stale reconciliation decisions
-        $calendarSnapshotEpoch = time();
+        $calendarSnapshotEpoch = $runEpoch;
 
         $calendarUpdatedAtById = [];
 
@@ -170,8 +172,7 @@ final class SchedulerEngine
         $fppAdapter = new \CalendarScheduler\Adapter\FppScheduleAdapter();
         $fppEvents = $fppAdapter->loadManifestEvents($context, $schedulePath);
 
-        $fppMtime = filemtime($schedulePath);
-        $fppSnapshotEpoch = is_int($fppMtime) ? $fppMtime : time();
+        $fppSnapshotEpoch = $runEpoch;
 
         $fppEventTimestampPath = '/home/fpp/media/config/calendar-scheduler/fpp/event-timestamps.json';
         $timestampStore = new FppEventTimestampStore();

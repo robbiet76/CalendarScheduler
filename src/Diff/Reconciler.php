@@ -256,6 +256,36 @@ final class Reconciler
             }
         }
 
+        // Presence-vs-absence decisions are observation-time comparisons.
+        // The "present" side must not inherit stale per-event timestamps here,
+        // otherwise absence observed now can incorrectly delete existing intents.
+        if (($calEvent === null) !== ($fppEvent === null)) {
+            $calTs = $calSnapshotEpoch;
+            $fppTs = $fppSnapshotEpoch;
+
+            if ($calTs > $fppTs) {
+                return [
+                    'winner' => 'calendar',
+                    'event' => $calEvent,
+                    'reason' => "calendar newer ($calTs > $fppTs)",
+                ];
+            }
+
+            if ($fppTs > $calTs) {
+                return [
+                    'winner' => 'fpp',
+                    'event' => $fppEvent,
+                    'reason' => "fpp newer ($fppTs > $calTs)",
+                ];
+            }
+
+            return [
+                'winner' => 'fpp',
+                'event' => $fppEvent,
+                'reason' => "tie ($calTs == $fppTs): fpp wins",
+            ];
+        }
+
         // Compute timestamps for "presence" or "absence"
         $calTs = $this->timestampForPresenceOrAbsence($id, $calEvent, $calUpdatedAtById, $calSnapshotEpoch);
         $fppTs = $this->timestampForPresenceOrAbsence($id, $fppEvent, $fppUpdatedAtById, $fppSnapshotEpoch);
