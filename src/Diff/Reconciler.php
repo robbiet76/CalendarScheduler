@@ -275,15 +275,24 @@ final class Reconciler
     private function replacementSignature(array $event): ?string
     {
         $identity = is_array($event['identity'] ?? null) ? $event['identity'] : [];
-        $timing = is_array($identity['timing'] ?? null) ? $identity['timing'] : [];
-        $target = $identity['target'] ?? null;
-        $type = $identity['type'] ?? null;
+        $firstSub = (is_array($event['subEvents'] ?? null) && isset($event['subEvents'][0]) && is_array($event['subEvents'][0]))
+            ? $event['subEvents'][0]
+            : [];
+        $identityTiming = is_array($identity['timing'] ?? null) ? $identity['timing'] : [];
+        $subTiming = is_array($firstSub['timing'] ?? null) ? $firstSub['timing'] : [];
+        $timing = $identityTiming !== [] ? $identityTiming : $subTiming;
+
+        $target = $identity['target'] ?? ($event['target'] ?? null);
+        $type = $identity['type'] ?? ($event['type'] ?? null);
         if (!is_string($target) || trim($target) === '' || !is_string($type) || trim($type) === '') {
             return null;
         }
 
         $startTime = is_array($timing['start_time'] ?? null) ? $timing['start_time'] : [];
         $endTime = is_array($timing['end_time'] ?? null) ? $timing['end_time'] : [];
+        if ($endTime === []) {
+            $endTime = $startTime;
+        }
         $days = is_array($timing['days'] ?? null) ? $timing['days'] : null;
 
         $payload = [
