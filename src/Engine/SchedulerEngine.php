@@ -622,25 +622,8 @@ final class SchedulerEngine
                 continue;
             }
 
-            $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
-            $sourceUid = $correlation['sourceEventUid'] ?? null;
-            $googleEventIds = is_array($correlation['googleEventIds'] ?? null)
-                ? $correlation['googleEventIds']
-                : [];
-            $hasGoogleEventIds = false;
-            foreach ($googleEventIds as $maybeId) {
-                if (is_string($maybeId) && trim($maybeId) !== '') {
-                    $hasGoogleEventIds = true;
-                    break;
-                }
-            }
-
-            // Only infer calendar deletions for entries that were previously correlated
-            // to a real calendar event reference.
-            if (
-                (!is_string($sourceUid) || trim($sourceUid) === '')
-                && !$hasGoogleEventIds
-            ) {
+            $ownership = is_array($event['ownership'] ?? null) ? $event['ownership'] : [];
+            if (($ownership['managed'] ?? false) !== true) {
                 continue;
             }
 
