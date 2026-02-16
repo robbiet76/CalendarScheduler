@@ -505,7 +505,7 @@ final class GoogleEventMapper
                 ),
             ],
         ];
-        $recurrence = $this->buildGoogleRecurrenceFromTiming($timing, $tz);
+        $recurrence = $this->buildGoogleRecurrenceFromTiming($timing, $tz, $start, $end);
         if ($recurrence !== []) {
             $payload['recurrence'] = $recurrence;
         }
@@ -806,12 +806,19 @@ final class GoogleEventMapper
      * Build Google RRULE recurrence from canonical timing.
      *
      * @param array<string,mixed> $timing
+     * @param array<string,mixed> $mappedStart
+     * @param array<string,mixed> $mappedEnd
      * @return array<int,string>
      */
-    private function buildGoogleRecurrenceFromTiming(array $timing, string $timezone): array
+    private function buildGoogleRecurrenceFromTiming(
+        array $timing,
+        string $timezone,
+        array $mappedStart,
+        array $mappedEnd
+    ): array
     {
-        $startDate = is_string($timing['start_date']['hard'] ?? null) ? trim((string)$timing['start_date']['hard']) : '';
-        $endDate = is_string($timing['end_date']['hard'] ?? null) ? trim((string)$timing['end_date']['hard']) : '';
+        $startDate = is_string($mappedStart['date'] ?? null) ? trim((string)$mappedStart['date']) : '';
+        $endDate = is_string($mappedEnd['date'] ?? null) ? trim((string)$mappedEnd['date']) : '';
         if ($startDate === '' || $endDate === '') {
             return [];
         }
