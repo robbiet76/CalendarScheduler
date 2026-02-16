@@ -507,6 +507,9 @@ final class GoogleEventMapper
         ];
         $recurrence = $this->buildGoogleRecurrenceFromTiming($timing, $tz, $start, $end);
         if ($recurrence !== []) {
+            [$recurrenceStart, $recurrenceEnd] = $this->buildRecurringInstanceWindow($start, $end);
+            $payload['start'] = $this->mapDateTime($recurrenceStart, $tz);
+            $payload['end'] = $this->mapDateTime($recurrenceEnd, $tz);
             $payload['recurrence'] = $recurrence;
         }
 
@@ -858,6 +861,49 @@ final class GoogleEventMapper
         $parts[] = 'UNTIL=' . $untilUtc;
 
         return ['RRULE:' . implode(';', $parts)];
+    }
+
+    /**
+     * Convert a season-range start/end into one recurrence-instance window.
+     *
+     * @param array<string,mixed> $start
+     * @param array<string,mixed> $end
+     * @return array{0:array<string,mixed>,1:array<string,mixed>}
+     */
+    private function buildRecurringInstanceWindow(array $start, array $end): array
+    {
+        if (!empty($start['allDay'])) {
+            $startDate = is_string($start['date'] ?? null) ? (string)$start['date'] : '';
+            if ($startDate === '') {
+                return [$start, $end];
+            }
+            $endDate = (new \DateTimeImmutable($startDate, new \DateTimeZone('UTC')))
+                ->modify('+1 day')
+                ->format('Y-m-d');
+            return [
+                ['date' => $startDate, 'allDay' => true],
+                ['date' => $endDate, 'allDay' => true],
+            ];
+        }
+
+        $startDate = is_string($start['date'] ?? null) ? (string)$start['date'] : '';
+        $startTime = is_string($start['time'] ?? null) ? (string)$start['time'] : '';
+        $endTime = is_string($end['time'] ?? null) ? (string)$end['time'] : '';
+        if ($startDate === '' || $startTime === '' || $endTime === '') {
+            return [$start, $end];
+        }
+
+        $endDate = $startDate;
+        if (strcmp($endTime, $startTime) <= 0) {
+            $endDate = (new \DateTimeImmutable($startDate, new \DateTimeZone('UTC')))
+                ->modify('+1 day')
+                ->format('Y-m-d');
+        }
+
+        return [
+            ['date' => $startDate, 'time' => $startTime, 'allDay' => false],
+            ['date' => $endDate, 'time' => $endTime, 'allDay' => false],
+        ];
     }
 
     /**
