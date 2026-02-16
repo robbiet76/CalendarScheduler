@@ -548,9 +548,11 @@ final class SchedulerEngine
             ->buildManifestFromIntents($fppIntents);
 
         $effectiveTombstonesBySource = $this->deriveEffectiveTombstones(
+            $currentManifest,
             $calendarManifest,
             $fppManifest,
-            $tombstonesBySource
+            $tombstonesBySource,
+            $calendarSnapshotEpoch
         );
         $this->lastTombstonesBySource = $effectiveTombstonesBySource;
 
@@ -591,18 +593,48 @@ final class SchedulerEngine
     }
 
     /**
+     * @param array<string,mixed> $currentManifest
      * @param array<string,mixed> $calendarManifest
      * @param array<string,mixed> $fppManifest
      * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
+     * @param int $calendarEpoch
      * @return array{calendar:array<string,int>,fpp:array<string,int>}
      */
     private function deriveEffectiveTombstones(
+        array $currentManifest,
         array $calendarManifest,
         array $fppManifest,
-        array $tombstonesBySource
+        array $tombstonesBySource,
+        int $calendarEpoch
     ): array {
         $calendarIds = $this->manifestIdentitySet($calendarManifest);
         $fppIds = $this->manifestIdentitySet($fppManifest);
+        $currentEvents = is_array($currentManifest['events'] ?? null) ? $currentManifest['events'] : [];
+
+        // Calendar tombstones: identities that existed in current manifest and are now
+        // absent from the refreshed calendar manifest should be treated as deleted by
+        // calendar, not recreated from FPP on the next reconcile pass.
+        foreach ($currentEvents as $id => $event) {
+            if (!is_string($id) || $id === '' || !is_array($event)) {
+                continue;
+            }
+            if (isset($calendarIds[$id])) {
+                continue;
+            }
+
+            $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+            $sourceUid = $correlation['sourceEventUid'] ?? null;
+
+            // Only infer calendar deletions for entries that were previously correlated
+            // to a real calendar source event UID.
+            if (!is_string($sourceUid) || trim($sourceUid) === '') {
+                continue;
+            }
+
+            if (!isset($tombstonesBySource['calendar'][$id])) {
+                $tombstonesBySource['calendar'][$id] = $calendarEpoch;
+            }
+        }
 
         // Verified convergence: remove tombstones once both sources are absent.
         $allIds = array_unique(array_merge(
