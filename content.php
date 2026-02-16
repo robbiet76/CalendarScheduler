@@ -115,13 +115,11 @@
     </div>
   </div>
 
-  <div class="backdrop mb-3 d-flex justify-content-between align-items-center flex-wrap">
-    <div>
-      <strong>3) Apply Changes</strong><br>
-      Apply uses the latest preview and writes updates to FPP and calendar.
-    </div>
-    <div class="mt-2 mt-md-0">
-      <button class="buttons btn-danger" id="csApplyBtn" type="button" disabled>Apply Changes</button>
+  <div class="backdrop mb-3">
+    <h4 class="cs-panel-title">3) Apply Changes</h4>
+    <p class="cs-muted">Apply uses the latest preview and writes updates to FPP and calendar.</p>
+    <div class="d-flex justify-content-end">
+      <button class="buttons btn-success" id="csApplyBtn" type="button" disabled>Apply Changes</button>
     </div>
   </div>
 
@@ -375,6 +373,9 @@
     });
 
     byId("csApplyBtn").addEventListener("click", function () {
+      if (!window.confirm("Apply all pending changes to FPP and the connected calendar now?")) {
+        return;
+      }
       setButtonsDisabled(true);
       setLoadingState();
       runApply()
