@@ -18,14 +18,10 @@
     color: #6c757d;
   }
 
-  .cs-kpi {
-    margin-right: 10px;
-    margin-bottom: 6px;
-    display: inline-block;
-  }
-
-  .cs-kpi .badge {
-    min-width: 34px;
+  .cs-top-status,
+  .cs-top-status strong,
+  .cs-top-status span {
+    color: #111 !important;
   }
 
   .cs-json {
@@ -41,16 +37,10 @@
 </style>
 
 <div class="cs-page" id="csShell">
-  <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap" role="alert" id="csTopStatusBar">
+  <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap cs-top-status" role="alert" id="csTopStatusBar">
     <div>
       Status: <strong id="csPreviewState">Loading...</strong> |
       Last refresh: <span id="csPreviewTime">Pending</span>
-      <span class="cs-kpi"><span class="badge text-bg-warning" id="csKpiCalendar">0</span> Calendar</span>
-      <span class="cs-kpi"><span class="badge text-bg-warning" id="csKpiFpp">0</span> FPP</span>
-      <span class="cs-kpi"><span class="badge text-bg-secondary" id="csKpiTotal">0</span> Total</span>
-    </div>
-    <div class="mt-2 mt-md-0">
-      <button class="buttons btn-detract" id="csRefreshPreviewBtn" type="button">Refresh Preview</button>
     </div>
   </div>
 
@@ -151,7 +141,7 @@
     }
 
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csResyncCalendarsBtn", "csRefreshPreviewBtn", "csApplyBtn"].forEach(function (id) {
+      ["csConnectBtn", "csResyncCalendarsBtn", "csApplyBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           node.disabled = disabled;
@@ -248,13 +238,6 @@
       byId("csPreviewState").textContent = preview.noop ? "In Sync" : "Needs Review";
 
       var c = preview.counts || {};
-      var calendar = c.calendar || { create: 0, update: 0, delete: 0 };
-      var fpp = c.fpp || { create: 0, update: 0, delete: 0 };
-      var total = c.total || { create: 0, update: 0, delete: 0 };
-
-      byId("csKpiCalendar").textContent = String((calendar.create || 0) + (calendar.update || 0) + (calendar.delete || 0));
-      byId("csKpiFpp").textContent = String((fpp.create || 0) + (fpp.update || 0) + (fpp.delete || 0));
-      byId("csKpiTotal").textContent = String((total.create || 0) + (total.update || 0) + (total.delete || 0));
 
       if (preview.noop) {
         setTopBarClass("alert-success");
@@ -330,13 +313,6 @@
       setButtonsDisabled(true);
       fetchJson({ action: "set_calendar", calendar_id: calendarId })
         .then(function () { return runPreview(); })
-        .catch(function (err) { setError(err.message); })
-        .finally(function () { setButtonsDisabled(false); });
-    });
-
-    byId("csRefreshPreviewBtn").addEventListener("click", function () {
-      setButtonsDisabled(true);
-      runPreview()
         .catch(function (err) { setError(err.message); })
         .finally(function () { setButtonsDisabled(false); });
     });
