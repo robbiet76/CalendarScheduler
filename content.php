@@ -83,9 +83,8 @@
           </select>
         </div>
 
-        <div class="mt-3">
+        <div class="mt-3 d-flex justify-content-end">
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
-          <button class="buttons btn-detract" id="csResyncCalendarsBtn" type="button">Resync Calendar List</button>
         </div>
       </div>
     </div>
@@ -142,6 +141,7 @@
 <script>
   (function () {
     var API_URL = "plugin.php?plugin=GoogleCalendarScheduler&page=ui-api.php&nopage=1";
+    var providerConnected = false;
 
     function byId(id) {
       return document.getElementById(id);
@@ -157,7 +157,7 @@
     }
 
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csResyncCalendarsBtn"].forEach(function (id) {
+      ["csConnectBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           node.disabled = disabled;
@@ -283,6 +283,7 @@
     function loadStatus() {
       return fetchJson({ action: "status" }).then(function (res) {
         var google = res.google || {};
+        providerConnected = !!google.connected;
         var account = google.account || "Not connected yet";
         byId("csConnectedAccount").value = account;
 
@@ -300,7 +301,9 @@
           select.disabled = false;
         }
 
-        byId("csConnectBtn").dataset.authUrl = google.authUrl || "";
+        var connectBtn = byId("csConnectBtn");
+        connectBtn.dataset.authUrl = google.authUrl || "";
+        connectBtn.textContent = providerConnected ? "Refresh Provider" : "Connect Provider";
         renderDiagnostics(res);
       });
     }
@@ -337,17 +340,18 @@
     }
 
     byId("csConnectBtn").addEventListener("click", function () {
+      if (providerConnected) {
+        refreshAll();
+        return;
+      }
+
       var url = this.dataset.authUrl || "";
       if (!url) {
         setError("OAuth URL is unavailable. Check Google client configuration.");
         return;
       }
       window.open(url, "_blank");
-      setError("After completing OAuth in the new tab, click 'Resync Calendar List'.");
-    });
-
-    byId("csResyncCalendarsBtn").addEventListener("click", function () {
-      refreshAll();
+      setError("After completing OAuth in the new tab, return here and focus the page to auto-refresh.");
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
