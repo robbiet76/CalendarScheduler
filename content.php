@@ -24,6 +24,17 @@
     color: #111 !important;
   }
 
+  #csShell .table td,
+  #csShell .table th {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  #csApplyBtn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   .cs-json {
     margin: 8px 0 0;
     max-height: 220px;
@@ -100,13 +111,13 @@
     </div>
   </div>
 
-  <div class="alert alert-danger d-flex justify-content-between align-items-center flex-wrap" role="alert">
+  <div class="backdrop mb-3 d-flex justify-content-between align-items-center flex-wrap">
     <div>
       <strong>3) Apply Changes</strong><br>
       Apply uses the latest preview and writes updates to FPP and calendar.
     </div>
     <div class="mt-2 mt-md-0">
-      <button class="buttons btn-danger" id="csApplyBtn" type="button">Apply Changes</button>
+      <button class="buttons btn-danger" id="csApplyBtn" type="button" disabled>Apply Changes</button>
     </div>
   </div>
 
@@ -141,12 +152,20 @@
     }
 
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csResyncCalendarsBtn", "csApplyBtn"].forEach(function (id) {
+      ["csConnectBtn", "csResyncCalendarsBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           node.disabled = disabled;
         }
       });
+    }
+
+    function setApplyEnabled(enabled) {
+      var applyBtn = byId("csApplyBtn");
+      if (!applyBtn) {
+        return;
+      }
+      applyBtn.disabled = !enabled;
     }
 
     function setTopBarClass(className) {
@@ -198,7 +217,7 @@
     function renderActions(actions) {
       var tbody = byId("csActionsRows");
       if (!tbody) {
-        return;
+        return 0;
       }
 
       var visibleActions = Array.isArray(actions) ? actions.filter(function (a) {
@@ -207,7 +226,7 @@
 
       if (visibleActions.length === 0) {
         tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\">No pending changes.</td></tr>";
-        return;
+        return 0;
       }
 
       var html = visibleActions.map(function (a) {
@@ -230,6 +249,7 @@
       }).join("");
 
       tbody.innerHTML = html;
+      return visibleActions.length;
     }
 
     function renderPreview(preview) {
@@ -245,7 +265,8 @@
         setTopBarClass("alert-warning");
       }
 
-      renderActions(preview.actions || []);
+      var pendingCount = renderActions(preview.actions || []);
+      setApplyEnabled(pendingCount > 0);
     }
 
     function loadStatus() {
