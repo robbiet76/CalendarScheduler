@@ -32,9 +32,14 @@
     overflow: auto;
     font-size: 12px;
   }
+
+  .cs-hidden {
+    display: none;
+  }
 </style>
 
 <div class="cs-page" id="csShell">
+  <div class="alert alert-danger cs-hidden" role="alert" id="csErrorBanner"></div>
   <div class="alert alert-info" role="alert">
     Connection, preview, and apply flow for calendar-to-FPP synchronization.
   </div>
@@ -52,19 +57,19 @@
 
         <div class="form-group mb-2">
           <label for="csConnectedAccount">Connected Account</label>
-          <input id="csConnectedAccount" type="text" class="form-control" value="Not connected yet" readonly>
+          <input id="csConnectedAccount" type="text" class="form-control" value="Loading..." readonly>
         </div>
 
         <div class="form-group mb-2">
           <label for="csCalendarSelect">Sync Calendar</label>
           <select id="csCalendarSelect" class="form-control" disabled>
-            <option>Connect account to load calendars</option>
+            <option>Loading calendars...</option>
           </select>
         </div>
 
         <div class="mt-3">
-          <button class="buttons btn-success" type="button">Connect Provider</button>
-          <button class="buttons btn-detract" type="button">Resync Calendar List</button>
+          <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
+          <button class="buttons btn-detract" id="csResyncCalendarsBtn" type="button">Resync Calendar List</button>
         </div>
       </div>
     </div>
@@ -97,7 +102,7 @@
         </div>
 
         <div class="mt-3">
-          <button class="buttons btn-detract" type="button">Refresh Preview</button>
+          <button class="buttons btn-detract" id="csRefreshPreviewBtn" type="button">Refresh Preview</button>
         </div>
       </div>
     </div>
@@ -134,7 +139,7 @@
       Apply uses the latest preview and writes updates to FPP and calendar.
     </div>
     <div class="mt-2 mt-md-0">
-      <button class="buttons btn-danger" type="button">Apply Changes</button>
+      <button class="buttons btn-danger" id="csApplyBtn" type="button">Apply Changes</button>
     </div>
   </div>
 
@@ -153,11 +158,212 @@
 
 <script>
   (function () {
-    var now = new Date();
-    var stamp = now.toLocaleDateString() + " " + now.toLocaleTimeString();
-    var previewTime = document.getElementById("csPreviewTime");
-    if (previewTime) {
-      previewTime.textContent = stamp;
+    var API_URL = "plugin.php?plugin=GoogleCalendarScheduler&page=ui-api.php&nopage=1";
+
+    function byId(id) {
+      return document.getElementById(id);
     }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function setButtonsDisabled(disabled) {
+      ["csConnectBtn", "csResyncCalendarsBtn", "csRefreshPreviewBtn", "csApplyBtn"].forEach(function (id) {
+        var node = byId(id);
+        if (node) {
+          node.disabled = disabled;
+        }
+      });
+    }
+
+    function setError(message) {
+      var banner = byId("csErrorBanner");
+      if (!banner) {
+        return;
+      }
+      if (!message) {
+        banner.classList.add("cs-hidden");
+        banner.textContent = "";
+        return;
+      }
+      banner.textContent = message;
+      banner.classList.remove("cs-hidden");
+    }
+
+    function renderDiagnostics(payload) {
+      var out = byId("csDiagnosticJson");
+      if (!out) {
+        return;
+      }
+      out.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function fetchJson(payload) {
+      return fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+      }).then(function (res) {
+        return res.json().then(function (json) {
+          if (!res.ok || !json.ok) {
+            var msg = json && json.error ? json.error : ("Request failed (" + res.status + ")");
+            throw new Error(msg);
+          }
+          return json;
+        });
+      });
+    }
+
+    function renderActions(actions) {
+      var tbody = byId("csActionsRows");
+      if (!tbody) {
+        return;
+      }
+
+      if (!Array.isArray(actions) || actions.length === 0) {
+        tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\">No pending actions.</td></tr>";
+        return;
+      }
+
+      var html = actions.map(function (a) {
+        var badgeClass = "text-bg-secondary";
+        if (a.type === "create") {
+          badgeClass = "text-bg-success";
+        } else if (a.type === "update") {
+          badgeClass = "text-bg-dark";
+        } else if (a.type === "delete" || a.type === "block") {
+          badgeClass = "text-bg-danger";
+        }
+        var eventName = a.event && a.event.target ? a.event.target : "-";
+        var reason = a.reason || "-";
+        return "<tr>"
+          + "<td><span class=\"badge " + badgeClass + "\">" + escapeHtml(String(a.type || "").toUpperCase()) + "</span></td>"
+          + "<td>" + escapeHtml(a.target || "-") + "</td>"
+          + "<td>" + escapeHtml(eventName) + "</td>"
+          + "<td>" + escapeHtml(reason) + "</td>"
+          + "</tr>";
+      }).join("");
+
+      tbody.innerHTML = html;
+    }
+
+    function renderPreview(preview) {
+      var stamp = preview.generatedAtUtc ? new Date(preview.generatedAtUtc).toLocaleString() : "Unknown";
+      byId("csPreviewTime").textContent = stamp;
+      byId("csPreviewState").textContent = preview.noop ? "In Sync" : "Needs Review";
+
+      var c = preview.counts || {};
+      var calendar = c.calendar || { create: 0, update: 0, delete: 0 };
+      var fpp = c.fpp || { create: 0, update: 0, delete: 0 };
+      var total = c.total || { create: 0, update: 0, delete: 0 };
+
+      byId("csKpiCalendar").textContent = String((calendar.create || 0) + (calendar.update || 0) + (calendar.delete || 0));
+      byId("csKpiFpp").textContent = String((fpp.create || 0) + (fpp.update || 0) + (fpp.delete || 0));
+      byId("csKpiNoop").textContent = preview.noop ? "Yes" : "No";
+      byId("csKpiTotal").textContent = String((total.create || 0) + (total.update || 0) + (total.delete || 0));
+
+      renderActions(preview.actions || []);
+    }
+
+    function loadStatus() {
+      return fetchJson({ action: "status" }).then(function (res) {
+        var google = res.google || {};
+        var account = google.account || "Not connected yet";
+        byId("csConnectedAccount").value = account;
+
+        var select = byId("csCalendarSelect");
+        var calendars = Array.isArray(google.calendars) ? google.calendars : [];
+        if (calendars.length === 0) {
+          select.innerHTML = "<option>Connect account to load calendars</option>";
+          select.disabled = true;
+        } else {
+          select.innerHTML = calendars.map(function (c) {
+            var selected = c.id === google.selectedCalendarId ? " selected" : "";
+            var label = c.primary ? (c.summary + " (Primary)") : c.summary;
+            return "<option value=\"" + escapeHtml(c.id) + "\"" + selected + ">" + escapeHtml(label) + "</option>";
+          }).join("");
+          select.disabled = false;
+        }
+
+        byId("csConnectBtn").dataset.authUrl = google.authUrl || "";
+        renderDiagnostics(res);
+      });
+    }
+
+    function runPreview() {
+      return fetchJson({ action: "preview" }).then(function (res) {
+        renderPreview(res.preview || {});
+        renderDiagnostics(res);
+      });
+    }
+
+    function runApply() {
+      return fetchJson({ action: "apply" }).then(function (res) {
+        renderPreview(res.preview || {});
+        renderDiagnostics(res);
+      });
+    }
+
+    byId("csConnectBtn").addEventListener("click", function () {
+      var url = this.dataset.authUrl || "";
+      if (!url) {
+        setError("OAuth URL is unavailable. Check Google client configuration.");
+        return;
+      }
+      window.open(url, "_blank");
+      setError("After completing OAuth in the new tab, click 'Resync Calendar List'.");
+    });
+
+    byId("csResyncCalendarsBtn").addEventListener("click", function () {
+      setError("");
+      setButtonsDisabled(true);
+      loadStatus()
+        .then(function () { return runPreview(); })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
+    });
+
+    byId("csCalendarSelect").addEventListener("change", function () {
+      var calendarId = this.value || "";
+      if (!calendarId) {
+        return;
+      }
+      setError("");
+      setButtonsDisabled(true);
+      fetchJson({ action: "set_calendar", calendar_id: calendarId })
+        .then(function () { return runPreview(); })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
+    });
+
+    byId("csRefreshPreviewBtn").addEventListener("click", function () {
+      setError("");
+      setButtonsDisabled(true);
+      runPreview()
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
+    });
+
+    byId("csApplyBtn").addEventListener("click", function () {
+      setError("");
+      setButtonsDisabled(true);
+      runApply()
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
+    });
+
+    setButtonsDisabled(true);
+    setError("");
+    loadStatus()
+      .then(function () { return runPreview(); })
+      .catch(function (err) { setError(err.message); })
+      .finally(function () { setButtonsDisabled(false); });
   }());
 </script>

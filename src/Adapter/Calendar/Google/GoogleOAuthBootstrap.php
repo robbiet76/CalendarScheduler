@@ -85,6 +85,11 @@ final class GoogleOAuthBootstrap
         fwrite(STDOUT, PHP_EOL . "SUCCESS: token.json written." . PHP_EOL);
     }
 
+    public function getAuthorizationUrl(): string
+    {
+        return $this->buildAuthUrl();
+    }
+
     private function buildAuthUrl(): string
     {
         $oauth = $this->config->getOauth();
