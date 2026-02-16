@@ -615,18 +615,30 @@ final class SchedulerEngine
         // absent from the refreshed calendar manifest should be treated as deleted by
         // calendar, not recreated from FPP on the next reconcile pass.
         foreach ($currentEvents as $id => $event) {
-            if (!is_string($id) || $id === '' || !is_array($event)) {
+            if (!is_array($event)) {
                 continue;
             }
-            if (isset($calendarIds[$id])) {
+            $identityId = null;
+            if (is_string($id) && $id !== '') {
+                $identityId = $id;
+            } else {
+                $eventId = $event['identityHash'] ?? $event['id'] ?? null;
+                if (is_string($eventId) && $eventId !== '') {
+                    $identityId = $eventId;
+                }
+            }
+            if (!is_string($identityId) || $identityId === '') {
                 continue;
             }
-            if (!isset($fppIds[$id])) {
+            if (isset($calendarIds[$identityId])) {
+                continue;
+            }
+            if (!isset($fppIds[$identityId])) {
                 continue;
             }
 
-            if (!isset($tombstonesBySource['calendar'][$id])) {
-                $tombstonesBySource['calendar'][$id] = $calendarEpoch;
+            if (!isset($tombstonesBySource['calendar'][$identityId])) {
+                $tombstonesBySource['calendar'][$identityId] = $calendarEpoch;
             }
         }
 
