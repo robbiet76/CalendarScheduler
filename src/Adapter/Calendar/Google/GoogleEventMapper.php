@@ -509,7 +509,7 @@ final class GoogleEventMapper
                 ),
             ],
         ];
-        $recurrence = $this->buildGoogleRecurrenceFromTiming($timing, $tz, $start, $end);
+        $recurrence = $this->buildGoogleRecurrenceFromTiming($timing, $tz, $start, $end, $repeat);
         if ($recurrence !== []) {
             [$recurrenceStart, $recurrenceEnd] = $this->buildRecurringInstanceWindow($start, $end);
             $payload['start'] = $this->mapDateTime($recurrenceStart, $tz);
@@ -830,6 +830,7 @@ final class GoogleEventMapper
                 $symbolic,
                 $this->latitude,
                 $this->longitude,
+                $this->localTimezone->getName(),
                 $offset,
                 30
             );
@@ -866,9 +867,15 @@ final class GoogleEventMapper
         array $timing,
         string $timezone,
         array $mappedStart,
-        array $mappedEnd
+        array $mappedEnd,
+        string $repeat
     ): array
     {
+        $repeatNorm = strtolower(trim($repeat));
+        if ($repeatNorm === '' || $repeatNorm === 'none') {
+            return [];
+        }
+
         $startDate = is_string($mappedStart['date'] ?? null) ? trim((string)$mappedStart['date']) : '';
         $endDate = is_string($mappedEnd['date'] ?? null) ? trim((string)$mappedEnd['date']) : '';
         if ($startDate === '' || $endDate === '') {

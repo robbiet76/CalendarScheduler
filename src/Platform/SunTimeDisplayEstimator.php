@@ -56,6 +56,7 @@ final class SunTimeDisplayEstimator
         string $symbolicTime,
         float $latitude,
         float $longitude,
+        string $timezone = 'UTC',
         int $offsetMinutes = 0,
         int $roundMinutes = 30
     ): ?string {
@@ -67,14 +68,23 @@ final class SunTimeDisplayEstimator
             return null;
         }
 
-        // Use noon to avoid DST boundary artifacts
-        $timestamp = strtotime($ymd . ' 12:00:00');
-        if ($timestamp === false) {
+        try {
+            $tz = new \DateTimeZone($timezone);
+        } catch (\Throwable) {
+            $tz = new \DateTimeZone('UTC');
+        }
+
+        // Use local noon to avoid DST-boundary artifacts and compute the
+        // correct day-of-year/offset for the configured FPP timezone.
+        $noonLocal = new \DateTimeImmutable($ymd . ' 12:00:00', $tz);
+        $dayOfYear = (int)$noonLocal->format('z') + 1;
+        $tzOffsetSeconds = (int)$noonLocal->format('Z');
+        if ($dayOfYear <= 0) {
             return null;
         }
 
         [$sunrise, $sunset, $dawn, $dusk] =
-            self::calculateSunTimes($timestamp, $latitude, $longitude);
+            self::calculateSunTimes($dayOfYear, $latitude, $longitude, $tzOffsetSeconds);
 
         $baseSeconds = match ($symbolicTime) {
             'SunRise' => $sunrise,
@@ -102,22 +112,23 @@ final class SunTimeDisplayEstimator
      *   sunrise, sunset, dawn, dusk (seconds since local midnight)
      */
     private static function calculateSunTimes(
-        int $timestamp,
+        int $dayOfYear,
         float $lat,
-        float $lon
+        float $lon,
+        int $tzOffsetSeconds
     ): array {
-        $dayOfYear = (int)date('z', $timestamp) + 1;
         $lngHour   = $lon / 15.0;
 
-        $sunrise = self::calcSolarTime($dayOfYear, $lat, $lngHour, true,  -0.833);
-        $sunset  = self::calcSolarTime($dayOfYear, $lat, $lngHour, false, -0.833);
+        $sunrise = self::calcSolarTime($dayOfYear, $lat, $lngHour, true,  -0.833, $tzOffsetSeconds);
+        $sunset  = self::calcSolarTime($dayOfYear, $lat, $lngHour, false, -0.833, $tzOffsetSeconds);
 
         $dawn = self::calcSolarTime(
             $dayOfYear,
             $lat,
             $lngHour,
             true,
-            self::CIVIL_TWILIGHT_DEGREES
+            self::CIVIL_TWILIGHT_DEGREES,
+            $tzOffsetSeconds
         );
 
         $dusk = self::calcSolarTime(
@@ -125,7 +136,8 @@ final class SunTimeDisplayEstimator
             $lat,
             $lngHour,
             false,
-            self::CIVIL_TWILIGHT_DEGREES
+            self::CIVIL_TWILIGHT_DEGREES,
+            $tzOffsetSeconds
         );
 
         return [$sunrise, $sunset, $dawn, $dusk];
@@ -136,7 +148,8 @@ final class SunTimeDisplayEstimator
         float $lat,
         float $lngHour,
         bool $isRise,
-        float $zenith
+        float $zenith,
+        int $tzOffsetSeconds
     ): int {
         // Approximate time
         $t = $dayOfYear + (($isRise ? 6 : 18) - $lngHour) / 24;
@@ -187,8 +200,8 @@ final class SunTimeDisplayEstimator
         // Universal Time
         $UT = fmod($T - $lngHour + 24, 24);
 
-        // Convert UTC → local wall-clock time (respects DST)
-        $tzOffsetHours = date('Z') / 3600;
+        // Convert UTC -> local wall-clock time in target timezone.
+        $tzOffsetHours = $tzOffsetSeconds / 3600;
         $localTime = fmod($UT + $tzOffsetHours + 24, 24);
 
         return (int)round($localTime * 3600);
