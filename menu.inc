@@ -1,6 +1,6 @@
 <?php
 /**
- * GoogleCalendarScheduler menu entry
+ * CalendarScheduler menu entry
  *
  * Purpose:
  * - Registers the plugin link in the FPP web UI sidebar
@@ -22,6 +22,6 @@ if ($menu !== 'content') {
 ?>
 <li>
   <a href="plugin.php?plugin=GoogleCalendarScheduler&page=content.php">
-    Google Calendar Scheduler
+    Calendar Scheduler
   </a>
 </li>

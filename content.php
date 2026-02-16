@@ -35,7 +35,6 @@
 </style>
 
 <div class="pageContent cs-page" id="csShell">
-  <h2>Calendar Scheduler</h2>
   <div class="alert alert-info" role="alert">
     Connection, preview, and apply flow for calendar-to-FPP synchronization.
   </div>
@@ -44,7 +43,7 @@
     <div class="col-lg-6">
       <div class="backdrop mb-3">
         <h4 class="cs-panel-title">1) Connection Setup</h4>
-        <p class="cs-muted">First-time OAuth and calendar selection. Google enabled now, Outlook planned.</p>
+        <p class="cs-muted">First-time OAuth and calendar selection. Additional providers can be added over time.</p>
 
         <div class="mb-2">
           <span class="badge text-bg-primary">Google</span>
@@ -64,7 +63,7 @@
         </div>
 
         <div class="mt-3">
-          <button class="buttons btn-success" type="button">Connect Google</button>
+          <button class="buttons btn-success" type="button">Connect Provider</button>
           <button class="buttons btn-pleasant" type="button">Resync Calendar List</button>
         </div>
       </div>
