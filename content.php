@@ -24,6 +24,11 @@
     color: #111 !important;
   }
 
+  .cs-status-loading {
+    background-color: #b7b7b7 !important;
+    border-color: #9c9c9c !important;
+  }
+
   #csShell .table td,
   #csShell .table th {
     padding-left: 14px;
@@ -174,10 +179,16 @@
         return;
       }
 
-      ["alert-info", "alert-success", "alert-warning", "alert-danger"].forEach(function (name) {
+      ["alert-info", "alert-success", "alert-warning", "alert-danger", "cs-status-loading"].forEach(function (name) {
         bar.classList.remove(name);
       });
       bar.classList.add(className);
+    }
+
+    function setLoadingState() {
+      byId("csPreviewState").textContent = "Loading";
+      byId("csPreviewTime").textContent = "Updating...";
+      setTopBarClass("cs-status-loading");
     }
 
     function setError(message) {
@@ -308,6 +319,23 @@
       });
     }
 
+    var refreshInFlight = false;
+    function refreshAll() {
+      if (refreshInFlight) {
+        return Promise.resolve();
+      }
+      refreshInFlight = true;
+      setButtonsDisabled(true);
+      setLoadingState();
+      return loadStatus()
+        .then(function () { return runPreview(); })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () {
+          refreshInFlight = false;
+          setButtonsDisabled(false);
+        });
+    }
+
     byId("csConnectBtn").addEventListener("click", function () {
       var url = this.dataset.authUrl || "";
       if (!url) {
@@ -319,11 +347,7 @@
     });
 
     byId("csResyncCalendarsBtn").addEventListener("click", function () {
-      setButtonsDisabled(true);
-      loadStatus()
-        .then(function () { return runPreview(); })
-        .catch(function (err) { setError(err.message); })
-        .finally(function () { setButtonsDisabled(false); });
+      refreshAll();
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
@@ -333,22 +357,23 @@
       }
       setButtonsDisabled(true);
       fetchJson({ action: "set_calendar", calendar_id: calendarId })
-        .then(function () { return runPreview(); })
+        .then(function () { return refreshAll(); })
         .catch(function (err) { setError(err.message); })
         .finally(function () { setButtonsDisabled(false); });
     });
 
     byId("csApplyBtn").addEventListener("click", function () {
       setButtonsDisabled(true);
+      setLoadingState();
       runApply()
         .catch(function (err) { setError(err.message); })
         .finally(function () { setButtonsDisabled(false); });
     });
 
-    setButtonsDisabled(true);
-    loadStatus()
-      .then(function () { return runPreview(); })
-      .catch(function (err) { setError(err.message); })
-      .finally(function () { setButtonsDisabled(false); });
+    window.addEventListener("focus", function () {
+      refreshAll();
+    });
+
+    refreshAll();
   }());
 </script>
