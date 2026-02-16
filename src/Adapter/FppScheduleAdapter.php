@@ -131,12 +131,37 @@ final class FppScheduleAdapter
         $mtime = filemtime($schedulePath);
         $updatedAt = is_int($mtime) ? $mtime : time();
 
+        $yearHints = [];
+        foreach ($raw as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $key = $this->deriveEntryIdentityKey($entry);
+            if ($key === null) {
+                continue;
+            }
+
+            $startYear = $this->extractHardYear($entry['startDate'] ?? null);
+            $endYear = $this->extractHardYear($entry['endDate'] ?? null);
+            $candidateYears = array_values(array_filter([$startYear, $endYear], static fn($y) => is_int($y) && $y > 0));
+            if ($candidateYears === []) {
+                continue;
+            }
+
+            $candidate = min($candidateYears);
+            if (!isset($yearHints[$key]) || $candidate < $yearHints[$key]) {
+                $yearHints[$key] = $candidate;
+            }
+        }
+
         $events = [];
         foreach ($raw as $entry) {
             if (!is_array($entry)) {
                 continue;
             }
-            $events[] = $this->fromScheduleEntry($entry, $fppTz, $updatedAt);
+            $key = $this->deriveEntryIdentityKey($entry);
+            $yearHint = (is_string($key) && isset($yearHints[$key])) ? (int)$yearHints[$key] : null;
+            $events[] = $this->fromScheduleEntry($entry, $fppTz, $updatedAt, $yearHint);
         }
 
         return $events;
@@ -148,7 +173,12 @@ final class FppScheduleAdapter
      * @param array<string,mixed> $entry
      * @return array<string,mixed> manifest-event
      */
-    public function fromScheduleEntry(array $entry, \DateTimeZone $fppTz, int $scheduleUpdatedAt): array
+    public function fromScheduleEntry(
+        array $entry,
+        \DateTimeZone $fppTz,
+        int $scheduleUpdatedAt,
+        ?int $dateYearHint = null
+    ): array
     {
         // --- Type / target ---
         if (!empty($entry['command'])) {
@@ -222,6 +252,9 @@ final class FppScheduleAdapter
             'repeat'   => FPPSemantics::repeatToSemantic($repeatNumeric),
             'stopType' => $stopType,
         ];
+        if (is_int($dateYearHint) && $dateYearHint > 0) {
+            $payload['date_year_hint'] = $dateYearHint;
+        }
 
         if ($type === 'command') {
             /**
@@ -261,6 +294,41 @@ final class FppScheduleAdapter
             // Keep for any older call sites that still read this name.
             'sourceUpdatedAt' => $scheduleUpdatedAt,
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $entry
+     */
+    private function deriveEntryIdentityKey(array $entry): ?string
+    {
+        if (!empty($entry['command'])) {
+            $type = 'command';
+            $target = (string)($entry['command'] ?? '');
+        } else {
+            $type = (($entry['sequence'] ?? 0) ? 'sequence' : 'playlist');
+            $target = preg_replace('/\.fseq$/i', '', (string)($entry['playlist'] ?? ''));
+        }
+
+        $type = FPPSemantics::normalizeType((string)$type);
+        $target = trim((string)$target);
+        if ($target === '') {
+            return null;
+        }
+
+        return $type . '|' . $target;
+    }
+
+    private function extractHardYear(mixed $date): ?int
+    {
+        if (!is_string($date)) {
+            return null;
+        }
+        $date = trim($date);
+        if (!preg_match('/^(\d{4})-\d{2}-\d{2}$/', $date, $m)) {
+            return null;
+        }
+        $year = (int)$m[1];
+        return $year > 0 ? $year : null;
     }
 
     /**

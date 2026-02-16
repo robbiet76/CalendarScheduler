@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
 use CalendarScheduler\Diff\ReconciliationAction;
+use CalendarScheduler\Platform\HolidayResolver;
 use RuntimeException;
 
 /**
@@ -22,6 +23,8 @@ final class GoogleEventMapper
     private const MANAGED_FORMAT_VERSION = '2';
 
     private bool $debugCalendar;
+    private ?HolidayResolver $holidayResolver = null;
+    private \DateTimeZone $localTimezone;
 
     /** @var array<string,mixed> */
     private array $diagnostics = [
@@ -35,6 +38,8 @@ final class GoogleEventMapper
     public function __construct()
     {
         $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+        $this->localTimezone = $this->resolveLocalTimezone();
+        $this->holidayResolver = $this->loadHolidayResolver();
     }
 
     /**
@@ -443,7 +448,7 @@ final class GoogleEventMapper
             ? $timing['timezone']
             : 'UTC';
 
-        [$start, $end] = $this->buildGoogleStartEndFromTiming($timing);
+        [$start, $end] = $this->buildGoogleStartEndFromTiming($timing, $payloadIn);
         $subEventHash = $this->deriveSubEventHash($subEvent);
 
         $summary = is_string($payloadIn['summary'] ?? null) && trim((string)$payloadIn['summary']) !== ''
@@ -718,11 +723,21 @@ final class GoogleEventMapper
      * @param array<string,mixed> $timing
      * @return array{0:array<string,mixed>,1:array<string,mixed>}
      */
-    private function buildGoogleStartEndFromTiming(array $timing): array
+    private function buildGoogleStartEndFromTiming(array $timing, array $payload = []): array
     {
         $allDay = (bool)($timing['all_day'] ?? false);
         $startDate = $timing['start_date']['hard'] ?? null;
         $endDate = $timing['end_date']['hard'] ?? null;
+
+        if ((!is_string($startDate) || $startDate === '') || (!is_string($endDate) || $endDate === '')) {
+            [$resolvedStart, $resolvedEnd] = $this->resolveSymbolicDateBounds($timing, $payload);
+            if (!is_string($startDate) || $startDate === '') {
+                $startDate = $resolvedStart;
+            }
+            if (!is_string($endDate) || $endDate === '') {
+                $endDate = $resolvedEnd;
+            }
+        }
 
         if (!is_string($startDate) || $startDate === '') {
             throw new RuntimeException('Google mapping requires hard start_date');
@@ -781,5 +796,138 @@ final class GoogleEventMapper
             ['date' => $startDate, 'time' => $startTime, 'allDay' => false],
             ['date' => $endDate, 'time' => $endTime, 'allDay' => false],
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     * @param array<string,mixed> $payload
+     * @return array{0:?string,1:?string}
+     */
+    private function resolveSymbolicDateBounds(array $timing, array $payload): array
+    {
+        if (!($this->holidayResolver instanceof HolidayResolver)) {
+            return [null, null];
+        }
+
+        $startHard = is_string($timing['start_date']['hard'] ?? null) ? trim((string)$timing['start_date']['hard']) : null;
+        $endHard = is_string($timing['end_date']['hard'] ?? null) ? trim((string)$timing['end_date']['hard']) : null;
+        $startSym = is_string($timing['start_date']['symbolic'] ?? null) ? trim((string)$timing['start_date']['symbolic']) : '';
+        $endSym = is_string($timing['end_date']['symbolic'] ?? null) ? trim((string)$timing['end_date']['symbolic']) : '';
+
+        $hintYear = (isset($payload['date_year_hint']) && is_numeric($payload['date_year_hint']))
+            ? (int)$payload['date_year_hint']
+            : 0;
+
+        $anchorYear = $hintYear > 0
+            ? $hintYear
+            : ($this->extractYearFromHardDate($startHard)
+                ?? $this->extractYearFromHardDate($endHard)
+                ?? (int)(new \DateTimeImmutable('now', $this->localTimezone))->format('Y'));
+
+        $startDerived = false;
+        $endDerived = false;
+
+        if (($startHard === null || $startHard === '') && $startSym !== '') {
+            $resolved = $this->holidayResolver->dateFromHoliday($startSym, $anchorYear);
+            if ($resolved instanceof \DateTimeImmutable) {
+                $startHard = $resolved->format('Y-m-d');
+                $startDerived = true;
+            }
+        }
+
+        if (($endHard === null || $endHard === '') && $endSym !== '') {
+            $resolved = $this->holidayResolver->dateFromHoliday($endSym, $anchorYear);
+            if ($resolved instanceof \DateTimeImmutable) {
+                $endHard = $resolved->format('Y-m-d');
+                $endDerived = true;
+            }
+        }
+
+        if (is_string($startHard) && $startHard !== '' && is_string($endHard) && $endHard !== '' && strcmp($endHard, $startHard) < 0) {
+            if ($endDerived && $endSym !== '') {
+                $startYear = $this->extractYearFromHardDate($startHard);
+                if (is_int($startYear) && $startYear > 0) {
+                    $resolved = $this->holidayResolver->dateFromHoliday($endSym, $startYear + 1);
+                    if ($resolved instanceof \DateTimeImmutable) {
+                        $endHard = $resolved->format('Y-m-d');
+                    }
+                }
+            } elseif ($startDerived && $startSym !== '') {
+                $endYear = $this->extractYearFromHardDate($endHard);
+                if (is_int($endYear) && $endYear > 0) {
+                    $resolved = $this->holidayResolver->dateFromHoliday($startSym, $endYear - 1);
+                    if ($resolved instanceof \DateTimeImmutable) {
+                        $startHard = $resolved->format('Y-m-d');
+                    }
+                }
+            }
+        }
+
+        return [
+            (is_string($startHard) && $startHard !== '') ? $startHard : null,
+            (is_string($endHard) && $endHard !== '') ? $endHard : null,
+        ];
+    }
+
+    private function extractYearFromHardDate(?string $date): ?int
+    {
+        if (!is_string($date) || $date === '') {
+            return null;
+        }
+        if (!preg_match('/^(\d{4})-\d{2}-\d{2}$/', $date, $m)) {
+            return null;
+        }
+        $year = (int)$m[1];
+        return $year > 0 ? $year : null;
+    }
+
+    private function resolveLocalTimezone(): \DateTimeZone
+    {
+        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        if (is_file($envPath)) {
+            $raw = @file_get_contents($envPath);
+            if (is_string($raw) && $raw !== '') {
+                $json = @json_decode($raw, true);
+                $tzName = is_array($json) ? ($json['timezone'] ?? null) : null;
+                if (is_string($tzName) && trim($tzName) !== '') {
+                    try {
+                        return new \DateTimeZone(trim($tzName));
+                    } catch (\Throwable) {
+                        // fall through
+                    }
+                }
+            }
+        }
+
+        try {
+            return new \DateTimeZone(date_default_timezone_get());
+        } catch (\Throwable) {
+            return new \DateTimeZone('UTC');
+        }
+    }
+
+    private function loadHolidayResolver(): ?HolidayResolver
+    {
+        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        if (!is_file($envPath)) {
+            return null;
+        }
+
+        $raw = @file_get_contents($envPath);
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        $json = @json_decode($raw, true);
+        if (!is_array($json)) {
+            return null;
+        }
+
+        $holidays = $json['rawLocale']['holidays'] ?? null;
+        if (!is_array($holidays)) {
+            return null;
+        }
+
+        return new HolidayResolver($holidays);
     }
 }
