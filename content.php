@@ -8,20 +8,6 @@
 <style>
   .cs-page {
     margin-top: 10px;
-    width: 100%;
-    max-width: 100%;
-    overflow-x: hidden;
-    box-sizing: border-box;
-  }
-
-  .cs-page .row {
-    margin-left: 0;
-    margin-right: 0;
-  }
-
-  .cs-page .row > [class*="col-"] {
-    padding-left: 8px;
-    padding-right: 8px;
   }
 
   .cs-panel-title {
@@ -48,7 +34,7 @@
   }
 </style>
 
-<div class="pageContent cs-page" id="csShell">
+<div class="cs-page" id="csShell">
   <div class="alert alert-info" role="alert">
     Connection, preview, and apply flow for calendar-to-FPP synchronization.
   </div>
