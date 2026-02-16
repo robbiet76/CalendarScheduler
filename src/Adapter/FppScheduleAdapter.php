@@ -132,6 +132,7 @@ final class FppScheduleAdapter
         $updatedAt = is_int($mtime) ? $mtime : time();
 
         $yearHints = [];
+        $globalYearHint = null;
         foreach ($raw as $entry) {
             if (!is_array($entry)) {
                 continue;
@@ -149,6 +150,9 @@ final class FppScheduleAdapter
             }
 
             $candidate = min($candidateYears);
+            if (!is_int($globalYearHint) || $candidate < $globalYearHint) {
+                $globalYearHint = $candidate;
+            }
             if (!isset($yearHints[$key]) || $candidate < $yearHints[$key]) {
                 $yearHints[$key] = $candidate;
             }
@@ -160,7 +164,9 @@ final class FppScheduleAdapter
                 continue;
             }
             $key = $this->deriveEntryIdentityKey($entry);
-            $yearHint = (is_string($key) && isset($yearHints[$key])) ? (int)$yearHints[$key] : null;
+            $yearHint = (is_string($key) && isset($yearHints[$key]))
+                ? (int)$yearHints[$key]
+                : (is_int($globalYearHint) ? $globalYearHint : null);
             $events[] = $this->fromScheduleEntry($entry, $fppTz, $updatedAt, $yearHint);
         }
 
