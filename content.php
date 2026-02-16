@@ -41,9 +41,17 @@
 </style>
 
 <div class="cs-page" id="csShell">
-  <div class="alert alert-danger cs-hidden" role="alert" id="csErrorBanner"></div>
-  <div class="alert alert-info" role="alert">
-    Connection, preview, and apply flow for calendar-to-FPP synchronization.
+  <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap" role="alert" id="csTopStatusBar">
+    <div>
+      Status: <strong id="csPreviewState">Loading...</strong> |
+      Last refresh: <span id="csPreviewTime">Pending</span>
+      <span class="cs-kpi"><span class="badge text-bg-warning" id="csKpiCalendar">0</span> Calendar</span>
+      <span class="cs-kpi"><span class="badge text-bg-warning" id="csKpiFpp">0</span> FPP</span>
+      <span class="cs-kpi"><span class="badge text-bg-secondary" id="csKpiTotal">0</span> Total</span>
+    </div>
+    <div class="mt-2 mt-md-0">
+      <button class="buttons btn-detract" id="csRefreshPreviewBtn" type="button">Refresh Preview</button>
+    </div>
   </div>
 
   <div class="row g-2">
@@ -74,20 +82,6 @@
           <button class="buttons btn-detract" id="csResyncCalendarsBtn" type="button">Resync Calendar List</button>
         </div>
       </div>
-    </div>
-  </div>
-
-  <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap" role="alert">
-    <div>
-      Status: <strong id="csPreviewState">Needs Review</strong> |
-      Last refresh: <span id="csPreviewTime">Pending</span>
-      <span class="cs-kpi"><span class="badge text-bg-warning" id="csKpiCalendar">0</span> Calendar</span>
-      <span class="cs-kpi"><span class="badge text-bg-warning" id="csKpiFpp">0</span> FPP</span>
-      <span class="cs-kpi"><span class="badge text-bg-success" id="csKpiNoop">No</span> In Sync</span>
-      <span class="cs-kpi"><span class="badge text-bg-secondary" id="csKpiTotal">0</span> Total</span>
-    </div>
-    <div class="mt-2 mt-md-0">
-      <button class="buttons btn-detract" id="csRefreshPreviewBtn" type="button">Refresh Preview</button>
     </div>
   </div>
 
@@ -165,18 +159,25 @@
       });
     }
 
+    function setTopBarClass(className) {
+      var bar = byId("csTopStatusBar");
+      if (!bar) {
+        return;
+      }
+
+      ["alert-info", "alert-success", "alert-warning", "alert-danger"].forEach(function (name) {
+        bar.classList.remove(name);
+      });
+      bar.classList.add(className);
+    }
+
     function setError(message) {
-      var banner = byId("csErrorBanner");
-      if (!banner) {
-        return;
-      }
       if (!message) {
-        banner.classList.add("cs-hidden");
-        banner.textContent = "";
         return;
       }
-      banner.textContent = message;
-      banner.classList.remove("cs-hidden");
+      byId("csPreviewState").textContent = "Error";
+      setTopBarClass("alert-danger");
+      byId("csPreviewTime").textContent = message;
     }
 
     function renderDiagnostics(payload) {
@@ -253,8 +254,13 @@
 
       byId("csKpiCalendar").textContent = String((calendar.create || 0) + (calendar.update || 0) + (calendar.delete || 0));
       byId("csKpiFpp").textContent = String((fpp.create || 0) + (fpp.update || 0) + (fpp.delete || 0));
-      byId("csKpiNoop").textContent = preview.noop ? "Yes" : "No";
       byId("csKpiTotal").textContent = String((total.create || 0) + (total.update || 0) + (total.delete || 0));
+
+      if (preview.noop) {
+        setTopBarClass("alert-success");
+      } else {
+        setTopBarClass("alert-warning");
+      }
 
       renderActions(preview.actions || []);
     }
@@ -309,7 +315,6 @@
     });
 
     byId("csResyncCalendarsBtn").addEventListener("click", function () {
-      setError("");
       setButtonsDisabled(true);
       loadStatus()
         .then(function () { return runPreview(); })
@@ -322,7 +327,6 @@
       if (!calendarId) {
         return;
       }
-      setError("");
       setButtonsDisabled(true);
       fetchJson({ action: "set_calendar", calendar_id: calendarId })
         .then(function () { return runPreview(); })
@@ -331,7 +335,6 @@
     });
 
     byId("csRefreshPreviewBtn").addEventListener("click", function () {
-      setError("");
       setButtonsDisabled(true);
       runPreview()
         .catch(function (err) { setError(err.message); })
@@ -339,7 +342,6 @@
     });
 
     byId("csApplyBtn").addEventListener("click", function () {
-      setError("");
       setButtonsDisabled(true);
       runApply()
         .catch(function (err) { setError(err.message); })
@@ -347,7 +349,6 @@
     });
 
     setButtonsDisabled(true);
-    setError("");
     loadStatus()
       .then(function () { return runPreview(); })
       .catch(function (err) { setError(err.message); })
