@@ -148,6 +148,7 @@
     var manualAuthCanPrompt = false;
     var manualAuthStartedAt = 0;
     var manualAuthPromptReadyAt = 0;
+    var manualAuthExpectCallback = false;
 
     function byId(id) {
       return document.getElementById(id);
@@ -360,6 +361,7 @@
       manualAuthCanPrompt = false;
       manualAuthStartedAt = 0;
       manualAuthPromptReadyAt = 0;
+      manualAuthExpectCallback = false;
       clearManualAuthWatch();
     }
 
@@ -441,11 +443,23 @@
       manualAuthWatchTimer = window.setInterval(function () {
         if (!popupWindow || popupWindow.closed) {
           clearManualAuthWatch();
-          manualAuthCanPrompt = true;
-          manualAuthPromptReadyAt = 0;
-          window.setTimeout(function () {
-            maybePromptForManualCode();
-          }, 100);
+          if (manualAuthExpectCallback) {
+            refreshAll().finally(function () {
+              if (!providerConnected) {
+                manualAuthCanPrompt = true;
+                manualAuthPromptReadyAt = 0;
+                window.setTimeout(function () {
+                  maybePromptForManualCode();
+                }, 100);
+              }
+            });
+          } else {
+            manualAuthCanPrompt = true;
+            manualAuthPromptReadyAt = 0;
+            window.setTimeout(function () {
+              maybePromptForManualCode();
+            }, 100);
+          }
           return;
         }
 
@@ -493,11 +507,12 @@
         popupWindow = window.open(url, "_blank");
       }
       if (popupWindow) {
+        manualAuthExpectCallback = url.indexOf("oauth-callback.php") !== -1;
         manualAuthInProgress = true;
         manualCodePrompted = false;
-        manualAuthCanPrompt = true;
+        manualAuthCanPrompt = !manualAuthExpectCallback;
         manualAuthStartedAt = Date.now();
-        manualAuthPromptReadyAt = manualAuthStartedAt + 10000;
+        manualAuthPromptReadyAt = manualAuthExpectCallback ? 0 : (manualAuthStartedAt + 10000);
         watchManualAuthPopup(popupWindow);
       } else {
         clearManualAuthState();
@@ -630,6 +645,23 @@
       runApply()
         .catch(function (err) { setError(err.message); })
         .finally(function () { setButtonsDisabled(false); });
+    });
+
+    window.addEventListener("message", function (event) {
+      var data = event && event.data ? event.data : null;
+      if (!data || data.type !== "cs_oauth_complete") {
+        return;
+      }
+      if (data.status === "success") {
+        clearManualAuthState();
+        refreshAll();
+        return;
+      }
+      if (data.status === "failed") {
+        manualAuthCanPrompt = true;
+        manualAuthPromptReadyAt = 0;
+        maybePromptForManualCode();
+      }
     });
 
     window.addEventListener("focus", function () {
