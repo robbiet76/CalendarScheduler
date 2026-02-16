@@ -8,6 +8,20 @@
 <style>
   .cs-page {
     margin-top: 10px;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+  }
+
+  .cs-page .row {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .cs-page .row > [class*="col-"] {
+    padding-left: 8px;
+    padding-right: 8px;
   }
 
   .cs-panel-title {
@@ -39,7 +53,7 @@
     Connection, preview, and apply flow for calendar-to-FPP synchronization.
   </div>
 
-  <div class="row">
+  <div class="row g-2">
     <div class="col-lg-6">
       <div class="backdrop mb-3">
         <h4 class="cs-panel-title">1) Connection Setup</h4>
