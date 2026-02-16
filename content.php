@@ -142,6 +142,7 @@
     var providerConnected = false;
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
+    var manualAuthWatchTimer = null;
 
     function byId(id) {
       return document.getElementById(id);
@@ -338,6 +339,76 @@
       deviceAuthDeadlineEpoch = 0;
     }
 
+    function clearManualAuthWatch() {
+      if (manualAuthWatchTimer !== null) {
+        window.clearInterval(manualAuthWatchTimer);
+        manualAuthWatchTimer = null;
+      }
+    }
+
+    function extractQueryParam(urlString, key) {
+      try {
+        var url = new URL(urlString);
+        return url.searchParams.get(key);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function completeManualCodeExchange(code) {
+      if (!code) {
+        return;
+      }
+      setLoadingState();
+      fetchJson({ action: "auth_exchange_code", code: code })
+        .then(function () { return refreshAll(); })
+        .catch(function (err) {
+          setError("OAuth code exchange failed: " + err.message);
+        });
+    }
+
+    function watchManualAuthPopup(popupWindow) {
+      clearManualAuthWatch();
+      manualAuthWatchTimer = window.setInterval(function () {
+        if (!popupWindow || popupWindow.closed) {
+          clearManualAuthWatch();
+          var pasted = window.prompt("If Google displayed a code URL, paste the 'code' value here to finish sign-in:");
+          if (pasted && pasted.trim() !== "") {
+            completeManualCodeExchange(pasted.trim());
+          }
+          return;
+        }
+
+        var href = null;
+        try {
+          href = popupWindow.location.href;
+        } catch (e) {
+          return;
+        }
+
+        if (!href) {
+          return;
+        }
+
+        var code = extractQueryParam(href, "code");
+        var err = extractQueryParam(href, "error");
+        if (err) {
+          clearManualAuthWatch();
+          setError("OAuth authorization failed: " + err);
+          return;
+        }
+        if (code) {
+          clearManualAuthWatch();
+          try {
+            popupWindow.close();
+          } catch (e) {
+            // ignore
+          }
+          completeManualCodeExchange(code);
+        }
+      }, 1000);
+    }
+
     function fallbackManualAuth(message, popupWindow) {
       var url = byId("csConnectBtn").dataset.authUrl || "";
       if (!url) {
@@ -348,7 +419,10 @@
       if (popupWindow && !popupWindow.closed) {
         popupWindow.location.href = url;
       } else {
-        window.open(url, "_blank");
+        popupWindow = window.open(url, "_blank");
+      }
+      if (popupWindow) {
+        watchManualAuthPopup(popupWindow);
       }
     }
 

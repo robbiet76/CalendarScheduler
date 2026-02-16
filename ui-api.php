@@ -423,6 +423,37 @@ function cs_google_device_poll(string $deviceCode): array
     return ['status' => 'connected'];
 }
 
+function cs_google_exchange_authorization_code(string $code): void
+{
+    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+    $oauth = $config->getOauth();
+    $redirectUri = $oauth['redirect_uri'] ?? null;
+    if (!is_string($redirectUri) || $redirectUri === '') {
+        throw new \RuntimeException('Google oauth.redirect_uri missing');
+    }
+
+    $auth = cs_google_device_auth_config();
+    $resp = cs_http_post_form_json(
+        'https://oauth2.googleapis.com/token',
+        [
+            'code' => $code,
+            'client_id' => $auth['client_id'],
+            'client_secret' => $auth['client_secret'],
+            'redirect_uri' => $redirectUri,
+            'grant_type' => 'authorization_code',
+        ]
+    );
+
+    if (isset($resp['error'])) {
+        $error = is_string($resp['error']) ? $resp['error'] : 'unknown_error';
+        $desc = is_string($resp['error_description'] ?? null) ? $resp['error_description'] : '';
+        $suffix = $desc !== '' ? " ({$desc})" : '';
+        throw new \RuntimeException("Authorization code exchange failed: {$error}{$suffix}");
+    }
+
+    cs_write_google_token($resp);
+}
+
 function cs_apply(SchedulerRunResult $result): array
 {
     $targets = ApplyTargets::all();
@@ -497,6 +528,15 @@ try {
             'ok' => true,
             'poll' => $poll,
         ]);
+    }
+
+    if ($action === 'auth_exchange_code') {
+        $code = $input['code'] ?? '';
+        if (!is_string($code) || trim($code) === '') {
+            cs_respond(['ok' => false, 'error' => 'code is required'], 422);
+        }
+        cs_google_exchange_authorization_code(trim($code));
+        cs_respond(['ok' => true]);
     }
 
     if ($action === 'preview') {
