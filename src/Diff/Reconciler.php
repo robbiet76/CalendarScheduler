@@ -29,6 +29,7 @@ final class Reconciler
      * @param array<string,mixed> $currentManifest The last applied manifest (for managed/unmanaged/locked rules)
      * @param array<string,int>   $calendarUpdatedAtById identityHash => epoch seconds (event updatedAt)
      * @param array<string,int>   $fppUpdatedAtById      identityHash => epoch seconds (event updatedAt; may be schedule.json mtime)
+     * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
      * @param int $calendarSnapshotEpoch epoch seconds when calendar snapshot was taken (absence timestamp proxy)
      * @param int $fppSnapshotEpoch      epoch seconds when fpp snapshot was taken (absence timestamp proxy)
      */
@@ -38,6 +39,7 @@ final class Reconciler
         array $currentManifest,
         array $calendarUpdatedAtById,
         array $fppUpdatedAtById,
+        array $tombstonesBySource,
         int $calendarSnapshotEpoch,
         int $fppSnapshotEpoch
     ): ReconciliationResult {
@@ -111,6 +113,7 @@ final class Reconciler
                 $fppEvent,
                 $calendarUpdatedAtById,
                 $fppUpdatedAtById,
+                $tombstonesBySource,
                 $calendarSnapshotEpoch,
                 $fppSnapshotEpoch
             );
@@ -225,6 +228,7 @@ final class Reconciler
      * @param array<string,mixed>|null $fppEvent
      * @param array<string,int> $calUpdatedAtById
      * @param array<string,int> $fppUpdatedAtById
+     * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
      * @return array{winner:string,event:array<string,mixed>|null,reason:string}
      */
     private function decideWinner(
@@ -233,6 +237,7 @@ final class Reconciler
         ?array $fppEvent,
         array $calUpdatedAtById,
         array $fppUpdatedAtById,
+        array $tombstonesBySource,
         int $calSnapshotEpoch,
         int $fppSnapshotEpoch
     ): array {
@@ -256,42 +261,41 @@ final class Reconciler
             }
         }
 
-        // Presence-vs-absence decisions are observation-time comparisons.
-        // Use per-event timestamp for the present side and snapshot timestamp
-        // for the absent side. This lets recent event edits beat stale absence.
+        // Presence-vs-absence decisions require tombstone evidence for deletes.
+        // Without tombstones, preserve the present side to avoid destructive drift.
         if (($calEvent === null) !== ($fppEvent === null)) {
             $calTs = $this->timestampForPresenceOrAbsence($id, $calEvent, $calUpdatedAtById, $calSnapshotEpoch);
             $fppTs = $this->timestampForPresenceOrAbsence($id, $fppEvent, $fppUpdatedAtById, $fppSnapshotEpoch);
+            $calTombstoneTs = (int)($tombstonesBySource['calendar'][$id] ?? 0);
+            $fppTombstoneTs = (int)($tombstonesBySource['fpp'][$id] ?? 0);
 
-            if ($calTs > $fppTs) {
-                return [
-                    'winner' => 'calendar',
-                    'event' => $calEvent,
-                    'reason' => "calendar newer ($calTs > $fppTs)",
-                ];
-            }
-
-            if ($fppTs > $calTs) {
+            if ($calEvent === null && $fppEvent !== null) {
+                if ($calTombstoneTs > 0 && $calTombstoneTs >= $fppTs) {
+                    return [
+                        'winner' => 'calendar',
+                        'event' => null,
+                        'reason' => "calendar tombstone newer/equal ($calTombstoneTs >= $fppTs)",
+                    ];
+                }
                 return [
                     'winner' => 'fpp',
                     'event' => $fppEvent,
-                    'reason' => "fpp newer ($fppTs > $calTs)",
+                    'reason' => "calendar absent without tombstone (present fpp kept)",
                 ];
             }
 
-            // Presence-vs-absence tie: preserve the side that is present.
-            if ($calEvent !== null) {
+            if ($fppTombstoneTs > 0 && $fppTombstoneTs >= $calTs) {
                 return [
-                    'winner' => 'calendar',
-                    'event' => $calEvent,
-                    'reason' => "tie ($calTs == $fppTs): present side wins (calendar present)",
+                    'winner' => 'fpp',
+                    'event' => null,
+                    'reason' => "fpp tombstone newer/equal ($fppTombstoneTs >= $calTs)",
                 ];
             }
 
             return [
-                'winner' => 'fpp',
-                'event' => $fppEvent,
-                'reason' => "tie ($calTs == $fppTs): present side wins (fpp present)",
+                'winner' => 'calendar',
+                'event' => $calEvent,
+                'reason' => "fpp absent without tombstone (present calendar kept)",
             ];
         }
 

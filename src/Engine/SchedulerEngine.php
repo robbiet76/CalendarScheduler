@@ -32,6 +32,9 @@ use CalendarScheduler\Platform\FppEventTimestampStore;
  */
 final class SchedulerEngine
 {
+    /** @var array{calendar:array<string,int>,fpp:array<string,int>} */
+    private array $lastTombstonesBySource = ['calendar' => [], 'fpp' => []];
+
     private IntentNormalizer $normalizer;
     private ManifestPlanner $manifestPlanner;
     private Diff $diff;
@@ -70,6 +73,8 @@ final class SchedulerEngine
 
         $manifestPath = $opts['manifest']
             ?? '/home/fpp/media/config/calendar-scheduler/manifest.json';
+        $tombstonesPath = '/home/fpp/media/config/calendar-scheduler/runtime/tombstones.json';
+        $tombstonesBySource = $this->loadTombstones($tombstonesPath);
 
         // -----------------------------------------------------------------
         // Build NormalizationContext (inject holidays from fpp-env.json)
@@ -195,17 +200,22 @@ final class SchedulerEngine
         // Delegate to core engine
         // -----------------------------------------------------------------
 
-        return $this->run(
+        $runResult = $this->run(
             $currentManifest,
             $calendarEvents,
             $fppEvents,
             $calendarUpdatedAtById,
             $fppUpdatedAtById,
             $fppUpdatedAtByStateHash,
+            $tombstonesBySource,
             $context,
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch
         );
+
+        $this->saveTombstones($tombstonesPath, $this->lastTombstonesBySource);
+
+        return $runResult;
     }
 
     /**
@@ -217,6 +227,7 @@ final class SchedulerEngine
      * @param array<string,int> $calendarUpdatedAtById
      * @param array<string,int> $fppUpdatedAtById
      * @param array<string,int> $fppUpdatedAtByStateHash
+     * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
      */
     public function run(
         array $currentManifest,
@@ -225,6 +236,7 @@ final class SchedulerEngine
         array $calendarUpdatedAtById,
         array $fppUpdatedAtById,
         array $fppUpdatedAtByStateHash,
+        array $tombstonesBySource,
         NormalizationContext $context,
         int $calendarSnapshotEpoch,
         int $fppSnapshotEpoch
@@ -507,6 +519,16 @@ final class SchedulerEngine
         $fppManifest = $this->manifestPlanner
             ->buildManifestFromIntents($fppIntents);
 
+        $effectiveTombstonesBySource = $this->deriveEffectiveTombstones(
+            $currentManifest,
+            $calendarManifest,
+            $fppManifest,
+            $tombstonesBySource,
+            $calendarSnapshotEpoch,
+            $fppSnapshotEpoch
+        );
+        $this->lastTombstonesBySource = $effectiveTombstonesBySource;
+
         // ------------------------------------------------------------
         // Diff (calendar desired vs current)
         // ------------------------------------------------------------
@@ -524,6 +546,7 @@ final class SchedulerEngine
             $currentManifest,
             $computedCalendarUpdatedAtById,
             $computedFppUpdatedAtById,
+            $effectiveTombstonesBySource,
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch
         );
@@ -540,6 +563,141 @@ final class SchedulerEngine
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch
         );
+    }
+
+    /**
+     * @param array<string,mixed> $currentManifest
+     * @param array<string,mixed> $calendarManifest
+     * @param array<string,mixed> $fppManifest
+     * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
+     * @return array{calendar:array<string,int>,fpp:array<string,int>}
+     */
+    private function deriveEffectiveTombstones(
+        array $currentManifest,
+        array $calendarManifest,
+        array $fppManifest,
+        array $tombstonesBySource,
+        int $calendarSnapshotEpoch,
+        int $fppSnapshotEpoch
+    ): array {
+        $currentIds = $this->manifestIdentitySet($currentManifest);
+        $calendarIds = $this->manifestIdentitySet($calendarManifest);
+        $fppIds = $this->manifestIdentitySet($fppManifest);
+
+        foreach (array_keys($currentIds) as $id) {
+            if (!isset($calendarIds[$id])) {
+                $existing = (int)($tombstonesBySource['calendar'][$id] ?? 0);
+                $tombstonesBySource['calendar'][$id] = max($existing, $calendarSnapshotEpoch);
+            }
+            if (!isset($fppIds[$id])) {
+                $existing = (int)($tombstonesBySource['fpp'][$id] ?? 0);
+                $tombstonesBySource['fpp'][$id] = max($existing, $fppSnapshotEpoch);
+            }
+        }
+
+        // Verified convergence: remove tombstones once both sources are absent.
+        $allIds = array_unique(array_merge(
+            array_keys($tombstonesBySource['calendar']),
+            array_keys($tombstonesBySource['fpp'])
+        ));
+        foreach ($allIds as $id) {
+            if (!isset($calendarIds[$id]) && !isset($fppIds[$id])) {
+                unset($tombstonesBySource['calendar'][$id], $tombstonesBySource['fpp'][$id]);
+            }
+        }
+
+        ksort($tombstonesBySource['calendar'], SORT_STRING);
+        ksort($tombstonesBySource['fpp'], SORT_STRING);
+
+        return $tombstonesBySource;
+    }
+
+    /**
+     * @param array<string,mixed> $manifest
+     * @return array<string,true>
+     */
+    private function manifestIdentitySet(array $manifest): array
+    {
+        $out = [];
+        $events = $manifest['events'] ?? [];
+        if (!is_array($events)) {
+            return $out;
+        }
+
+        foreach ($events as $eventKey => $event) {
+            if (is_string($eventKey) && $eventKey !== '') {
+                $out[$eventKey] = true;
+                continue;
+            }
+            if (!is_array($event)) {
+                continue;
+            }
+            $id = $event['identityHash'] ?? $event['id'] ?? null;
+            if (is_string($id) && $id !== '') {
+                $out[$id] = true;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
+     */
+    private function saveTombstones(string $path, array $tombstonesBySource): void
+    {
+        $doc = [
+            'version' => 1,
+            'generatedAtEpoch' => time(),
+            'sources' => $tombstonesBySource,
+        ];
+        $json = json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $dir = dirname($path);
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Unable to create tombstone directory: {$dir}");
+        }
+        $tmp = $path . '.tmp';
+        if (@file_put_contents($tmp, $json . PHP_EOL) === false) {
+            throw new \RuntimeException("Unable to write tombstones temp file: {$tmp}");
+        }
+        if (!@rename($tmp, $path)) {
+            @unlink($tmp);
+            throw new \RuntimeException("Unable to replace tombstones file: {$path}");
+        }
+    }
+
+    /**
+     * @return array{calendar:array<string,int>,fpp:array<string,int>}
+     */
+    private function loadTombstones(string $path): array
+    {
+        $empty = ['calendar' => [], 'fpp' => []];
+        if (!is_file($path)) {
+            return $empty;
+        }
+        $raw = @file_get_contents($path);
+        if (!is_string($raw) || trim($raw) === '') {
+            return $empty;
+        }
+        $decoded = @json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return $empty;
+        }
+        $sources = is_array($decoded['sources'] ?? null) ? $decoded['sources'] : [];
+        $out = ['calendar' => [], 'fpp' => []];
+        foreach (['calendar', 'fpp'] as $source) {
+            $rows = is_array($sources[$source] ?? null) ? $sources[$source] : [];
+            foreach ($rows as $id => $ts) {
+                if (!is_string($id) || $id === '' || !is_numeric($ts)) {
+                    continue;
+                }
+                $n = (int)$ts;
+                if ($n > 0) {
+                    $out[$source][$id] = $n;
+                }
+            }
+        }
+        return $out;
     }
 
     /**
