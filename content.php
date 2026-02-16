@@ -227,12 +227,16 @@
         return;
       }
 
-      if (!Array.isArray(actions) || actions.length === 0) {
-        tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\">No pending actions.</td></tr>";
+      var visibleActions = Array.isArray(actions) ? actions.filter(function (a) {
+        return a && a.type && a.type !== "noop";
+      }) : [];
+
+      if (visibleActions.length === 0) {
+        tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\">No pending changes.</td></tr>";
         return;
       }
 
-      var html = actions.map(function (a) {
+      var html = visibleActions.map(function (a) {
         var badgeClass = "text-bg-secondary";
         if (a.type === "create") {
           badgeClass = "text-bg-success";
