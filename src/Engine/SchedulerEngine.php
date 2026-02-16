@@ -520,12 +520,9 @@ final class SchedulerEngine
             ->buildManifestFromIntents($fppIntents);
 
         $effectiveTombstonesBySource = $this->deriveEffectiveTombstones(
-            $currentManifest,
             $calendarManifest,
             $fppManifest,
-            $tombstonesBySource,
-            $calendarSnapshotEpoch,
-            $fppSnapshotEpoch
+            $tombstonesBySource
         );
         $this->lastTombstonesBySource = $effectiveTombstonesBySource;
 
@@ -566,34 +563,18 @@ final class SchedulerEngine
     }
 
     /**
-     * @param array<string,mixed> $currentManifest
      * @param array<string,mixed> $calendarManifest
      * @param array<string,mixed> $fppManifest
      * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
      * @return array{calendar:array<string,int>,fpp:array<string,int>}
      */
     private function deriveEffectiveTombstones(
-        array $currentManifest,
         array $calendarManifest,
         array $fppManifest,
-        array $tombstonesBySource,
-        int $calendarSnapshotEpoch,
-        int $fppSnapshotEpoch
+        array $tombstonesBySource
     ): array {
-        $currentIds = $this->manifestIdentitySet($currentManifest);
         $calendarIds = $this->manifestIdentitySet($calendarManifest);
         $fppIds = $this->manifestIdentitySet($fppManifest);
-
-        foreach (array_keys($currentIds) as $id) {
-            if (!isset($calendarIds[$id])) {
-                $existing = (int)($tombstonesBySource['calendar'][$id] ?? 0);
-                $tombstonesBySource['calendar'][$id] = max($existing, $calendarSnapshotEpoch);
-            }
-            if (!isset($fppIds[$id])) {
-                $existing = (int)($tombstonesBySource['fpp'][$id] ?? 0);
-                $tombstonesBySource['fpp'][$id] = max($existing, $fppSnapshotEpoch);
-            }
-        }
 
         // Verified convergence: remove tombstones once both sources are absent.
         $allIds = array_unique(array_merge(
