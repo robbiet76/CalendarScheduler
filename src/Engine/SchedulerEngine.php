@@ -6,6 +6,7 @@ namespace CalendarScheduler\Engine;
 use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Adapter\Calendar\CalendarSnapshot;
+use CalendarScheduler\Planner\Dto\PlannerIntent;
 use CalendarScheduler\Resolution\ResolutionEngine;
 use CalendarScheduler\Planner\ManifestPlanner;
 use CalendarScheduler\Diff\Diff;
@@ -334,6 +335,33 @@ final class SchedulerEngine
         }
 
         foreach ($groupedByParent as $parentUid => $intentsForParent) {
+            usort(
+                $intentsForParent,
+                /**
+                 * Stable anchor selection: earliest scope wins, then shortest scope,
+                 * then base before override. This keeps recurring identity anchored
+                 * to the base segment instead of an edited override occurrence.
+                 */
+                static function (PlannerIntent $a, PlannerIntent $b): int {
+                    $aStart = $a->scope->getStart()->getTimestamp();
+                    $bStart = $b->scope->getStart()->getTimestamp();
+                    if ($aStart !== $bStart) {
+                        return $aStart <=> $bStart;
+                    }
+
+                    $aEnd = $a->scope->getEnd()->getTimestamp();
+                    $bEnd = $b->scope->getEnd()->getTimestamp();
+                    if ($aEnd !== $bEnd) {
+                        return $aEnd <=> $bEnd;
+                    }
+
+                    if ($a->role !== $b->role) {
+                        return ($a->role === 'base') ? -1 : 1;
+                    }
+
+                    return strcmp($a->sourceEventUid, $b->sourceEventUid);
+                }
+            );
 
             // Use first intent as identity anchor (all share same parent)
             $anchor = $intentsForParent[0];
