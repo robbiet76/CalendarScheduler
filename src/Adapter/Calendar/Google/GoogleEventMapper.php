@@ -509,7 +509,7 @@ final class GoogleEventMapper
                 ),
             ],
         ];
-        $recurrence = $this->buildGoogleRecurrenceFromTiming($timing, $tz, $start, $end, $repeat);
+        $recurrence = $this->buildGoogleRecurrenceFromTiming($timing, $tz, $start, $end);
         if ($recurrence !== []) {
             [$recurrenceStart, $recurrenceEnd] = $this->buildRecurringInstanceWindow($start, $end);
             $payload['start'] = $this->mapDateTime($recurrenceStart, $tz);
@@ -867,15 +867,9 @@ final class GoogleEventMapper
         array $timing,
         string $timezone,
         array $mappedStart,
-        array $mappedEnd,
-        string $repeat
+        array $mappedEnd
     ): array
     {
-        $repeatNorm = strtolower(trim($repeat));
-        if ($repeatNorm === '' || $repeatNorm === 'none') {
-            return [];
-        }
-
         $startDate = is_string($mappedStart['date'] ?? null) ? trim((string)$mappedStart['date']) : '';
         $endDate = is_string($mappedEnd['date'] ?? null) ? trim((string)$mappedEnd['date']) : '';
         if ($startDate === '' || $endDate === '') {
@@ -950,10 +944,16 @@ final class GoogleEventMapper
         }
 
         $endDate = $startDate;
-        if (strcmp($endTime, $startTime) <= 0) {
+        $cmp = strcmp($endTime, $startTime);
+        if ($cmp < 0) {
             $endDate = (new \DateTimeImmutable($startDate, new \DateTimeZone('UTC')))
                 ->modify('+1 day')
                 ->format('Y-m-d');
+        } elseif ($cmp === 0) {
+            $endDt = new \DateTimeImmutable($startDate . ' ' . $endTime, new \DateTimeZone('UTC'));
+            $endDt = $endDt->modify('+1 minute');
+            $endDate = $endDt->format('Y-m-d');
+            $endTime = $endDt->format('H:i:s');
         }
 
         return [
