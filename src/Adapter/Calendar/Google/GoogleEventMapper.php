@@ -505,6 +505,10 @@ final class GoogleEventMapper
                 ),
             ],
         ];
+        $recurrence = $this->buildGoogleRecurrenceFromTiming($timing, $tz);
+        if ($recurrence !== []) {
+            $payload['recurrence'] = $recurrence;
+        }
 
         return $payload;
     }
@@ -796,6 +800,57 @@ final class GoogleEventMapper
             ['date' => $startDate, 'time' => $startTime, 'allDay' => false],
             ['date' => $endDate, 'time' => $endTime, 'allDay' => false],
         ];
+    }
+
+    /**
+     * Build Google RRULE recurrence from canonical timing.
+     *
+     * @param array<string,mixed> $timing
+     * @return array<int,string>
+     */
+    private function buildGoogleRecurrenceFromTiming(array $timing, string $timezone): array
+    {
+        $startDate = is_string($timing['start_date']['hard'] ?? null) ? trim((string)$timing['start_date']['hard']) : '';
+        $endDate = is_string($timing['end_date']['hard'] ?? null) ? trim((string)$timing['end_date']['hard']) : '';
+        if ($startDate === '' || $endDate === '') {
+            return [];
+        }
+
+        $tz = null;
+        try {
+            $tz = new \DateTimeZone($timezone);
+        } catch (\Throwable) {
+            $tz = new \DateTimeZone('UTC');
+        }
+
+        $untilLocal = new \DateTimeImmutable($endDate . ' 23:59:59', $tz);
+        $untilUtc = $untilLocal
+            ->setTimezone(new \DateTimeZone('UTC'))
+            ->format('Ymd\THis\Z');
+
+        $days = null;
+        if (
+            is_array($timing['days'] ?? null)
+            && (($timing['days']['type'] ?? null) === 'weekly')
+            && is_array($timing['days']['value'] ?? null)
+        ) {
+            $rawDays = array_values(array_filter(
+                $timing['days']['value'],
+                static fn($d): bool => is_string($d) && trim($d) !== ''
+            ));
+            $days = array_map(static fn($d): string => strtoupper(trim((string)$d)), $rawDays);
+        }
+
+        $parts = [];
+        if (is_array($days) && $days !== []) {
+            $parts[] = 'FREQ=WEEKLY';
+            $parts[] = 'BYDAY=' . implode(',', $days);
+        } else {
+            $parts[] = 'FREQ=DAILY';
+        }
+        $parts[] = 'UNTIL=' . $untilUtc;
+
+        return ['RRULE:' . implode(';', $parts)];
     }
 
     /**
