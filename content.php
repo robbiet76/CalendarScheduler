@@ -143,6 +143,8 @@
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
     var manualAuthWatchTimer = null;
+    var manualAuthInProgress = false;
+    var manualCodePrompted = false;
 
     function byId(id) {
       return document.getElementById(id);
@@ -293,6 +295,9 @@
       return fetchJson({ action: "status" }).then(function (res) {
         var google = res.google || {};
         providerConnected = !!google.connected;
+        if (providerConnected) {
+          clearManualAuthState();
+        }
         var account = google.account || "Not connected yet";
         byId("csConnectedAccount").value = account;
 
@@ -346,6 +351,12 @@
       }
     }
 
+    function clearManualAuthState() {
+      manualAuthInProgress = false;
+      manualCodePrompted = false;
+      clearManualAuthWatch();
+    }
+
     function extractQueryParam(urlString, key) {
       try {
         var url = new URL(urlString);
@@ -361,10 +372,27 @@
       }
       setLoadingState();
       fetchJson({ action: "auth_exchange_code", code: code })
-        .then(function () { return refreshAll(); })
+        .then(function () {
+          clearManualAuthState();
+          return refreshAll();
+        })
         .catch(function (err) {
+          manualCodePrompted = false;
           setError("OAuth code exchange failed: " + err.message);
         });
+    }
+
+    function maybePromptForManualCode() {
+      if (!manualAuthInProgress || providerConnected || manualCodePrompted) {
+        return;
+      }
+      manualCodePrompted = true;
+      var pasted = window.prompt("Paste the Google OAuth 'code' value to complete sign-in:");
+      if (pasted && pasted.trim() !== "") {
+        completeManualCodeExchange(pasted.trim());
+        return;
+      }
+      manualCodePrompted = false;
     }
 
     function watchManualAuthPopup(popupWindow) {
@@ -372,10 +400,7 @@
       manualAuthWatchTimer = window.setInterval(function () {
         if (!popupWindow || popupWindow.closed) {
           clearManualAuthWatch();
-          var pasted = window.prompt("If Google displayed a code URL, paste the 'code' value here to finish sign-in:");
-          if (pasted && pasted.trim() !== "") {
-            completeManualCodeExchange(pasted.trim());
-          }
+          maybePromptForManualCode();
           return;
         }
 
@@ -394,6 +419,7 @@
         var err = extractQueryParam(href, "error");
         if (err) {
           clearManualAuthWatch();
+          manualAuthInProgress = false;
           setError("OAuth authorization failed: " + err);
           return;
         }
@@ -415,6 +441,8 @@
         setError(message + " Manual OAuth URL is unavailable.");
         return;
       }
+      manualAuthInProgress = true;
+      manualCodePrompted = false;
       setError(message + " Falling back to manual OAuth URL.");
       if (popupWindow && !popupWindow.closed) {
         popupWindow.location.href = url;
@@ -555,7 +583,9 @@
     });
 
     window.addEventListener("focus", function () {
-      refreshAll();
+      refreshAll().finally(function () {
+        maybePromptForManualCode();
+      });
     });
 
     refreshAll();
