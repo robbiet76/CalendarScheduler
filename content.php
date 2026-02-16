@@ -338,20 +338,24 @@
       deviceAuthDeadlineEpoch = 0;
     }
 
-    function fallbackManualAuth(message) {
+    function fallbackManualAuth(message, popupWindow) {
       var url = byId("csConnectBtn").dataset.authUrl || "";
       if (!url) {
         setError(message + " Manual OAuth URL is unavailable.");
         return;
       }
       setError(message + " Falling back to manual OAuth URL.");
-      window.open(url, "_blank");
+      if (popupWindow && !popupWindow.closed) {
+        popupWindow.location.href = url;
+      } else {
+        window.open(url, "_blank");
+      }
     }
 
-    function pollDeviceAuth(deviceCode, intervalSeconds) {
+    function pollDeviceAuth(deviceCode, intervalSeconds, popupWindow) {
       if (Date.now() >= deviceAuthDeadlineEpoch) {
         clearDeviceAuthPoll();
-        fallbackManualAuth("Device authorization timed out.");
+        fallbackManualAuth("Device authorization timed out.", popupWindow);
         return;
       }
 
@@ -366,7 +370,7 @@
 
           if (poll.status === "failed") {
             clearDeviceAuthPoll();
-            fallbackManualAuth("Device authorization failed (" + (poll.error || "unknown") + ").");
+            fallbackManualAuth("Device authorization failed (" + (poll.error || "unknown") + ").", popupWindow);
             return;
           }
 
@@ -375,16 +379,16 @@
             nextInterval = Math.max(intervalSeconds + 2, intervalSeconds);
           }
           deviceAuthPollTimer = window.setTimeout(function () {
-            pollDeviceAuth(deviceCode, nextInterval);
+            pollDeviceAuth(deviceCode, nextInterval, popupWindow);
           }, nextInterval * 1000);
         })
         .catch(function (err) {
           clearDeviceAuthPoll();
-          fallbackManualAuth("Device authorization polling error: " + err.message + ".");
+          fallbackManualAuth("Device authorization polling error: " + err.message + ".", popupWindow);
         });
     }
 
-    function startDeviceAuthFlow() {
+    function startDeviceAuthFlow(popupWindow) {
       setLoadingState();
       fetchJson({ action: "auth_device_start" })
         .then(function (res) {
@@ -396,14 +400,18 @@
           var expiresIn = Math.max(parseInt(device.expires_in || 900, 10), 60);
 
           if (!deviceCode || !userCode) {
-            fallbackManualAuth("Device authorization response was incomplete.");
+            fallbackManualAuth("Device authorization response was incomplete.", popupWindow);
             return;
           }
 
           clearDeviceAuthPoll();
           deviceAuthDeadlineEpoch = Date.now() + (expiresIn * 1000);
 
-          window.open(verificationUrl, "_blank");
+          if (popupWindow && !popupWindow.closed) {
+            popupWindow.location.href = verificationUrl;
+          } else {
+            window.open(verificationUrl, "_blank");
+          }
           window.alert(
             "Complete Google sign-in in the opened tab.\n\n" +
             "If prompted, enter code: " + userCode + "\n\n" +
@@ -411,11 +419,11 @@
           );
 
           deviceAuthPollTimer = window.setTimeout(function () {
-            pollDeviceAuth(deviceCode, interval);
+            pollDeviceAuth(deviceCode, interval, popupWindow);
           }, interval * 1000);
         })
         .catch(function (err) {
-          fallbackManualAuth("Automatic device authorization could not start: " + err.message + ".");
+          fallbackManualAuth("Automatic device authorization could not start: " + err.message + ".", popupWindow);
         });
     }
 
@@ -441,7 +449,12 @@
         refreshAll();
         return;
       }
-      startDeviceAuthFlow();
+      var popupWindow = window.open("about:blank", "_blank");
+      if (!popupWindow) {
+        setError("Popup was blocked. Allow popups for this FPP page and try again.");
+        return;
+      }
+      startDeviceAuthFlow(popupWindow);
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
