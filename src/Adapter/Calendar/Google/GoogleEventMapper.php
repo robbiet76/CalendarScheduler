@@ -5,6 +5,7 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
 
 use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Platform\SunTimeDisplayEstimator;
 use RuntimeException;
 
 /**
@@ -25,6 +26,8 @@ final class GoogleEventMapper
     private bool $debugCalendar;
     private ?HolidayResolver $holidayResolver = null;
     private \DateTimeZone $localTimezone;
+    private ?float $latitude = null;
+    private ?float $longitude = null;
 
     /** @var array<string,mixed> */
     private array $diagnostics = [
@@ -40,6 +43,7 @@ final class GoogleEventMapper
         $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
         $this->localTimezone = $this->resolveLocalTimezone();
         $this->holidayResolver = $this->loadHolidayResolver();
+        [$this->latitude, $this->longitude] = $this->loadCoordinates();
     }
 
     /**
@@ -770,10 +774,18 @@ final class GoogleEventMapper
         $endSymbolic = $timing['end_time']['symbolic'] ?? null;
 
         if (is_string($startSymbolic) && $startSymbolic !== '') {
-            throw new RuntimeException('Google mapping does not support symbolic start_time');
+            $startTime = $this->resolveSymbolicDisplayTime(
+                $startDate,
+                $startSymbolic,
+                isset($timing['start_time']['offset']) ? (int)$timing['start_time']['offset'] : 0
+            );
         }
         if (is_string($endSymbolic) && $endSymbolic !== '') {
-            throw new RuntimeException('Google mapping does not support symbolic end_time');
+            $endTime = $this->resolveSymbolicDisplayTime(
+                $startDate,
+                $endSymbolic,
+                isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : 0
+            );
         }
 
         if (!is_string($startTime) || $startTime === '') {
@@ -803,6 +815,43 @@ final class GoogleEventMapper
             ['date' => $startDate, 'time' => $startTime, 'allDay' => false],
             ['date' => $endDate, 'time' => $endTime, 'allDay' => false],
         ];
+    }
+
+    private function resolveSymbolicDisplayTime(string $date, string $symbolic, int $offset): ?string
+    {
+        $symbolic = trim($symbolic);
+        if ($symbolic === '') {
+            return null;
+        }
+
+        if ($this->latitude !== null && $this->longitude !== null) {
+            $estimated = SunTimeDisplayEstimator::estimate(
+                $date,
+                $symbolic,
+                $this->latitude,
+                $this->longitude,
+                $offset,
+                30
+            );
+            if (is_string($estimated) && $estimated !== '') {
+                return $estimated;
+            }
+        }
+
+        $base = match ($symbolic) {
+            'Dawn' => '06:00:00',
+            'SunRise' => '07:00:00',
+            'SunSet' => '18:00:00',
+            'Dusk' => '18:30:00',
+            default => null,
+        };
+        if (!is_string($base)) {
+            return null;
+        }
+
+        $dt = new \DateTimeImmutable($date . ' ' . $base, new \DateTimeZone('UTC'));
+        $dt = $dt->modify(($offset >= 0 ? '+' : '') . (string)$offset . ' minutes');
+        return $dt->format('H:i:s');
     }
 
     /**
@@ -1037,5 +1086,34 @@ final class GoogleEventMapper
         }
 
         return new HolidayResolver($holidays);
+    }
+
+    /**
+     * @return array{0:?float,1:?float}
+     */
+    private function loadCoordinates(): array
+    {
+        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        if (!is_file($envPath)) {
+            return [null, null];
+        }
+
+        $raw = @file_get_contents($envPath);
+        if (!is_string($raw) || $raw === '') {
+            return [null, null];
+        }
+
+        $json = @json_decode($raw, true);
+        if (!is_array($json)) {
+            return [null, null];
+        }
+
+        $lat = $json['latitude'] ?? null;
+        $lon = $json['longitude'] ?? null;
+        if (!is_numeric($lat) || !is_numeric($lon)) {
+            return [null, null];
+        }
+
+        return [(float)$lat, (float)$lon];
     }
 }
