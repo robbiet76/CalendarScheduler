@@ -147,6 +147,7 @@
     var manualCodePrompted = false;
     var manualAuthCanPrompt = false;
     var manualAuthStartedAt = 0;
+    var manualAuthPromptReadyAt = 0;
 
     function byId(id) {
       return document.getElementById(id);
@@ -358,6 +359,7 @@
       manualCodePrompted = false;
       manualAuthCanPrompt = false;
       manualAuthStartedAt = 0;
+      manualAuthPromptReadyAt = 0;
       clearManualAuthWatch();
     }
 
@@ -416,8 +418,8 @@
       if (!manualAuthInProgress || providerConnected || manualCodePrompted || !manualAuthCanPrompt) {
         return;
       }
-      // Avoid prompting immediately while auth window is still being opened.
-      if (manualAuthStartedAt > 0 && (Date.now() - manualAuthStartedAt) < 3000) {
+      // Avoid prompting too early; allow user time to complete browser auth first.
+      if (manualAuthPromptReadyAt > 0 && Date.now() < manualAuthPromptReadyAt) {
         return;
       }
       manualCodePrompted = true;
@@ -440,6 +442,10 @@
         if (!popupWindow || popupWindow.closed) {
           clearManualAuthWatch();
           manualAuthCanPrompt = true;
+          manualAuthPromptReadyAt = 0;
+          window.setTimeout(function () {
+            maybePromptForManualCode();
+          }, 100);
           return;
         }
 
@@ -489,8 +495,9 @@
       if (popupWindow) {
         manualAuthInProgress = true;
         manualCodePrompted = false;
-        manualAuthCanPrompt = false;
+        manualAuthCanPrompt = true;
         manualAuthStartedAt = Date.now();
+        manualAuthPromptReadyAt = manualAuthStartedAt + 10000;
         watchManualAuthPopup(popupWindow);
       } else {
         clearManualAuthState();
