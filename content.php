@@ -95,7 +95,7 @@
     <p class="cs-muted">Primary view of all pending create/update/delete changes.</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover">
-        <thead>
+        <thead id="csActionsHead">
           <tr>
             <th>Action</th>
             <th>Target</th>
@@ -227,6 +227,7 @@
 
     function renderActions(actions) {
       var tbody = byId("csActionsRows");
+      var thead = byId("csActionsHead");
       if (!tbody) {
         return 0;
       }
@@ -236,8 +237,15 @@
       }) : [];
 
       if (visibleActions.length === 0) {
-        tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\">No pending changes.</td></tr>";
+        if (thead) {
+          thead.style.display = "none";
+        }
+        tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\"><strong>No pending changes.</strong></td></tr>";
         return 0;
+      }
+
+      if (thead) {
+        thead.style.display = "";
       }
 
       var html = visibleActions.map(function (a) {
