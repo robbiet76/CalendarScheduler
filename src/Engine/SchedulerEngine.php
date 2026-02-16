@@ -621,9 +621,7 @@ final class SchedulerEngine
             if (isset($calendarIds[$id])) {
                 continue;
             }
-
-            $ownership = is_array($event['ownership'] ?? null) ? $event['ownership'] : [];
-            if (($ownership['managed'] ?? false) !== true) {
+            if (!isset($fppIds[$id])) {
                 continue;
             }
 
