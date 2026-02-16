@@ -208,6 +208,7 @@ final class FppScheduleAdapter
                     'type'  => 'weekly',
                     'value' => $normalizedDays,
                 ],
+            'timezone' => $fppTz->getName(),
         ];
 
         // --- Payload ---
