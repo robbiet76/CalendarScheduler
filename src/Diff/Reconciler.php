@@ -63,6 +63,17 @@ final class Reconciler
         $allIds = array_unique(array_merge(array_keys($cal), array_keys($fpp), array_keys($cur)));
         sort($allIds);
 
+        $tombstonesBySource = $this->inferCrossIdentityTombstones(
+            $allIds,
+            $cal,
+            $fpp,
+            $calendarUpdatedAtById,
+            $fppUpdatedAtById,
+            $tombstonesBySource,
+            $calendarSnapshotEpoch,
+            $fppSnapshotEpoch
+        );
+
         $targetEvents = [];
         $actions = [];
 
@@ -149,6 +160,146 @@ final class Reconciler
         ];
 
         return new ReconciliationResult($targetManifest, $actions);
+    }
+
+    /**
+     * Infer tombstones for "replacement" conflicts where each side has a present event
+     * under different identity hashes but equivalent execution signature.
+     *
+     * This prevents mirrored creates (calendar->fpp and fpp->calendar) for the same
+     * logical event after one side reshapes recurrence/override identity.
+     *
+     * @param array<int,string> $allIds
+     * @param array<string,array<string,mixed>> $cal
+     * @param array<string,array<string,mixed>> $fpp
+     * @param array<string,int> $calUpdatedAtById
+     * @param array<string,int> $fppUpdatedAtById
+     * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
+     * @return array{calendar:array<string,int>,fpp:array<string,int>}
+     */
+    private function inferCrossIdentityTombstones(
+        array $allIds,
+        array $cal,
+        array $fpp,
+        array $calUpdatedAtById,
+        array $fppUpdatedAtById,
+        array $tombstonesBySource,
+        int $calSnapshotEpoch,
+        int $fppSnapshotEpoch
+    ): array {
+        $calOnly = [];
+        $fppOnly = [];
+        foreach ($allIds as $id) {
+            $calEvent = $cal[$id] ?? null;
+            $fppEvent = $fpp[$id] ?? null;
+            if ($calEvent !== null && $fppEvent === null) {
+                $calOnly[$id] = $calEvent;
+                continue;
+            }
+            if ($fppEvent !== null && $calEvent === null) {
+                $fppOnly[$id] = $fppEvent;
+            }
+        }
+
+        if ($calOnly === [] || $fppOnly === []) {
+            return $tombstonesBySource;
+        }
+
+        $fppBySignature = [];
+        foreach ($fppOnly as $id => $event) {
+            $sig = $this->replacementSignature($event);
+            if ($sig === null) {
+                continue;
+            }
+            if (!isset($fppBySignature[$sig])) {
+                $fppBySignature[$sig] = [];
+            }
+            $fppBySignature[$sig][] = $id;
+        }
+
+        $usedFppIds = [];
+        foreach ($calOnly as $calId => $calEvent) {
+            $sig = $this->replacementSignature($calEvent);
+            if ($sig === null || !isset($fppBySignature[$sig])) {
+                continue;
+            }
+
+            $fppId = null;
+            foreach ($fppBySignature[$sig] as $candidateId) {
+                if (!isset($usedFppIds[$candidateId])) {
+                    $fppId = $candidateId;
+                    break;
+                }
+            }
+            if (!is_string($fppId)) {
+                continue;
+            }
+            $usedFppIds[$fppId] = true;
+
+            $calTs = $this->timestampForPresenceOrAbsence(
+                $calId,
+                $calEvent,
+                $calUpdatedAtById,
+                $calSnapshotEpoch
+            );
+            $fppTs = $this->timestampForPresenceOrAbsence(
+                $fppId,
+                $fppOnly[$fppId] ?? null,
+                $fppUpdatedAtById,
+                $fppSnapshotEpoch
+            );
+
+            if ($calTs >= $fppTs) {
+                if (!isset($tombstonesBySource['calendar'][$fppId])) {
+                    $tombstonesBySource['calendar'][$fppId] = $calTs;
+                }
+                continue;
+            }
+
+            if (!isset($tombstonesBySource['fpp'][$calId])) {
+                $tombstonesBySource['fpp'][$calId] = $fppTs;
+            }
+        }
+
+        return $tombstonesBySource;
+    }
+
+    /**
+     * Build a signature for pairing cross-identity replacements.
+     *
+     * Deliberately excludes start_date/end_date so date-anchoring changes (e.g. holiday
+     * symbolic vs override hard date) can still be matched as the same logical stream.
+     *
+     * @param array<string,mixed> $event
+     */
+    private function replacementSignature(array $event): ?string
+    {
+        $identity = is_array($event['identity'] ?? null) ? $event['identity'] : [];
+        $timing = is_array($identity['timing'] ?? null) ? $identity['timing'] : [];
+        $target = $identity['target'] ?? null;
+        $type = $identity['type'] ?? null;
+        if (!is_string($target) || trim($target) === '' || !is_string($type) || trim($type) === '') {
+            return null;
+        }
+
+        $startTime = is_array($timing['start_time'] ?? null) ? $timing['start_time'] : [];
+        $endTime = is_array($timing['end_time'] ?? null) ? $timing['end_time'] : [];
+        $days = is_array($timing['days'] ?? null) ? $timing['days'] : null;
+
+        $payload = [
+            'type' => strtolower(trim($type)),
+            'target' => trim($target),
+            'all_day' => (bool)($timing['all_day'] ?? false),
+            'start_time_hard' => is_string($startTime['hard'] ?? null) ? trim((string)$startTime['hard']) : null,
+            'start_time_symbolic' => is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : null,
+            'start_time_offset' => (int)($startTime['offset'] ?? 0),
+            'end_time_hard' => is_string($endTime['hard'] ?? null) ? trim((string)$endTime['hard']) : null,
+            'end_time_symbolic' => is_string($endTime['symbolic'] ?? null) ? trim((string)$endTime['symbolic']) : null,
+            'end_time_offset' => (int)($endTime['offset'] ?? 0),
+            'days' => $days,
+        ];
+
+        return hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
     }
 
     /**
