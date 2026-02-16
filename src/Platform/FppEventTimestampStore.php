@@ -34,6 +34,20 @@ final class FppEventTimestampStore
 
         $previous = $this->load($outputPath);
         $previousEvents = is_array($previous['events'] ?? null) ? $previous['events'] : [];
+        $previousUpdatedAtByStateHash = [];
+        foreach ($previousEvents as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $prevState = is_string($row['stateHash'] ?? null) ? $row['stateHash'] : '';
+            $prevUpdated = is_numeric($row['updatedAtEpoch'] ?? null) ? (int)$row['updatedAtEpoch'] : 0;
+            if ($prevState === '' || $prevUpdated <= 0) {
+                continue;
+            }
+            if (!isset($previousUpdatedAtByStateHash[$prevState])) {
+                $previousUpdatedAtByStateHash[$prevState] = $prevUpdated;
+            }
+        }
 
         $context = $this->buildNormalizationContext();
         $adapter = new FppScheduleAdapter();
@@ -55,9 +69,15 @@ final class FppEventTimestampStore
             $prevState = is_string($prev['stateHash'] ?? null) ? $prev['stateHash'] : '';
             $prevUpdated = is_numeric($prev['updatedAtEpoch'] ?? null) ? (int)$prev['updatedAtEpoch'] : 0;
 
-            $updatedAt = ($prev !== null && $prevState !== '' && $prevState === $stateHash && $prevUpdated > 0)
-                ? $prevUpdated
-                : $nowEpoch;
+            if ($prev !== null && $prevState !== '' && $prevState === $stateHash && $prevUpdated > 0) {
+                $updatedAt = $prevUpdated;
+            } elseif (isset($previousUpdatedAtByStateHash[$stateHash])) {
+                // Preserve authority continuity when identity hashes change but
+                // executable state is unchanged.
+                $updatedAt = (int)$previousUpdatedAtByStateHash[$stateHash];
+            } else {
+                $updatedAt = $nowEpoch;
+            }
 
             $events[$id] = [
                 'updatedAtEpoch' => $updatedAt,
