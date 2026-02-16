@@ -366,6 +366,32 @@
       }
     }
 
+    function extractCodeFromUserInput(input) {
+      if (!input) {
+        return "";
+      }
+      var text = String(input).trim();
+      if (!text) {
+        return "";
+      }
+
+      var urlCode = extractQueryParam(text, "code");
+      if (urlCode) {
+        return urlCode;
+      }
+
+      var match = text.match(/[?&]code=([^&]+)/);
+      if (match && match[1]) {
+        try {
+          return decodeURIComponent(match[1]);
+        } catch (e) {
+          return match[1];
+        }
+      }
+
+      return text;
+    }
+
     function completeManualCodeExchange(code) {
       if (!code) {
         return;
@@ -387,9 +413,12 @@
         return;
       }
       manualCodePrompted = true;
-      var pasted = window.prompt("Paste the Google OAuth 'code' value to complete sign-in:");
-      if (pasted && pasted.trim() !== "") {
-        completeManualCodeExchange(pasted.trim());
+      var pasted = window.prompt(
+        "Paste the FULL Google return URL (preferred) or just the 'code' value to complete sign-in:"
+      );
+      var code = extractCodeFromUserInput(pasted);
+      if (code) {
+        completeManualCodeExchange(code);
         return;
       }
       manualCodePrompted = false;
