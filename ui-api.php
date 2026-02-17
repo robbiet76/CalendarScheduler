@@ -33,6 +33,7 @@ const CS_SCHEDULE_PATH = '/home/fpp/media/config/schedule.json';
 const CS_FPP_STAGE_DIR = '/home/fpp/media/config/calendar-scheduler/fpp';
 const CS_GOOGLE_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/google';
 const CS_FPP_ENV_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+const CS_GOOGLE_DEVICE_CLIENT_FILENAME = 'client_secret_device.json';
 const CS_GOOGLE_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
 const CS_GOOGLE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
@@ -289,9 +290,26 @@ function cs_bootstrap_google_config_if_missing(): bool
                 unset($oauth['client_file']);
                 $changed = true;
             }
-            if (!isset($oauth['device_client_file']) || !is_string($oauth['device_client_file']) || trim($oauth['device_client_file']) === '') {
-                $oauth['device_client_file'] = 'client_secret_device.json';
+            $configuredDeviceFile = $oauth['device_client_file'] ?? null;
+            if (!is_string($configuredDeviceFile) || trim($configuredDeviceFile) === '') {
+                $oauth['device_client_file'] = CS_GOOGLE_DEVICE_CLIENT_FILENAME;
                 $changed = true;
+            } else {
+                // Normalize to canonical filename to avoid accumulating uploaded secrets.
+                $configuredDeviceFile = basename(trim($configuredDeviceFile));
+                if ($configuredDeviceFile !== CS_GOOGLE_DEVICE_CLIENT_FILENAME) {
+                    $oldPath = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $configuredDeviceFile;
+                    $newPath = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . CS_GOOGLE_DEVICE_CLIENT_FILENAME;
+                    if (is_file($oldPath)) {
+                        $rawClient = @file_get_contents($oldPath);
+                        if (is_string($rawClient) && @file_put_contents($newPath, $rawClient) !== false) {
+                            @chmod($newPath, 0600);
+                            @unlink($oldPath);
+                        }
+                    }
+                    $oauth['device_client_file'] = CS_GOOGLE_DEVICE_CLIENT_FILENAME;
+                    $changed = true;
+                }
             }
 
             if ($changed) {
@@ -309,7 +327,7 @@ function cs_bootstrap_google_config_if_missing(): bool
         'provider' => 'google',
         'calendar_id' => 'primary',
         'oauth' => [
-            'device_client_file' => 'client_secret_device.json',
+            'device_client_file' => CS_GOOGLE_DEVICE_CLIENT_FILENAME,
             'token_file' => 'token.json',
             'redirect_uri' => CS_GOOGLE_DEFAULT_REDIRECT_URI,
             'scopes' => [CS_GOOGLE_DEFAULT_SCOPE],
@@ -385,15 +403,8 @@ function cs_write_google_config_json(array $data): void
 
 function cs_google_upload_device_client(string $filename, string $jsonText): string
 {
-    // Accept uploaded OAuth client JSON and wire it into oauth.device_client_file.
-    $filename = trim($filename);
-    if ($filename === '') {
-        $filename = 'client_secret_device.json';
-    }
-    $filename = basename($filename);
-    if (!preg_match('/\.json$/i', $filename)) {
-        $filename .= '.json';
-    }
+    // Accept uploaded OAuth client JSON and always overwrite canonical device client file.
+    $filename = CS_GOOGLE_DEVICE_CLIENT_FILENAME;
 
     $payload = json_decode($jsonText, true);
     if (!is_array($payload)) {
@@ -428,6 +439,19 @@ function cs_google_upload_device_client(string $filename, string $jsonText): str
     $oauth['device_client_file'] = $filename;
     $config['oauth'] = $oauth;
     cs_write_google_config_json($config);
+
+    // Prune older uploaded client secret files to avoid secret accumulation.
+    $pattern = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'client_secret*.json';
+    $candidates = glob($pattern) ?: [];
+    foreach ($candidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+        if (basename($candidate) === CS_GOOGLE_DEVICE_CLIENT_FILENAME) {
+            continue;
+        }
+        @unlink($candidate);
+    }
 
     return $filename;
 }
@@ -803,10 +827,10 @@ try {
     }
 
     if ($action === 'auth_upload_device_client') {
-        $filename = $input['filename'] ?? 'client_secret_device.json';
+        $filename = $input['filename'] ?? CS_GOOGLE_DEVICE_CLIENT_FILENAME;
         $json = $input['json'] ?? '';
         if (!is_string($filename)) {
-            $filename = 'client_secret_device.json';
+            $filename = CS_GOOGLE_DEVICE_CLIENT_FILENAME;
         }
         if (!is_string($json) || trim($json) === '') {
             cs_respond(['ok' => false, 'error' => 'json is required'], 422);
