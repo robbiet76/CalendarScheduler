@@ -25,6 +25,8 @@ const CS_SCHEDULE_PATH = '/home/fpp/media/config/schedule.json';
 const CS_FPP_STAGE_DIR = '/home/fpp/media/config/calendar-scheduler/fpp';
 const CS_GOOGLE_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/google';
 const CS_FPP_ENV_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+const CS_GOOGLE_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
+const CS_GOOGLE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/calendar';
 
 /**
  * @return array<string,mixed>
@@ -166,6 +168,16 @@ function cs_google_status(): array
         ],
     ];
 
+    $autoConfigCreated = false;
+    try {
+        $autoConfigCreated = cs_bootstrap_google_config_if_missing();
+    } catch (\Throwable $e) {
+        $base['setup']['hints'][] = 'Unable to auto-create Google config: ' . $e->getMessage();
+    }
+    if ($autoConfigCreated) {
+        $base['setup']['hints'][] = 'Created default Google config.json automatically.';
+    }
+
     if (!is_dir(CS_GOOGLE_CONFIG_DIR) && !is_file(CS_GOOGLE_CONFIG_DIR)) {
         $base['setup']['hints'][] = 'Google config directory is missing.';
         return $base;
@@ -251,8 +263,55 @@ function cs_google_status(): array
     }
 }
 
+function cs_bootstrap_google_config_if_missing(): bool
+{
+    if (!is_dir(CS_GOOGLE_CONFIG_DIR)) {
+        if (!@mkdir(CS_GOOGLE_CONFIG_DIR, 0775, true) && !is_dir(CS_GOOGLE_CONFIG_DIR)) {
+            throw new \RuntimeException('Failed to create Google config directory: ' . CS_GOOGLE_CONFIG_DIR);
+        }
+    }
+
+    $path = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config.json';
+    if (is_file($path)) {
+        return false;
+    }
+
+    $deviceClientFile = null;
+    $deviceCandidate = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'client_secret_device.json';
+    $legacyCandidate = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'client_secret.json';
+    if (is_file($deviceCandidate)) {
+        $deviceClientFile = 'client_secret_device.json';
+    } elseif (is_file($legacyCandidate)) {
+        $deviceClientFile = 'client_secret.json';
+    }
+
+    $config = [
+        'provider' => 'google',
+        'calendar_id' => 'primary',
+        'oauth' => [
+            'client_file' => 'client_secret.json',
+            'token_file' => 'token.json',
+            'redirect_uri' => CS_GOOGLE_DEFAULT_REDIRECT_URI,
+            'scopes' => [CS_GOOGLE_DEFAULT_SCOPE],
+        ],
+    ];
+    if ($deviceClientFile !== null) {
+        $config['oauth']['device_client_file'] = $deviceClientFile;
+    }
+
+    $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        throw new \RuntimeException('Failed to encode default Google config JSON.');
+    }
+    if (@file_put_contents($path, $json . "\n") === false) {
+        throw new \RuntimeException('Failed to write default Google config: ' . $path);
+    }
+    return true;
+}
+
 function cs_set_calendar_id(string $calendarId): void
 {
+    cs_bootstrap_google_config_if_missing();
     $path = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config.json';
     $raw = @file_get_contents($path);
     if ($raw === false) {
@@ -279,6 +338,7 @@ function cs_set_calendar_id(string $calendarId): void
  */
 function cs_read_google_config_json(): array
 {
+    cs_bootstrap_google_config_if_missing();
     $path = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config.json';
     $raw = @file_get_contents($path);
     if ($raw === false) {
@@ -359,6 +419,7 @@ function cs_google_upload_device_client(string $filename, string $jsonText): str
  */
 function cs_google_device_auth_config(): array
 {
+    cs_bootstrap_google_config_if_missing();
     $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
     $oauth = $config->getOauth();
     $deviceClientFile = $oauth['device_client_file'] ?? null;
@@ -416,6 +477,7 @@ function cs_google_device_auth_config(): array
  */
 function cs_google_manual_auth_config(): array
 {
+    cs_bootstrap_google_config_if_missing();
     $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
     $oauth = $config->getOauth();
     $redirectUri = $oauth['redirect_uri'] ?? null;
@@ -624,6 +686,7 @@ function cs_google_exchange_authorization_code(string $code): void
 
 function cs_google_disconnect(): void
 {
+    cs_bootstrap_google_config_if_missing();
     $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
     $tokenPath = $config->getTokenPath();
     if (is_file($tokenPath)) {
