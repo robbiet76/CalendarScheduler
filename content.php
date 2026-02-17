@@ -137,12 +137,7 @@
           <span class="badge text-bg-secondary" id="csProviderOutlookBadge">Outlook (Coming Soon)</span>
         </div>
 
-        <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
-          <button class="buttons btn-black" id="csDisconnectBtn" type="button" disabled>Disconnect Provider</button>
-          <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
-        </div>
-
-        <div id="csConnectionHelp" class="cs-device-box mb-2">
+        <div id="csConnectionHelp" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Google OAuth Setup</strong></div>
           <ol class="cs-help-list mt-1 mb-2">
             <li>In Google Cloud Console, enable <strong>Google Calendar API</strong>.</li>
@@ -169,11 +164,16 @@
           <strong>Connected Account:</strong> <span id="csConnectedAccountValue">Loading...</span>
         </div>
 
-        <div class="form-group mb-2" id="csCalendarSelectGroup">
+        <div class="form-group mb-2 cs-hidden" id="csCalendarSelectGroup">
           <label for="csCalendarSelect">Sync Calendar</label>
           <select id="csCalendarSelect" class="form-control" disabled>
             <option>Loading calendars...</option>
           </select>
+        </div>
+
+        <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
+          <button class="buttons btn-black" id="csDisconnectBtn" type="button" disabled>Disconnect Provider</button>
+          <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
         </div>
 
       </div>
