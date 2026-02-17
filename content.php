@@ -26,6 +26,21 @@
     color: #111 !important;
   }
 
+  .cs-top-status {
+    position: sticky;
+    top: 8px;
+    z-index: 1030;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    transition: padding 0.15s ease, font-size 0.15s ease, opacity 0.15s ease;
+  }
+
+  .cs-top-status.cs-top-status-compact {
+    padding: 4px 10px;
+    font-size: 12px;
+    opacity: 0.95;
+  }
+
   .cs-status-loading {
     background-color: #b7b7b7 !important;
     border-color: #9c9c9c !important;
@@ -309,6 +324,14 @@
         bar.classList.remove(name);
       });
       bar.classList.add(className);
+    }
+
+    function updateTopStatusCompact() {
+      var bar = byId("csTopStatusBar");
+      if (!bar) {
+        return;
+      }
+      bar.classList.toggle("cs-top-status-compact", window.scrollY > 120);
     }
 
     function setLoadingState() {
@@ -937,7 +960,9 @@
     window.addEventListener("focus", function () {
       refreshAll();
     });
+    window.addEventListener("scroll", updateTopStatusCompact, { passive: true });
 
+    updateTopStatusCompact();
     refreshAll();
   }());
 </script>
