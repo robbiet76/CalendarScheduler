@@ -79,6 +79,43 @@
     font-weight: 700;
     letter-spacing: 1px;
   }
+
+  .cs-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1040;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  .cs-modal {
+    width: min(560px, 100%);
+    background: #fff;
+    border-radius: 6px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+  }
+
+  .cs-modal-header,
+  .cs-modal-footer {
+    padding: 10px 14px;
+    border-bottom: 1px solid #dee2e6;
+  }
+
+  .cs-modal-footer {
+    border-bottom: 0;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .cs-modal-body {
+    padding: 12px 14px;
+  }
 </style>
 
 <div class="cs-page" id="csShell">
@@ -140,12 +177,23 @@
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
         </div>
 
-        <div id="csDeviceAuthBox" class="cs-device-box cs-hidden">
-          <div><strong>Finish Google Sign-In</strong></div>
-          <div class="mt-1">1) Open: <a id="csDeviceAuthLink" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">google.com/device</a></div>
-          <div class="mt-1">2) Enter code: <span id="csDeviceAuthCode" class="cs-device-code">-</span></div>
-          <div class="mt-1 cs-muted">Waiting for Google authorization completion...</div>
-        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="csDeviceAuthModalWrap" class="cs-modal-backdrop cs-hidden" role="dialog" aria-modal="true" aria-labelledby="csDeviceAuthModalTitle">
+    <div class="cs-modal">
+      <div class="cs-modal-header">
+        <strong id="csDeviceAuthModalTitle">Finish Google Sign-In</strong>
+      </div>
+      <div class="cs-modal-body">
+        <div class="mb-1">1) Open: <a id="csDeviceAuthLink" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">google.com/device</a></div>
+        <div class="mb-1">2) Enter code: <span id="csDeviceAuthCode" class="cs-device-code">-</span></div>
+        <div class="cs-muted">Waiting for Google authorization completion...</div>
+      </div>
+      <div class="cs-modal-footer">
+        <a id="csDeviceAuthOpenBtn" class="buttons btn-black" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">Open Google Device Page</a>
+        <button id="csDeviceAuthCancelBtn" type="button" class="buttons btn-black">Cancel</button>
       </div>
     </div>
   </div>
@@ -256,20 +304,24 @@
     }
 
     function setDeviceAuthVisible(visible, code, url) {
-      var box = byId("csDeviceAuthBox");
+      var wrap = byId("csDeviceAuthModalWrap");
       var codeNode = byId("csDeviceAuthCode");
       var link = byId("csDeviceAuthLink");
-      if (!box || !codeNode || !link) {
+      var openBtn = byId("csDeviceAuthOpenBtn");
+      if (!wrap || !codeNode || !link || !openBtn) {
         return;
       }
       if (visible) {
         codeNode.textContent = code || "-";
-        link.href = url || "https://www.google.com/device";
-        box.classList.remove("cs-hidden");
+        var dest = url || "https://www.google.com/device";
+        link.href = dest;
+        openBtn.href = dest;
+        wrap.classList.remove("cs-hidden");
       } else {
-        box.classList.add("cs-hidden");
+        wrap.classList.add("cs-hidden");
         codeNode.textContent = "-";
         link.href = "https://www.google.com/device";
+        openBtn.href = "https://www.google.com/device";
       }
     }
 
@@ -561,7 +613,6 @@
           clearDeviceAuthPoll();
           deviceAuthDeadlineEpoch = Date.now() + (expiresIn * 1000);
           setDeviceAuthVisible(true, userCode, verificationUrl);
-          window.open(verificationUrl, "_blank");
 
           deviceAuthPollTimer = window.setTimeout(function () {
             pollDeviceAuth(deviceCode, interval);
@@ -659,6 +710,12 @@
         setError("Failed to read selected file.");
       };
       reader.readAsText(file);
+    });
+
+    byId("csDeviceAuthCancelBtn").addEventListener("click", function () {
+      clearDeviceAuthPoll();
+      setDeviceAuthVisible(false);
+      setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
