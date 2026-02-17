@@ -50,6 +50,20 @@
   .cs-hidden {
     display: none;
   }
+
+  .cs-device-box {
+    border: 1px solid #cfd3d7;
+    border-radius: 4px;
+    background: #f7f7f7;
+    padding: 10px 12px;
+    margin-top: 10px;
+  }
+
+  .cs-device-code {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
 </style>
 
 <div class="cs-page" id="csShell">
@@ -85,6 +99,13 @@
 
         <div class="mt-3 d-flex justify-content-end">
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
+        </div>
+
+        <div id="csDeviceAuthBox" class="cs-device-box cs-hidden">
+          <div><strong>Finish Google Sign-In</strong></div>
+          <div class="mt-1">1) Open: <a id="csDeviceAuthLink" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">google.com/device</a></div>
+          <div class="mt-1">2) Enter code: <span id="csDeviceAuthCode" class="cs-device-code">-</span></div>
+          <div class="mt-1 cs-muted">Waiting for Google authorization completion...</div>
         </div>
       </div>
     </div>
@@ -202,6 +223,24 @@
       setTopBarClass("cs-status-loading");
     }
 
+    function setDeviceAuthVisible(visible, code, url) {
+      var box = byId("csDeviceAuthBox");
+      var codeNode = byId("csDeviceAuthCode");
+      var link = byId("csDeviceAuthLink");
+      if (!box || !codeNode || !link) {
+        return;
+      }
+      if (visible) {
+        codeNode.textContent = code || "-";
+        link.href = url || "https://www.google.com/device";
+        box.classList.remove("cs-hidden");
+      } else {
+        box.classList.add("cs-hidden");
+        codeNode.textContent = "-";
+        link.href = "https://www.google.com/device";
+      }
+    }
+
     function setError(message) {
       if (!message) {
         return;
@@ -305,6 +344,7 @@
         providerConnected = !!google.connected;
         if (providerConnected) {
           clearManualAuthState();
+          setDeviceAuthVisible(false);
         }
         var account = google.account || "Not connected yet";
         byId("csConnectedAccount").value = account;
@@ -509,7 +549,7 @@
       }, 1000);
     }
 
-    function fallbackManualAuth(message, popupWindow) {
+    function fallbackManualAuth(message) {
       var url = byId("csConnectBtn").dataset.authUrl || "";
       if (!url) {
         setError(message + " Manual OAuth URL is unavailable.");
@@ -517,11 +557,7 @@
         return;
       }
       setError(message + " Falling back to manual OAuth URL.");
-      if (popupWindow && !popupWindow.closed) {
-        popupWindow.location.href = url;
-      } else {
-        popupWindow = window.open(url, "_blank");
-      }
+      var popupWindow = window.open(url, "_blank");
       if (popupWindow) {
         manualAuthExpectCallback = url.indexOf("oauth-callback.php") !== -1;
         manualAuthInProgress = true;
@@ -535,10 +571,11 @@
       }
     }
 
-    function pollDeviceAuth(deviceCode, intervalSeconds, popupWindow) {
+    function pollDeviceAuth(deviceCode, intervalSeconds) {
       if (Date.now() >= deviceAuthDeadlineEpoch) {
         clearDeviceAuthPoll();
-        fallbackManualAuth("Device authorization timed out.", popupWindow);
+        setDeviceAuthVisible(false);
+        fallbackManualAuth("Device authorization timed out.");
         return;
       }
 
@@ -547,13 +584,15 @@
           var poll = res.poll || {};
           if (poll.status === "connected") {
             clearDeviceAuthPoll();
+            setDeviceAuthVisible(false);
             refreshAll();
             return;
           }
 
           if (poll.status === "failed") {
             clearDeviceAuthPoll();
-            fallbackManualAuth("Device authorization failed (" + (poll.error || "unknown") + ").", popupWindow);
+            setDeviceAuthVisible(false);
+            fallbackManualAuth("Device authorization failed (" + (poll.error || "unknown") + ").");
             return;
           }
 
@@ -562,16 +601,17 @@
             nextInterval = Math.max(intervalSeconds + 2, intervalSeconds);
           }
           deviceAuthPollTimer = window.setTimeout(function () {
-            pollDeviceAuth(deviceCode, nextInterval, popupWindow);
+            pollDeviceAuth(deviceCode, nextInterval);
           }, nextInterval * 1000);
         })
         .catch(function (err) {
           clearDeviceAuthPoll();
-          fallbackManualAuth("Device authorization polling error: " + err.message + ".", popupWindow);
+          setDeviceAuthVisible(false);
+          fallbackManualAuth("Device authorization polling error: " + err.message + ".");
         });
     }
 
-    function startDeviceAuthFlow(popupWindow) {
+    function startDeviceAuthFlow() {
       setLoadingState();
       fetchJson({ action: "auth_device_start" })
         .then(function (res) {
@@ -583,30 +623,22 @@
           var expiresIn = Math.max(parseInt(device.expires_in || 900, 10), 60);
 
           if (!deviceCode || !userCode) {
-            fallbackManualAuth("Device authorization response was incomplete.", popupWindow);
+            fallbackManualAuth("Device authorization response was incomplete.");
             return;
           }
 
           clearDeviceAuthPoll();
           deviceAuthDeadlineEpoch = Date.now() + (expiresIn * 1000);
-
-          if (popupWindow && !popupWindow.closed) {
-            popupWindow.location.href = verificationUrl;
-          } else {
-            window.open(verificationUrl, "_blank");
-          }
-          window.alert(
-            "Complete Google sign-in in the opened tab.\n\n" +
-            "If prompted, enter code: " + userCode + "\n\n" +
-            "This page will auto-detect completion."
-          );
+          setDeviceAuthVisible(true, userCode, verificationUrl);
+          window.open(verificationUrl, "_blank");
 
           deviceAuthPollTimer = window.setTimeout(function () {
-            pollDeviceAuth(deviceCode, interval, popupWindow);
+            pollDeviceAuth(deviceCode, interval);
           }, interval * 1000);
         })
         .catch(function (err) {
-          fallbackManualAuth("Automatic device authorization could not start: " + err.message + ".", popupWindow);
+          setDeviceAuthVisible(false);
+          fallbackManualAuth("Automatic device authorization could not start: " + err.message + ".");
         });
     }
 
@@ -632,12 +664,7 @@
         refreshAll();
         return;
       }
-      var popupWindow = window.open("about:blank", "_blank");
-      if (!popupWindow) {
-        setError("Popup was blocked. Allow popups for this FPP page and try again.");
-        return;
-      }
-      startDeviceAuthFlow(popupWindow);
+      startDeviceAuthFlow();
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
