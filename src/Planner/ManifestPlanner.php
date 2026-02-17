@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Planner/ManifestPlanner.php
+ * Purpose: Defines the ManifestPlanner component used by the Calendar Scheduler Planner layer.
+ */
+
 namespace CalendarScheduler\Planner;
 
 use CalendarScheduler\Intent\Intent;

@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Engine/SchedulerRunResult.php
+ * Purpose: Defines the SchedulerRunResult component used by the Calendar Scheduler Engine layer.
+ */
+
 namespace CalendarScheduler\Engine;
 
 use CalendarScheduler\Diff\DiffResult;

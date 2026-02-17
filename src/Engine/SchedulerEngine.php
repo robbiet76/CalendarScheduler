@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Engine/SchedulerEngine.php
+ * Purpose: Defines the SchedulerEngine component used by the Calendar Scheduler Engine layer.
+ */
+
 namespace CalendarScheduler\Engine;
 
 use CalendarScheduler\Intent\IntentNormalizer;

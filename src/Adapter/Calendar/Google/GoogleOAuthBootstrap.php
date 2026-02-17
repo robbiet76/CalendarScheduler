@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Adapter/Calendar/Google/GoogleOAuthBootstrap.php
+ * Purpose: Defines the GoogleOAuthBootstrap component used by the Calendar Scheduler Adapter/Calendar/Google layer.
+ */
+
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
 /**

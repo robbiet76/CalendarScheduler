@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Planner/PlannedEntry.php
+ * Purpose: Defines the PlannedEntry component used by the Calendar Scheduler Planner layer.
+ */
+
 namespace CalendarScheduler\Planner;
 
 /**

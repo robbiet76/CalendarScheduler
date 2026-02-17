@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Apply/ApplyRunner.php
+ * Purpose: Defines the ApplyRunner component used by the Calendar Scheduler Apply layer.
+ */
+
 namespace CalendarScheduler\Apply;
 
 use CalendarScheduler\Diff\ReconciliationAction;

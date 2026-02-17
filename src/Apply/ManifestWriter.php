@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Apply/ManifestWriter.php
+ * Purpose: Defines the ManifestWriter component used by the Calendar Scheduler Apply layer.
+ */
+
 namespace CalendarScheduler\Apply;
 
 /**

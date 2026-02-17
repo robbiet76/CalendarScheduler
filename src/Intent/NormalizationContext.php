@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Intent/NormalizationContext.php
+ * Purpose: Defines the NormalizationContext component used by the Calendar Scheduler Intent layer.
+ */
+
 namespace CalendarScheduler\Intent;
 
 use DateTimeZone;

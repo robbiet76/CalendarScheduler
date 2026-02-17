@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Adapter/Calendar/CalendarSnapshot.php
+ * Purpose: Defines the CalendarSnapshot component used by the Calendar Scheduler Adapter/Calendar layer.
+ */
+
 namespace CalendarScheduler\Adapter\Calendar;
 
 use RuntimeException;

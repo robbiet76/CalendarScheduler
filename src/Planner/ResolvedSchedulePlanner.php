@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Planner/ResolvedSchedulePlanner.php
+ * Purpose: Defines the ResolvedSchedulePlanner component used by the Calendar Scheduler Planner layer.
+ */
+
 namespace CalendarScheduler\Planner;
 
 use CalendarScheduler\Resolution\Dto\ResolvedSchedule;

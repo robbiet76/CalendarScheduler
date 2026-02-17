@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Intent/IntentNormalizer.php
+ * Purpose: Defines the IntentNormalizer component used by the Calendar Scheduler Intent layer.
+ */
+
 namespace CalendarScheduler\Intent;
 
 use CalendarScheduler\Intent\NormalizationContext;

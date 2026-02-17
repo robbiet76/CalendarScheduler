@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Adapter/Calendar/Google/GoogleEventMetadataSchema.php
+ * Purpose: Defines the GoogleEventMetadataSchema component used by the Calendar Scheduler Adapter/Calendar/Google layer.
+ */
+
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
 /**

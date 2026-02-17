@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Adapter/Calendar/Google/GoogleApiClient.php
+ * Purpose: Defines the GoogleApiClient component used by the Calendar Scheduler Adapter/Calendar/Google layer.
+ */
+
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
 final class GoogleApiClient

@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Platform/HolidayResolver.php
+ * Purpose: Defines the HolidayResolver component used by the Calendar Scheduler Platform layer.
+ */
+
 namespace CalendarScheduler\Platform;
 
 use DateTimeImmutable;

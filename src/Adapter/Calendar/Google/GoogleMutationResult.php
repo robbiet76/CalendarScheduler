@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Adapter/Calendar/Google/GoogleMutationResult.php
+ * Purpose: Defines the GoogleMutationResult component used by the Calendar Scheduler Adapter/Calendar/Google layer.
+ */
+
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
 final class GoogleMutationResult

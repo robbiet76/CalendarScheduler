@@ -3,6 +3,15 @@
 
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — CLI Entrypoint
+ *
+ * Purpose:
+ * - Run reconciliation preview for FPP schedule vs calendar provider state.
+ * - Optionally apply reconciliation actions.
+ * - Support OAuth bootstrap commands used during setup/troubleshooting.
+ */
+
 // -----------------------------------------------------------------------------
 // CLI entrypoint for CalendarScheduler (V2)
 // -----------------------------------------------------------------------------
@@ -27,6 +36,7 @@ require_once __DIR__ . '/../bootstrap.php';
 $argv = $_SERVER['argv'] ?? [];
 $command = $argv[1] ?? null;
 
+// Dedicated shortcut command for OAuth bootstrap maintenance.
 if ($command === 'google:auth') {
     $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
 
@@ -70,6 +80,7 @@ $plan = array_key_exists('plan', $opts);
 
 $auth = array_key_exists('auth', $opts);
 
+// Back-compat auth flag path.
 if ($auth) {
     $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
     $googleConfig = new GoogleConfig($googleConfigPath);
@@ -151,6 +162,7 @@ if ($afterEpoch <= $beforeEpoch) {
 }
 
 try {
+    // Build full preview/reconciliation result from current FPP + calendar state.
     $engine = new \CalendarScheduler\Engine\SchedulerEngine();
 
     $runResult = $engine->runFromCli(
@@ -191,6 +203,7 @@ $countUpdate = $totals['update'];
 $countDelete = $totals['delete'];
 
 if ($apply) {
+    // Apply mode executes reconciliation actions after planning.
     // Writable targets are expressed via ApplyTargets.
     $targets = ApplyTargets::all();
 

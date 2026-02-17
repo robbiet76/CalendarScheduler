@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Planner/Dto/PlannerIntent.php
+ * Purpose: Defines the PlannerIntent component used by the Calendar Scheduler Planner/Dto layer.
+ */
+
 namespace CalendarScheduler\Planner\Dto;
 
 use CalendarScheduler\Resolution\Dto\ResolutionScope;

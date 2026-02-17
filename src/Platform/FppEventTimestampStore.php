@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Platform/FppEventTimestampStore.php
+ * Purpose: Defines the FppEventTimestampStore component used by the Calendar Scheduler Platform layer.
+ */
+
 namespace CalendarScheduler\Platform;
 
 use CalendarScheduler\Adapter\FppScheduleAdapter;

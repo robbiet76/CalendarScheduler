@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Platform/IniMetadata.php
+ * Purpose: Defines the IniMetadata component used by the Calendar Scheduler Platform layer.
+ */
+
 namespace CalendarScheduler\Platform;
 
 /**

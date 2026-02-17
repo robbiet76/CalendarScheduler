@@ -1,6 +1,19 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — OAuth Callback Endpoint (Fallback Flow)
+ *
+ * Purpose:
+ * - Handle browser-based OAuth authorization-code callback.
+ * - Exchange code for tokens and persist token.json.
+ * - Notify opener window and close callback tab/window.
+ *
+ * Note:
+ * - Device flow is the primary UX path.
+ * - This endpoint remains as a compatibility/fallback path.
+ */
+
 require_once __DIR__ . '/bootstrap.php';
 
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
@@ -158,16 +171,19 @@ function cs_oauth_render_page(string $title, string $message, string $status): n
 }
 
 try {
+    // Provider-side callback failures are surfaced directly to the user.
     if (isset($_GET['error'])) {
         $error = (string) $_GET['error'];
         cs_oauth_render_page('OAuth Failed', "Authorization failed: {$error}", 'failed');
     }
 
+    // A missing code indicates an incomplete or invalid callback redirect.
     $code = isset($_GET['code']) ? trim((string) $_GET['code']) : '';
     if ($code === '') {
         cs_oauth_render_page('OAuth Error', 'Missing authorization code in callback.', 'failed');
     }
 
+    // Exchange callback code for tokens using the configured OAuth client.
     $cfg = cs_oauth_callback_config();
     $token = cs_oauth_http_post_form_json(
         'https://oauth2.googleapis.com/token',
@@ -187,6 +203,7 @@ try {
         cs_oauth_render_page('OAuth Failed', "Token exchange failed: {$err}{$suffix}", 'failed');
     }
 
+    // Persist normalized token payload for API/CLI calendar operations.
     cs_oauth_write_token($token, $cfg);
     cs_oauth_render_page('OAuth Complete', 'Google authentication succeeded.', 'success');
 } catch (Throwable $e) {

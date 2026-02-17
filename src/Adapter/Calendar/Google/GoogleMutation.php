@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Adapter/Calendar/Google/GoogleMutation.php
+ * Purpose: Defines the GoogleMutation component used by the Calendar Scheduler Adapter/Calendar/Google layer.
+ */
+
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
 use RuntimeException;

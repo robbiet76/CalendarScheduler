@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Resolution/Dto/ResolvedBundle.php
+ * Purpose: Defines the ResolvedBundle component used by the Calendar Scheduler Resolution/Dto layer.
+ */
+
 namespace CalendarScheduler\Resolution\Dto;
 
 /**

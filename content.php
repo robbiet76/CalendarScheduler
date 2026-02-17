@@ -1,8 +1,15 @@
 <?php
 /**
- * Calendar Scheduler
+ * Calendar Scheduler — Primary Plugin UI
  *
- * Design-mode UI shell aligned to native FPP styling.
+ * Purpose:
+ * - Render provider connection/setup workflow.
+ * - Surface reconciliation preview and pending actions.
+ * - Trigger apply operations from an operator-friendly control surface.
+ *
+ * Notes:
+ * - This page relies on ui-api.php for all dynamic data/actions.
+ * - Device OAuth flow is the primary provider authentication path.
  */
 ?>
 <style>
@@ -243,6 +250,9 @@
 
 <script>
   (function () {
+    // -----------------------------------------------------------------------
+    // Shared state + element utilities
+    // -----------------------------------------------------------------------
     var API_URL = "plugin.php?plugin=GoogleCalendarScheduler&page=ui-api.php&nopage=1";
     var providerConnected = false;
     var deviceAuthPollTimer = null;
@@ -261,6 +271,9 @@
         .replace(/'/g, "&#039;");
     }
 
+    // -----------------------------------------------------------------------
+    // Global UI state helpers
+    // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
       ["csDisconnectBtn", "csConnectBtn", "csUploadDeviceClientBtn"].forEach(function (id) {
         var node = byId(id);
@@ -384,6 +397,9 @@
       }
     }
 
+    // -----------------------------------------------------------------------
+    // API + rendering helpers
+    // -----------------------------------------------------------------------
     function renderDiagnostics(payload) {
       var out = byId("csDiagnosticJson");
       if (!out) {
@@ -409,6 +425,7 @@
       });
     }
 
+    // Render pending actions table and return count of non-noop rows.
     function renderActions(actions) {
       var tbody = byId("csActionsRows");
       var thead = byId("csActionsHead");
@@ -530,6 +547,7 @@
       setApplyEnabled(pendingCount > 0);
     }
 
+    // Pull provider state and update setup/connection controls.
     function loadStatus() {
       return fetchJson({ action: "status" }).then(function (res) {
         var google = res.google || {};
@@ -608,6 +626,7 @@
       });
     }
 
+    // Execute reconciliation preview and render pending changes.
     function runPreview() {
       return fetchJson({ action: "preview" }).then(function (res) {
         renderPreview(res.preview || {});
@@ -622,6 +641,9 @@
       });
     }
 
+    // -----------------------------------------------------------------------
+    // Device OAuth modal/polling flow
+    // -----------------------------------------------------------------------
     function clearDeviceAuthPoll() {
       if (deviceAuthPollTimer !== null) {
         window.clearTimeout(deviceAuthPollTimer);
@@ -700,6 +722,9 @@
         });
     }
 
+    // -----------------------------------------------------------------------
+    // Orchestration: refresh, bind events, initialize page
+    // -----------------------------------------------------------------------
     var refreshInFlight = false;
     var initialRenderDone = false;
     function refreshAll() {

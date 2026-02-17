@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Adapter/FppScheduleAdapter.php
+ * Purpose: Defines the FppScheduleAdapter component used by the Calendar Scheduler Adapter layer.
+ */
+
 namespace CalendarScheduler\Adapter;
 
 use CalendarScheduler\Intent\NormalizationContext;

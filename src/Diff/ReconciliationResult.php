@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Diff/ReconciliationResult.php
+ * Purpose: Defines the ReconciliationResult component used by the Calendar Scheduler Diff layer.
+ */
+
 namespace CalendarScheduler\Diff;
 
 /**

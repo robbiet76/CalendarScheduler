@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Apply/FppScheduleWriter.php
+ * Purpose: Defines the FppScheduleWriter component used by the Calendar Scheduler Apply layer.
+ */
+
 namespace CalendarScheduler\Apply;
 
 /**

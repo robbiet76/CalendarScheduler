@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Apply/ApplyEvaluation.php
+ * Purpose: Defines the ApplyEvaluation component used by the Calendar Scheduler Apply layer.
+ */
+
 namespace CalendarScheduler\Apply;
 
 use CalendarScheduler\Diff\ReconciliationAction;

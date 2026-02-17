@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Planner/ResolvedScheduleToIntentAdapter.php
+ * Purpose: Defines the ResolvedScheduleToIntentAdapter component used by the Calendar Scheduler Planner layer.
+ */
+
 namespace CalendarScheduler\Planner;
 
 use CalendarScheduler\Intent\Intent;

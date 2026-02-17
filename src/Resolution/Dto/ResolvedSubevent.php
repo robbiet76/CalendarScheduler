@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Resolution/Dto/ResolvedSubevent.php
+ * Purpose: Defines the ResolvedSubevent component used by the Calendar Scheduler Resolution/Dto layer.
+ */
+
 namespace CalendarScheduler\Resolution\Dto;
 
 /**

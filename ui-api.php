@@ -1,6 +1,15 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — UI API Endpoint
+ *
+ * Purpose:
+ * - Serve JSON responses for plugin UI actions (status, preview, apply).
+ * - Manage provider auth flows (device start/poll, upload client, disconnect).
+ * - Coordinate scheduler execution and apply operations from one HTTP surface.
+ */
+
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyRunner;
 use CalendarScheduler\Apply\ApplyTargets;
@@ -53,6 +62,7 @@ function cs_respond(array $payload, int $status = 200): void
 
 function cs_export_fpp_env(): void
 {
+    // Promote warnings to exceptions so export failures are explicit to callers.
     $handler = set_error_handler(
         static function (int $severity, string $message, string $file, int $line): bool {
             throw new \RuntimeException("PHP warning: {$message} at {$file}:{$line}");
@@ -68,6 +78,7 @@ function cs_export_fpp_env(): void
 
 function cs_run_preview_engine(): SchedulerRunResult
 {
+    // Always refresh FPP environment before computing a reconciliation preview.
     cs_export_fpp_env();
 
     $engine = new SchedulerEngine();
@@ -149,6 +160,7 @@ function cs_preview_payload(SchedulerRunResult $result): array
  */
 function cs_google_status(): array
 {
+    // Base payload shape is stable for UI rendering, even when setup is incomplete.
     $base = [
         'connected' => false,
         'selectedCalendarId' => null,
@@ -265,6 +277,7 @@ function cs_google_status(): array
 
 function cs_bootstrap_google_config_if_missing(): bool
 {
+    // Auto-bootstrap first-run config so UI setup can be completed without SSH.
     if (!is_dir(CS_GOOGLE_CONFIG_DIR)) {
         if (!@mkdir(CS_GOOGLE_CONFIG_DIR, 0775, true) && !is_dir(CS_GOOGLE_CONFIG_DIR)) {
             throw new \RuntimeException('Failed to create Google config directory: ' . CS_GOOGLE_CONFIG_DIR);
@@ -368,6 +381,7 @@ function cs_write_google_config_json(array $data): void
 
 function cs_google_upload_device_client(string $filename, string $jsonText): string
 {
+    // Accept uploaded OAuth client JSON and wire it into oauth.device_client_file.
     $filename = trim($filename);
     if ($filename === '') {
         $filename = 'client_secret_device.json';
@@ -521,6 +535,7 @@ function cs_google_manual_auth_config(): array
  */
 function cs_http_post_form_json(string $url, array $form): array
 {
+    // Shared HTTP helper for OAuth device code/token exchanges.
     if (!function_exists('curl_init')) {
         throw new \RuntimeException('cURL extension is required for OAuth device flow');
     }
@@ -559,6 +574,7 @@ function cs_http_post_form_json(string $url, array $form): array
  */
 function cs_write_google_token(array $token): void
 {
+    // Normalize token payload and preserve refresh_token across partial responses.
     $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
     $tokenPath = $config->getTokenPath();
     $oauth = $config->getOauth();
@@ -722,6 +738,7 @@ function cs_apply(SchedulerRunResult $result): array
 }
 
 try {
+    // Action dispatch for all UI-facing operations.
     $input = cs_read_json_input();
     $action = $input['action'] ?? $_GET['action'] ?? 'status';
     if (!is_string($action) || $action === '') {

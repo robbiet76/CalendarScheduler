@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Resolution/Dto/ResolutionScope.php
+ * Purpose: Defines the ResolutionScope component used by the Calendar Scheduler Resolution/Dto layer.
+ */
+
 namespace CalendarScheduler\Resolution\Dto;
 
 use DateTimeImmutable;

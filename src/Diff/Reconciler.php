@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Diff/Reconciler.php
+ * Purpose: Defines the Reconciler component used by the Calendar Scheduler Diff layer.
+ */
+
 namespace CalendarScheduler\Diff;
 
 /**

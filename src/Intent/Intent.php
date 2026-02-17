@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Intent/Intent.php
+ * Purpose: Defines the Intent component used by the Calendar Scheduler Intent layer.
+ */
+
 namespace CalendarScheduler\Intent;
 
 /**

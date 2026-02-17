@@ -1,5 +1,12 @@
 <?php
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Adapter/Calendar/Google/GoogleCalendarProvider.php
+ * Purpose: Defines the GoogleCalendarProvider component used by the Calendar Scheduler Adapter/Calendar/Google layer.
+ */
+
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
 class GoogleCalendarProvider

@@ -1,6 +1,13 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Calendar Scheduler — Source Component
+ *
+ * File: Resolution/ResolutionEngine.php
+ * Purpose: Defines the ResolutionEngine component used by the Calendar Scheduler Resolution layer.
+ */
+
 namespace CalendarScheduler\Resolution;
 
 use CalendarScheduler\Adapter\Calendar\CalendarSnapshot;
