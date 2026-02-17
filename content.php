@@ -738,12 +738,12 @@
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(value).then(done).catch(function () {
-          window.prompt("Copy this device code:", value);
+          setError("Clipboard copy failed. Check browser clipboard permissions.");
         });
         return;
       }
 
-      window.prompt("Copy this device code:", value);
+      setError("Clipboard API unavailable in this browser.");
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
