@@ -205,7 +205,7 @@
     <p class="cs-muted">Primary view of all pending create/update/delete changes.</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover">
-        <thead id="csActionsHead">
+        <thead id="csActionsHead" class="cs-hidden">
           <tr>
             <th>Action</th>
             <th>Target</th>
@@ -213,14 +213,7 @@
             <th>Reason</th>
           </tr>
         </thead>
-        <tbody id="csActionsRows">
-          <tr>
-            <td><span class="badge text-bg-success">Create</span></td>
-            <td>calendar</td>
-            <td>Sample_Event</td>
-            <td>Preview placeholder: endpoint wiring pending</td>
-          </tr>
-        </tbody>
+        <tbody id="csActionsRows"></tbody>
       </table>
     </div>
   </div>
