@@ -28,7 +28,7 @@
 
   .cs-top-status {
     position: sticky;
-    top: 8px;
+    top: var(--cs-sticky-top, 8px);
     z-index: 1030;
     padding: 8px 12px;
     margin-bottom: 12px;
@@ -332,6 +332,19 @@
         return;
       }
       bar.classList.toggle("cs-top-status-compact", window.scrollY > 120);
+    }
+
+    function updateTopStatusAnchor() {
+      // Mirror FPP anchored controls: if global header is fixed, pin below it.
+      var header = document.querySelector(".header");
+      var top = 8;
+      if (header) {
+        var style = window.getComputedStyle(header);
+        if (style && style.position === "fixed") {
+          top = Math.max(8, Math.round(header.getBoundingClientRect().height) + 8);
+        }
+      }
+      document.documentElement.style.setProperty("--cs-sticky-top", String(top) + "px");
     }
 
     function setLoadingState() {
@@ -960,8 +973,13 @@
     window.addEventListener("focus", function () {
       refreshAll();
     });
-    window.addEventListener("scroll", updateTopStatusCompact, { passive: true });
+    window.addEventListener("scroll", function () {
+      updateTopStatusAnchor();
+      updateTopStatusCompact();
+    }, { passive: true });
+    window.addEventListener("resize", updateTopStatusAnchor);
 
+    updateTopStatusAnchor();
     updateTopStatusCompact();
     refreshAll();
   }());
