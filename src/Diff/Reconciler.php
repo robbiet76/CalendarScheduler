@@ -379,6 +379,12 @@ final class Reconciler
             $winningCorrelation['googleEventIds'] = $currentGoogleIds;
         }
 
+        $winningCalendarId = $winningCorrelation['sourceCalendarId'] ?? null;
+        $currentCalendarId = $currentCorrelation['sourceCalendarId'] ?? null;
+        if ((!is_string($winningCalendarId) || $winningCalendarId === '') && is_string($currentCalendarId) && $currentCalendarId !== '') {
+            $winningCorrelation['sourceCalendarId'] = $currentCalendarId;
+        }
+
         if ($winningCorrelation !== []) {
             $winningEvent['correlation'] = $winningCorrelation;
         }
@@ -413,6 +419,12 @@ final class Reconciler
         $calendarGoogleIds = $calendarCorrelation['googleEventIds'] ?? null;
         if (!is_array($winningGoogleIds) && is_array($calendarGoogleIds) && $calendarGoogleIds !== []) {
             $winningCorrelation['googleEventIds'] = $calendarGoogleIds;
+        }
+
+        $winningCalendarId = $winningCorrelation['sourceCalendarId'] ?? null;
+        $calendarCalendarId = $calendarCorrelation['sourceCalendarId'] ?? null;
+        if ((!is_string($winningCalendarId) || $winningCalendarId === '') && is_string($calendarCalendarId) && $calendarCalendarId !== '') {
+            $winningCorrelation['sourceCalendarId'] = $calendarCalendarId;
         }
 
         if ($winningCorrelation !== []) {

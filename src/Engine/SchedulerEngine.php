@@ -237,7 +237,8 @@ final class SchedulerEngine
             $context,
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch,
-            $syncMode
+            $syncMode,
+            $calendarId
         );
 
         $this->saveTombstones($tombstonesPath, $this->lastTombstonesBySource, $calendarId);
@@ -267,9 +268,11 @@ final class SchedulerEngine
         NormalizationContext $context,
         int $calendarSnapshotEpoch,
         int $fppSnapshotEpoch,
-        string $syncMode = self::SYNC_MODE_BOTH
+        string $syncMode = self::SYNC_MODE_BOTH,
+        string $calendarScope = 'default'
     ): SchedulerRunResult {
         $syncMode = $this->normalizeSyncMode($syncMode);
+        $calendarScope = trim($calendarScope) !== '' ? trim($calendarScope) : 'default';
         $computedCalendarUpdatedAtById = $calendarUpdatedAtById;
         $computedFppUpdatedAtById = $fppUpdatedAtById;
 
@@ -521,6 +524,7 @@ final class SchedulerEngine
                 'ownership' => ['managed' => true],
                 'correlation' => [
                     'sourceEventUid' => $parentUid,
+                    'sourceCalendarId' => $calendarScope,
                 ],
 
                 'source' => 'calendar',
@@ -582,7 +586,8 @@ final class SchedulerEngine
                 $calendarManifest,
                 $fppManifest,
                 $tombstonesBySource,
-                $calendarSnapshotEpoch
+                $calendarSnapshotEpoch,
+                $calendarScope
             );
         }
         $this->lastTombstonesBySource = $effectiveTombstonesBySource;
@@ -630,6 +635,7 @@ final class SchedulerEngine
      * @param array<string,mixed> $fppManifest
      * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
      * @param int $calendarEpoch
+     * @param string $calendarScope
      * @return array{calendar:array<string,int>,fpp:array<string,int>}
      */
     private function deriveEffectiveTombstones(
@@ -637,7 +643,8 @@ final class SchedulerEngine
         array $calendarManifest,
         array $fppManifest,
         array $tombstonesBySource,
-        int $calendarEpoch
+        int $calendarEpoch,
+        string $calendarScope
     ): array {
         $calendarIds = $this->manifestIdentitySet($calendarManifest);
         $fppIds = $this->manifestIdentitySet($fppManifest);
@@ -656,6 +663,17 @@ final class SchedulerEngine
             // unrelated/manual FPP entries from being interpreted as calendar deletes.
             $source = $event['source'] ?? null;
             if (!is_string($source) || strtolower(trim($source)) !== 'calendar') {
+                continue;
+            }
+
+            // Only infer calendar deletes for events tied to the currently selected
+            // calendar. This prevents cross-calendar leakage when users switch calendars.
+            $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+            $sourceCalendarId = $correlation['sourceCalendarId'] ?? null;
+            if (!is_string($sourceCalendarId) || trim($sourceCalendarId) === '') {
+                continue;
+            }
+            if (trim($sourceCalendarId) !== $calendarScope) {
                 continue;
             }
 
