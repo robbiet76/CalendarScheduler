@@ -735,15 +735,48 @@
       var done = function () {
         setSetupStatus("Device code copied to clipboard.");
       };
+      var fail = function () {
+        setError("Clipboard copy failed. Check browser clipboard permissions.");
+      };
+
+      // Fallback for insecure HTTP contexts where navigator.clipboard is blocked.
+      var legacyCopy = function (text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        ta.style.top = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        var ok = false;
+        try {
+          ok = document.execCommand("copy");
+        } catch (e) {
+          ok = false;
+        }
+        document.body.removeChild(ta);
+        return ok;
+      };
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(value).then(done).catch(function () {
-          setError("Clipboard copy failed. Check browser clipboard permissions.");
+          if (legacyCopy(value)) {
+            done();
+          } else {
+            fail();
+          }
         });
         return;
       }
 
-      setError("Clipboard API unavailable in this browser.");
+      if (legacyCopy(value)) {
+        done();
+      } else {
+        fail();
+      }
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
