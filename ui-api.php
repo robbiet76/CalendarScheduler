@@ -178,14 +178,21 @@ function cs_google_status(): array
         $base['setup']['configValid'] = true;
         $base['selectedCalendarId'] = $config->getCalendarId();
 
+        $oauth = $config->getOauth();
+        $deviceClientFile = $oauth['device_client_file'] ?? null;
+        if (is_string($deviceClientFile) && trim($deviceClientFile) !== '') {
+            $deviceClientPath = rtrim($config->getConfigDir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . trim($deviceClientFile);
+        } else {
+            $deviceClientPath = $config->getClientSecretPath();
+        }
         $clientPath = $config->getClientSecretPath();
         $tokenPath = $config->getTokenPath();
-        $base['setup']['clientFilePresent'] = is_file($clientPath);
+        $base['setup']['clientFilePresent'] = is_file($deviceClientPath);
         $base['setup']['tokenFilePresent'] = is_file($tokenPath);
         $base['setup']['tokenPathWritable'] = is_dir(dirname($tokenPath)) && is_writable(dirname($tokenPath));
 
         if (!$base['setup']['clientFilePresent']) {
-            $base['setup']['hints'][] = "Missing client file: {$clientPath}";
+            $base['setup']['hints'][] = "Missing device client file: {$deviceClientPath}";
         }
         if (!$base['setup']['tokenPathWritable']) {
             $base['setup']['hints'][] = "Token directory is not writable: " . dirname($tokenPath);
@@ -273,13 +280,18 @@ function cs_set_calendar_id(string $calendarId): void
 }
 
 /**
- * @return array{client_id:string,client_secret:string,scopes:string}
+ * @return array{client_id:string,client_secret:string,scopes:string,client_path:string,client_type:string}
  */
 function cs_google_device_auth_config(): array
 {
     $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
     $oauth = $config->getOauth();
-    $clientPath = $config->getClientSecretPath();
+    $deviceClientFile = $oauth['device_client_file'] ?? null;
+    if (is_string($deviceClientFile) && trim($deviceClientFile) !== '') {
+        $clientPath = rtrim($config->getConfigDir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . trim($deviceClientFile);
+    } else {
+        $clientPath = $config->getClientSecretPath();
+    }
 
     $raw = @file_get_contents($clientPath);
     if ($raw === false) {
@@ -290,7 +302,16 @@ function cs_google_device_auth_config(): array
         throw new \RuntimeException("Invalid JSON in Google client file: {$clientPath}");
     }
 
-    $clientBlock = $json['web'] ?? $json['installed'] ?? null;
+    $clientType = 'unknown';
+    if (isset($json['installed']) && is_array($json['installed'])) {
+        $clientType = 'installed';
+        $clientBlock = $json['installed'];
+    } elseif (isset($json['web']) && is_array($json['web'])) {
+        $clientType = 'web';
+        $clientBlock = $json['web'];
+    } else {
+        $clientBlock = null;
+    }
     if (!is_array($clientBlock)) {
         throw new \RuntimeException("Google client file missing 'web' or 'installed' block");
     }
@@ -310,6 +331,50 @@ function cs_google_device_auth_config(): array
         'client_id' => $clientId,
         'client_secret' => $clientSecret,
         'scopes' => implode(' ', $scopes),
+        'client_path' => $clientPath,
+        'client_type' => $clientType,
+    ];
+}
+
+/**
+ * @return array{client_id:string,client_secret:string,redirect_uri:string}
+ */
+function cs_google_manual_auth_config(): array
+{
+    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+    $oauth = $config->getOauth();
+    $redirectUri = $oauth['redirect_uri'] ?? null;
+    if (!is_string($redirectUri) || $redirectUri === '') {
+        throw new \RuntimeException('Google oauth.redirect_uri missing');
+    }
+
+    $clientPath = $config->getClientSecretPath();
+    $raw = @file_get_contents($clientPath);
+    if ($raw === false) {
+        throw new \RuntimeException("Unable to read Google client file: {$clientPath}");
+    }
+    $json = json_decode($raw, true);
+    if (!is_array($json)) {
+        throw new \RuntimeException("Invalid JSON in Google client file: {$clientPath}");
+    }
+
+    $clientBlock = $json['web'] ?? null;
+    if (!is_array($clientBlock)) {
+        throw new \RuntimeException(
+            "Manual OAuth requires a 'web' OAuth client in {$clientPath}"
+        );
+    }
+
+    $clientId = $clientBlock['client_id'] ?? null;
+    $clientSecret = $clientBlock['client_secret'] ?? null;
+    if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
+        throw new \RuntimeException('Google web client_id/client_secret missing');
+    }
+
+    return [
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'redirect_uri' => $redirectUri,
     ];
 }
 
@@ -460,21 +525,14 @@ function cs_google_device_poll(string $deviceCode): array
 
 function cs_google_exchange_authorization_code(string $code): void
 {
-    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
-    $oauth = $config->getOauth();
-    $redirectUri = $oauth['redirect_uri'] ?? null;
-    if (!is_string($redirectUri) || $redirectUri === '') {
-        throw new \RuntimeException('Google oauth.redirect_uri missing');
-    }
-
-    $auth = cs_google_device_auth_config();
+    $auth = cs_google_manual_auth_config();
     $resp = cs_http_post_form_json(
         'https://oauth2.googleapis.com/token',
         [
             'code' => $code,
             'client_id' => $auth['client_id'],
             'client_secret' => $auth['client_secret'],
-            'redirect_uri' => $redirectUri,
+            'redirect_uri' => $auth['redirect_uri'],
             'grant_type' => 'authorization_code',
         ]
     );
