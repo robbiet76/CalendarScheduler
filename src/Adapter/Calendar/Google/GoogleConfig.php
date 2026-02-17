@@ -83,11 +83,11 @@ final class GoogleConfig
 
     public function getClientSecretPath(): string
     {
-        // Client file can be overridden per config; default to client_secret.json.
+        // Device OAuth client file is authoritative; default to client_secret_device.json.
         $oauth = $this->getOauth();
-        $clientFile = $oauth['client_file'] ?? 'client_secret.json';
+        $clientFile = $oauth['device_client_file'] ?? 'client_secret_device.json';
         if (!is_string($clientFile) || $clientFile === '') {
-            $clientFile = 'client_secret.json';
+            $clientFile = 'client_secret_device.json';
         }
 
         return rtrim($this->getConfigDir(), DIRECTORY_SEPARATOR)

@@ -200,14 +200,7 @@ function cs_google_status(): array
         $base['setup']['configValid'] = true;
         $base['selectedCalendarId'] = $config->getCalendarId();
 
-        $oauth = $config->getOauth();
-        $deviceClientFile = $oauth['device_client_file'] ?? null;
-        if (is_string($deviceClientFile) && trim($deviceClientFile) !== '') {
-            $deviceClientPath = rtrim($config->getConfigDir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . trim($deviceClientFile);
-        } else {
-            $deviceClientPath = $config->getClientSecretPath();
-        }
-        $clientPath = $config->getClientSecretPath();
+        $deviceClientPath = $config->getClientSecretPath();
         $tokenPath = $config->getTokenPath();
         $base['setup']['clientFilePresent'] = is_file($deviceClientPath);
         $base['setup']['tokenFilePresent'] = is_file($tokenPath);
@@ -285,31 +278,43 @@ function cs_bootstrap_google_config_if_missing(): bool
 
     $path = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config.json';
     if (is_file($path)) {
-        return false;
-    }
+        // Migrate legacy oauth.client_file key away from runtime config.
+        $raw = @file_get_contents($path);
+        $existing = is_string($raw) ? json_decode($raw, true) : null;
+        if (is_array($existing)) {
+            $oauth = is_array($existing['oauth'] ?? null) ? $existing['oauth'] : [];
+            $changed = false;
 
-    $deviceClientFile = null;
-    $deviceCandidate = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'client_secret_device.json';
-    $legacyCandidate = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'client_secret.json';
-    if (is_file($deviceCandidate)) {
-        $deviceClientFile = 'client_secret_device.json';
-    } elseif (is_file($legacyCandidate)) {
-        $deviceClientFile = 'client_secret.json';
+            if (array_key_exists('client_file', $oauth)) {
+                unset($oauth['client_file']);
+                $changed = true;
+            }
+            if (!isset($oauth['device_client_file']) || !is_string($oauth['device_client_file']) || trim($oauth['device_client_file']) === '') {
+                $oauth['device_client_file'] = 'client_secret_device.json';
+                $changed = true;
+            }
+
+            if ($changed) {
+                $existing['oauth'] = $oauth;
+                $json = json_encode($existing, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                if (is_string($json)) {
+                    @file_put_contents($path, $json . "\n");
+                }
+            }
+        }
+        return false;
     }
 
     $config = [
         'provider' => 'google',
         'calendar_id' => 'primary',
         'oauth' => [
-            'client_file' => 'client_secret.json',
+            'device_client_file' => 'client_secret_device.json',
             'token_file' => 'token.json',
             'redirect_uri' => CS_GOOGLE_DEFAULT_REDIRECT_URI,
             'scopes' => [CS_GOOGLE_DEFAULT_SCOPE],
         ],
     ];
-    if ($deviceClientFile !== null) {
-        $config['oauth']['device_client_file'] = $deviceClientFile;
-    }
 
     $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     if (!is_string($json)) {
@@ -435,12 +440,7 @@ function cs_google_device_auth_config(): array
     cs_bootstrap_google_config_if_missing();
     $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
     $oauth = $config->getOauth();
-    $deviceClientFile = $oauth['device_client_file'] ?? null;
-    if (is_string($deviceClientFile) && trim($deviceClientFile) !== '') {
-        $clientPath = rtrim($config->getConfigDir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . trim($deviceClientFile);
-    } else {
-        $clientPath = $config->getClientSecretPath();
-    }
+    $clientPath = $config->getClientSecretPath();
 
     $raw = @file_get_contents($clientPath);
     if ($raw === false) {
@@ -518,7 +518,7 @@ function cs_google_manual_auth_config(): array
     $clientId = $clientBlock['client_id'] ?? null;
     $clientSecret = $clientBlock['client_secret'] ?? null;
     if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
-        throw new \RuntimeException('Google web client_id/client_secret missing');
+        throw new \RuntimeException('Google OAuth client_id/client_secret missing');
     }
 
     return [

@@ -17,7 +17,7 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
  * CLI-only command: `php bin/calendar-scheduler google:auth`
  *
  * Responsibilities:
- *  - Read client_secret.json
+ *  - Read OAuth client JSON from oauth.device_client_file
  *  - Print consent URL
  *  - Receive auth code via user paste-back (local web redirect flow)
  *  - Exchange code for tokens
@@ -26,11 +26,12 @@ namespace CalendarScheduler\Adapter\Calendar\Google;
  * Notes:
  *  - This does NOT read/write calendar events.
  *  - This does NOT touch Manifest/Diff/Apply logic.
- *  - Uses a local web redirect–based OAuth flow.
+ *  - Device flow (TV and Limited Input) is the primary production path;
+ *    this class supports legacy/manual bootstrap scenarios.
  */
 final class GoogleOAuthBootstrap
 {
-    // Fallback only; normally we use auth_uri from client_secret.json
+    // Fallback only; normally we use auth_uri from OAuth client JSON.
     private const FALLBACK_AUTH_URL = 'https://accounts.google.com/o/oauth2/auth';
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
     private GoogleConfig $config;
@@ -104,7 +105,7 @@ final class GoogleOAuthBootstrap
 
         $clientId = $client['client_id'] ?? null;
         if (!is_string($clientId) || $clientId === '') {
-            throw new \RuntimeException("client_id missing in client_secret.json");
+            throw new \RuntimeException("client_id missing in OAuth client JSON");
         }
 
         $redirectUri = $oauth['redirect_uri'] ?? null;
@@ -117,7 +118,7 @@ final class GoogleOAuthBootstrap
             throw new \RuntimeException("oauth.scopes missing in config.json");
         }
 
-        // Prefer auth_uri from client_secret.json (matches working manual URL)
+        // Prefer auth_uri from OAuth client JSON (matches working manual URL)
         $authUrlBase = $client['auth_uri'] ?? self::FALLBACK_AUTH_URL;
 
         // Build query with RFC3986 encoding (redirect_uri MUST be encoded).
@@ -135,9 +136,7 @@ final class GoogleOAuthBootstrap
     }
 
     /**
-     * Google Calendar API writes/refresh in this project rely on a **Web application** OAuth client.
-     * Desktop/"installed" clients do not support the redirect URI model we use on FPP and will
-     * cause `invalid_client` or HTTP 400/401 failures.
+     * Loads OAuth client credentials from either `web` or `installed` blocks.
      *
      * @return array<string,mixed>
      */
@@ -151,17 +150,11 @@ final class GoogleOAuthBootstrap
         }
 
         if (isset($clientSecret['installed']) && is_array($clientSecret['installed'])) {
-            throw new \RuntimeException(
-                'client_secret.json contains an "installed" (Desktop) OAuth client. ' .
-                'This project requires a **Web application** OAuth client with an Authorized redirect URI ' .
-                'matching oauth.redirect_uri (e.g. http://127.0.0.1:8765/oauth2callback). ' .
-                'Create a Web OAuth client in Google Cloud Console and download its client_secret.json.'
-            );
+            return $clientSecret['installed'];
         }
 
         throw new \RuntimeException(
-            'client_secret.json is missing a "web" OAuth client block. ' .
-            'Create a Web application OAuth client in Google Cloud Console and download its client_secret.json.'
+            'OAuth client JSON is missing both "web" and "installed" client blocks.'
         );
     }
 
@@ -173,7 +166,7 @@ final class GoogleOAuthBootstrap
         $clientId = $client['client_id'] ?? null;
         $clientSecretValue = $client['client_secret'] ?? null;
         if (!is_string($clientId) || $clientId === '' || !is_string($clientSecretValue) || $clientSecretValue === '') {
-            throw new \RuntimeException("client_id/client_secret missing in client_secret.json");
+            throw new \RuntimeException("client_id/client_secret missing in OAuth client JSON");
         }
 
         $redirectUri = $oauth['redirect_uri'] ?? null;

@@ -232,37 +232,37 @@ final class GoogleApiClient
 
     private function refreshAccessToken(string $refreshToken): array
     {
-        // Load client_id / client_secret from client_secret.json
+        // Device OAuth client file is authoritative for refresh requests.
+        $oauth = $this->config->getOauth();
         $clientSecretPath = $this->config->getClientSecretPath();
 
         $raw = @file_get_contents($clientSecretPath);
         if ($raw === false) {
             throw new \RuntimeException(
-                "Unable to read Google client_secret.json at {$clientSecretPath}"
+                "Unable to read Google OAuth client file at {$clientSecretPath}"
             );
         }
 
         $json = json_decode($raw, true);
         if (!is_array($json)) {
-            throw new \RuntimeException("Invalid JSON in client_secret.json");
+            throw new \RuntimeException("Invalid JSON in Google OAuth client file.");
         }
 
         // Support both "web" and "installed" OAuth client types
         $clientBlock = $json['web'] ?? $json['installed'] ?? null;
         if (!is_array($clientBlock)) {
             throw new \RuntimeException(
-                "client_secret.json missing 'web' or 'installed' OAuth block"
+                "Google OAuth client file missing 'web' or 'installed' block"
             );
         }
 
         $clientId = $clientBlock['client_id'] ?? null;
         $clientSecret = $clientBlock['client_secret'] ?? null;
-        $oauth = $this->config->getOauth();
         $tokenUri = $oauth['token_uri'] ?? 'https://oauth2.googleapis.com/token';
 
         if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
             throw new \RuntimeException(
-                "Google OAuth client_id/client_secret missing in client_secret.json"
+                "Google OAuth client_id/client_secret missing in client file"
             );
         }
 
