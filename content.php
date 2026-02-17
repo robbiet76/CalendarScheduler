@@ -126,6 +126,7 @@
     </div>
   </div>
 
+  <div id="csMainBody" class="cs-hidden">
   <div class="row g-2">
     <div class="col-12">
       <div class="backdrop mb-3">
@@ -237,6 +238,7 @@
   ]
 }</pre>
   </details>
+  </div>
 </div>
 
 <script>
@@ -430,8 +432,10 @@
         thead.classList.remove("cs-hidden");
       }
 
-      function friendlyReason(raw) {
+      function friendlyReason(raw, actionType, target) {
         var r = String(raw || "").trim();
+        var action = String(actionType || "").toLowerCase();
+        var side = String(target || "").toLowerCase() === "fpp" ? "FPP" : "calendar";
         if (!r) {
           return "-";
         }
@@ -439,29 +443,47 @@
         if (r.indexOf("already converged") !== -1 || r.indexOf("already matches") !== -1) {
           return "No differences detected.";
         }
-        if (r.indexOf("calendar absent without tombstone") !== -1) {
-          return "Create in calendar to match FPP schedule.";
+
+        if (action === "create") {
+          if (r.indexOf("calendar absent") !== -1) {
+            return "Add this event in calendar to match FPP.";
+          }
+          if (r.indexOf("fpp absent") !== -1) {
+            return "Add this event in FPP to match calendar.";
+          }
+          if (r.indexOf("present side wins") !== -1) {
+            return "Add missing event on " + side + " to keep both sides in sync.";
+          }
+          return "Create this event on " + side + " to keep schedules aligned.";
         }
-        if (r.indexOf("fpp absent without tombstone") !== -1) {
-          return "Create in FPP schedule to match calendar.";
+
+        if (action === "delete") {
+          if (r.indexOf("calendar tombstone") !== -1 || r.indexOf("calendar newer") !== -1) {
+            return "Delete from FPP to match the calendar removal.";
+          }
+          if (r.indexOf("fpp tombstone") !== -1 || r.indexOf("fpp newer") !== -1) {
+            return "Delete from calendar to match the FPP removal.";
+          }
+          return "Delete this event from " + side + " to keep both sides aligned.";
         }
-        if (r.indexOf("calendar tombstone newer/equal") !== -1 || r.indexOf("calendar newer") !== -1) {
-          return "Calendar deletion/changes are newer; update FPP to match.";
-        }
-        if (r.indexOf("fpp tombstone newer/equal") !== -1 || r.indexOf("fpp newer") !== -1) {
-          return "FPP deletion/changes are newer; update calendar to match.";
-        }
-        if (r.indexOf("present side wins") !== -1) {
-          return "Only one side has this event; copying to the missing side.";
-        }
-        if (r.indexOf("force format refresh update") !== -1) {
-          return "Calendar formatting refresh required.";
-        }
-        if (r.indexOf("tie (") !== -1 && r.indexOf("fpp wins") !== -1) {
-          return "Both sides changed at the same time; using FPP as source.";
-        }
-        if (r.indexOf("tie (") !== -1 && r.indexOf("calendar wins") !== -1) {
-          return "Both sides changed at the same time; using calendar as source.";
+
+        if (action === "update") {
+          if (r.indexOf("force format refresh update") !== -1) {
+            return "Refresh event formatting on calendar.";
+          }
+          if (r.indexOf("calendar newer") !== -1) {
+            return "Update FPP to match newer calendar changes.";
+          }
+          if (r.indexOf("fpp newer") !== -1) {
+            return "Update calendar to match newer FPP changes.";
+          }
+          if (r.indexOf("tie (") !== -1 && r.indexOf("fpp wins") !== -1) {
+            return "Both changed at the same time; updating using FPP values.";
+          }
+          if (r.indexOf("tie (") !== -1 && r.indexOf("calendar wins") !== -1) {
+            return "Both changed at the same time; updating using calendar values.";
+          }
+          return "Update " + side + " to keep both schedules synchronized.";
         }
 
         return r;
@@ -477,7 +499,7 @@
           badgeClass = "text-bg-danger";
         }
         var eventName = a.event && a.event.target ? a.event.target : "-";
-        var reason = friendlyReason(a.reason || "-");
+        var reason = friendlyReason(a.reason || "-", a.type || "", a.target || "");
         return "<tr>"
           + "<td><span class=\"badge " + badgeClass + "\">" + escapeHtml(String(a.type || "").toUpperCase()) + "</span></td>"
           + "<td>" + escapeHtml(a.target || "-") + "</td>"
@@ -678,6 +700,7 @@
     }
 
     var refreshInFlight = false;
+    var initialRenderDone = false;
     function refreshAll() {
       if (refreshInFlight) {
         return Promise.resolve();
@@ -696,6 +719,13 @@
         })
         .catch(function (err) { setError(err.message); })
         .finally(function () {
+          if (!initialRenderDone) {
+            var body = byId("csMainBody");
+            if (body) {
+              body.classList.remove("cs-hidden");
+            }
+            initialRenderDone = true;
+          }
           refreshInFlight = false;
           setButtonsDisabled(false);
         });
