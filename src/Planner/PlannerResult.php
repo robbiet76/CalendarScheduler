@@ -6,7 +6,8 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Planner/PlannerResult.php
- * Purpose: Defines the PlannerResult component used by the Calendar Scheduler Planner layer.
+ * Purpose: Encapsulate the finalized ordered PlannedEntry list emitted by the
+ * planner stage and expose simple inspection helpers to callers.
  */
 
 namespace CalendarScheduler\Planner;
@@ -16,6 +17,7 @@ namespace CalendarScheduler\Planner;
  */
 final class PlannerResult
 {
+    // Stable, pre-sorted entries ready for downstream diff/reconcile stages.
     /** @var PlannedEntry[] */
     private array $entries;
 
@@ -24,6 +26,7 @@ final class PlannerResult
      */
     public function __construct(array $entries)
     {
+        // Enforce strict entry type guarantees at the planner boundary.
         foreach ($entries as $entry) {
             if (!$entry instanceof PlannedEntry) {
                 throw new \InvalidArgumentException('PlannerResult entries must be PlannedEntry instances');

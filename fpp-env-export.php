@@ -4,12 +4,9 @@ declare(strict_types=1);
 /**
  * Calendar Scheduler — FPP Environment Export Endpoint
  *
- * Purpose:
- * - Export authoritative FPP runtime/environment facts to
- *   runtime/fpp-env.json for downstream planner/mapper logic.
- *
- * Invocation:
- * - Called from CLI entrypoints and UI/API flows through plugin.php&nopage=1.
+ * File: fpp-env-export.php
+ * Purpose: Export authoritative FPP runtime/environment facts to
+ * `runtime/fpp-env.json` for scheduler planning and translation logic.
  */
 
 require_once __DIR__ . '/bootstrap.php';

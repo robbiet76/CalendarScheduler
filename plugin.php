@@ -2,14 +2,11 @@
 declare(strict_types=1);
 
 /**
- * Calendar Scheduler plugin lifecycle hook
+ * Calendar Scheduler — Plugin Lifecycle Entry
  *
- * Purpose:
- * - Export FPP-derived environment data at plugin load / startup
- *
- * IMPORTANT:
- * - This file is WEB-ONLY.
- * - It must NEVER execute under CLI (e.g. gcs-export).
+ * File: plugin.php
+ * Purpose: Execute lightweight plugin startup tasks in FPP web context,
+ * primarily exporting runtime environment metadata for scheduler components.
  */
 
 // ---------------------------------------------------------------------

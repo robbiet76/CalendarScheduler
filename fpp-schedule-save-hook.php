@@ -4,14 +4,9 @@ declare(strict_types=1);
 /**
  * Calendar Scheduler — FPP Schedule Save Hook
  *
- * Purpose:
- * - Rebuild the FPP-side event timestamp index whenever schedule.json changes.
- * - Capture FPP-side deletions as tombstones so reconciliation can propagate
- *   deletes safely to calendar providers.
- *
- * Invocation:
- * - Triggered by FPP via plugin.php with nopage=1.
- * - Returns JSON for operational visibility and troubleshooting.
+ * File: fpp-schedule-save-hook.php
+ * Purpose: Rebuild FPP event timestamps and emit FPP tombstones after schedule
+ * saves so two-way reconciliation can safely propagate deletes.
  */
 
 require_once __DIR__ . '/bootstrap.php';

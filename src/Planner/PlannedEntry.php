@@ -6,7 +6,8 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Planner/PlannedEntry.php
- * Purpose: Defines the PlannedEntry component used by the Calendar Scheduler Planner layer.
+ * Purpose: Represent one planned FPP scheduler entry with stable identity,
+ * normalized timing payload, and deterministic ordering metadata.
  */
 
 namespace CalendarScheduler\Planner;
@@ -20,16 +21,19 @@ namespace CalendarScheduler\Planner;
  */
 final class PlannedEntry
 {
+    // Manifest and subevent identity fields.
     private string $eventId;
     private string $subEventId;
     private string $identityHash;
 
+    // Target and timing payloads consumed by schedule translators/writers.
     /** @var array<string,mixed> */
     private array $target;
 
     /** @var array<string,mixed> */
     private array $timing;
 
+    // Precomputed deterministic ordering key for stable sorting.
     private OrderingKey $orderingKey;
 
     /**
@@ -44,10 +48,12 @@ final class PlannedEntry
         array $timing,
         OrderingKey $orderingKey
     ) {
+        // Normalize scalar identifiers before validation.
         $eventId = trim($eventId);
         $subEventId = trim($subEventId);
         $identityHash = trim($identityHash);
 
+        // Validate minimal construction invariants.
         if ($eventId === '') {
             throw new \InvalidArgumentException('eventId must be a non-empty string');
         }
@@ -64,6 +70,7 @@ final class PlannedEntry
             throw new \InvalidArgumentException('timing must be a non-empty array');
         }
 
+        // Persist immutable planned entry state.
         $this->eventId = $eventId;
         $this->subEventId = $subEventId;
         $this->identityHash = $identityHash;
@@ -86,6 +93,7 @@ final class PlannedEntry
 
     public function stableKey(): string
     {
+        // Compose a deterministic tie-break key for cross-run comparisons.
         return $this->orderingKey->toScalar()
             . '|' . $this->identityHash
             . '|' . $this->eventId

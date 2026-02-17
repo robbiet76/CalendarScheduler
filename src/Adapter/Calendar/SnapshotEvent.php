@@ -1,10 +1,12 @@
 <?php
+declare(strict_types=1);
 
 /**
  * Calendar Scheduler — Source Component
  *
  * File: Adapter/Calendar/SnapshotEvent.php
- * Purpose: Defines the SnapshotEvent component used by the Calendar Scheduler Adapter/Calendar layer.
+ * Purpose: Represent one provider-normalized calendar event, including base
+ * timing, recurrence metadata, and override/cancellation details for resolution.
  */
 
 namespace CalendarScheduler\Adapter\Calendar;

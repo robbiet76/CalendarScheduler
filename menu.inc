@@ -1,19 +1,10 @@
 <?php
 /**
- * CalendarScheduler menu entry
+ * Calendar Scheduler — Plugin Menu Entry
  *
- * Purpose:
- * - Registers the plugin link in the FPP web UI sidebar
- *
- * Behavior:
- * - Render-only
- * - Executes ONLY when the active menu is "content"
- * - Produces a single <li> entry linking to content.php
- *
- * HARD RULES:
- * - No logic
- * - No side effects
- * - No assumptions about plugin state
+ * File: menu.inc
+ * Purpose: Register the Calendar Scheduler navigation link in FPP's Content
+ * Setup menu when the active menu context is `content`.
  */
 
 if ($menu !== 'content') {

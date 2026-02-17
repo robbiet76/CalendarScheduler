@@ -5,7 +5,8 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Apply/ApplyOptions.php
- * Purpose: Defines the ApplyOptions component used by the Calendar Scheduler Apply layer.
+ * Purpose: Encode apply-mode policy, target writability, and blocked-action
+ * behavior used to evaluate and execute reconciliation actions.
  */
 
 namespace CalendarScheduler\Apply;
@@ -20,6 +21,7 @@ use CalendarScheduler\Apply\ApplyTargets;
  */
 final class ApplyOptions
 {
+    // Operational modes for preview versus write execution.
     public const MODE_PLAN = 'plan';
     public const MODE_APPLY = 'apply';
 
@@ -40,6 +42,7 @@ final class ApplyOptions
         array $writableTargets,
         bool $failOnBlockedActions
     ) {
+        // Persist immutable apply policy state.
         $this->mode = $mode;
         $this->dryRun = $dryRun;
         $this->writableTargets = $writableTargets;
@@ -103,6 +106,7 @@ final class ApplyOptions
 
     public function canWrite(string $target): bool
     {
+        // Enforce target validity before checking writability.
         if (!ApplyTargets::isValid($target)) {
             throw new \RuntimeException(
                 "ApplyOptions::canWrite called with invalid target '{$target}'"
@@ -118,6 +122,7 @@ final class ApplyOptions
      */
     private static function normalizeTargets(array $targets): array
     {
+        // Normalize target list into a fast lookup map with validation.
         $out = [];
         foreach ($targets as $t) {
             if (!is_string($t) || $t === '') {

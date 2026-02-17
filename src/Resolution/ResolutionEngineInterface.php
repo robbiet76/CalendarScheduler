@@ -5,7 +5,8 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Resolution/ResolutionEngineInterface.php
- * Purpose: Defines the ResolutionEngineInterface component used by the Calendar Scheduler Resolution layer.
+ * Purpose: Define the resolution contract that converts provider snapshots
+ * into resolved schedule geometry consumed by planner components.
  */
 
 namespace CalendarScheduler\Resolution;

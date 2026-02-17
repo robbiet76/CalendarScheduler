@@ -5,20 +5,21 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Adapter/Calendar/OverrideIntent.php
- * Purpose: Defines the OverrideIntent component used by the Calendar Scheduler Adapter/Calendar layer.
+ * Purpose: Represent one translated override window from a provider event so
+ * the resolver can layer override behavior over a base schedule segment.
  */
 
 namespace CalendarScheduler\Adapter\Calendar;
 
 final class OverrideIntent
 {
+    // Original and resolved time windows for the override instance.
     public array $originalStartTime;
-
     public array $start;
     public array $end;
 
+    // Scheduling behavior payload and lifecycle flags.
     public array $payload = [];
-
     public bool $enabled = true;
     public ?string $stopType = null;
 

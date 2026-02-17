@@ -6,7 +6,8 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Planner/OrderingKey.php
- * Purpose: Defines the OrderingKey component used by the Calendar Scheduler Planner layer.
+ * Purpose: Define the canonical deterministic ordering tuple used to sort
+ * planned scheduler entries consistently across runs and environments.
  */
 
 namespace CalendarScheduler\Planner;
@@ -25,6 +26,7 @@ namespace CalendarScheduler\Planner;
  */
 final class OrderingKey
 {
+    // Ordered comparison tuple fields.
     private int $managedPriority;
     private int $eventOrder;
     private int $subEventOrder;
@@ -38,6 +40,7 @@ final class OrderingKey
         int $startEpochSeconds,
         string $stableTieBreaker = ''
     ) {
+        // Validate ordering tuple bounds before persisting.
         if ($managedPriority < 0 || $managedPriority > 9) {
             throw new \InvalidArgumentException('managedPriority must be in range 0..9');
         }
@@ -73,6 +76,7 @@ final class OrderingKey
         $event = $this->eventOrder + 1;
         $sub = $this->subEventOrder + 1;
 
+        // Encode as zero-padded lexical key for deterministic string sorting.
         return sprintf(
             '%01d-%06d-%06d-%010d-%s',
             $this->managedPriority,
@@ -85,6 +89,7 @@ final class OrderingKey
 
     public static function compare(self $a, self $b): int
     {
+        // Centralized comparator used by planner sorting code paths.
         return $a->toScalar() <=> $b->toScalar();
     }
 }

@@ -4,14 +4,9 @@ declare(strict_types=1);
 /**
  * Calendar Scheduler — OAuth Callback Endpoint (Fallback Flow)
  *
- * Purpose:
- * - Handle browser-based OAuth authorization-code callback.
- * - Exchange code for tokens and persist token.json.
- * - Notify opener window and close callback tab/window.
- *
- * Note:
- * - Device flow is the primary UX path.
- * - This endpoint remains as a compatibility/fallback path.
+ * File: oauth-callback.php
+ * Purpose: Handle browser OAuth authorization-code callbacks, persist token
+ * credentials, and report completion back to the plugin UI fallback flow.
  */
 
 require_once __DIR__ . '/bootstrap.php';

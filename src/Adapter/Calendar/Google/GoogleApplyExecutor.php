@@ -5,7 +5,8 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Adapter/Calendar/Google/GoogleApplyExecutor.php
- * Purpose: Defines the GoogleApplyExecutor component used by the Calendar Scheduler Adapter/Calendar/Google layer.
+ * Purpose: Execute mapped Google mutation operations against the Google API
+ * client and return mutation results for apply summaries and diagnostics.
  */
 
 namespace CalendarScheduler\Adapter\Calendar\Google;
@@ -16,6 +17,7 @@ use CalendarScheduler\Diff\ReconciliationAction;
 
 final class GoogleApplyExecutor
 {
+    // Provider API boundary and action-to-mutation mapper.
     private GoogleApiClient $client;
     private GoogleEventMapper $mapper;
 
@@ -36,6 +38,7 @@ final class GoogleApplyExecutor
      */
     public function applyActions(array $actions): array
     {
+        // Convert reconciliation actions to concrete provider mutations.
         $mutations = [];
 
         foreach ($actions as $action) {
@@ -45,6 +48,7 @@ final class GoogleApplyExecutor
             }
         }
 
+        // Emit mapper/client diagnostics around batch execution.
         $this->mapper->emitDiagnosticsSummary();
         $results = $this->apply($mutations);
         $this->client->emitDiagnosticsSummary();
@@ -59,6 +63,7 @@ final class GoogleApplyExecutor
      */
     public function apply(array $mutations): array
     {
+        // Execute mutations sequentially to preserve deterministic ordering.
         $results = [];
         foreach ($mutations as $mutation) {
             $results[] = $this->applyOne($mutation);
@@ -68,6 +73,7 @@ final class GoogleApplyExecutor
 
     private function applyOne(GoogleMutation $mutation): GoogleMutationResult
     {
+        // Route each mutation opcode to the matching Google API operation.
         switch ($mutation->op) {
             case GoogleMutation::OP_CREATE:
                 $eventId = $this->client->createEvent(

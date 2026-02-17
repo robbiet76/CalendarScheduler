@@ -5,7 +5,8 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Resolution/Dto/ResolutionRole.php
- * Purpose: Defines the ResolutionRole component used by the Calendar Scheduler Resolution/Dto layer.
+ * Purpose: Define canonical role labels used to distinguish base and override
+ * resolved subevents throughout the resolution and planning pipeline.
  */
 
 namespace CalendarScheduler\Resolution\Dto;
@@ -15,7 +16,10 @@ namespace CalendarScheduler\Resolution\Dto;
  */
 final class ResolutionRole
 {
+    // Base schedule segment emitted from a source event.
     public const BASE = 'base';
+
+    // Override segment emitted from an override definition.
     public const OVERRIDE = 'override';
 
     private function __construct()

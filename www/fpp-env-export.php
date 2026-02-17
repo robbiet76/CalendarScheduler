@@ -4,10 +4,9 @@ declare(strict_types=1);
 /**
  * Calendar Scheduler — Compatibility Wrapper
  *
- * Purpose:
- * - Preserve legacy/direct web entrypoint behavior for environments that still
- *   request this script from the plugin's www/ path.
- * - Delegate execution to the canonical root-level implementation.
+ * File: www/fpp-env-export.php
+ * Purpose: Preserve legacy direct-web entrypoints by delegating to the
+ * canonical root-level `fpp-env-export.php` implementation.
  */
 
 // FPP plugin.php does NOT resolve pages from www/.

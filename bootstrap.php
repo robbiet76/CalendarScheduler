@@ -2,17 +2,11 @@
 declare(strict_types=1);
 
 /**
- * Google Calendar Scheduler — V2 Bootstrap
+ * Calendar Scheduler — Runtime Bootstrap
  *
- * FPP REQUIREMENTS:
- * - No autoloading
- * - Explicit requires only
- * - Deterministic load order
- *
- * PURPOSE:
- * - Authoritative dependency map
- * - Zero logic
- * - Zero side effects
+ * File: bootstrap.php
+ * Purpose: Load all Calendar Scheduler PHP dependencies in a deterministic
+ * order for FPP's non-autoload plugin runtime.
  */
 
 // -----------------------------------------------------------------------------

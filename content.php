@@ -2,14 +2,9 @@
 /**
  * Calendar Scheduler — Primary Plugin UI
  *
- * Purpose:
- * - Render provider connection/setup workflow.
- * - Surface reconciliation preview and pending actions.
- * - Trigger apply operations from an operator-friendly control surface.
- *
- * Notes:
- * - This page relies on ui-api.php for all dynamic data/actions.
- * - Device OAuth flow is the primary provider authentication path.
+ * File: content.php
+ * Purpose: Render the Calendar Scheduler web interface for OAuth connection,
+ * sync preview, pending actions, and user-driven apply operations.
  */
 ?>
 <style>

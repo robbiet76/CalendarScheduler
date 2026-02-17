@@ -5,7 +5,8 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Intent/NormalizationContext.php
- * Purpose: Defines the NormalizationContext component used by the Calendar Scheduler Intent layer.
+ * Purpose: Provide all environmental dependencies required by intent
+ * normalization (timezone, FPP semantics, holiday resolver, and extras).
  */
 
 namespace CalendarScheduler\Intent;
@@ -21,10 +22,12 @@ use CalendarScheduler\Platform\HolidayResolver;
  */
 final class NormalizationContext
 {
+    // Core normalization dependencies shared across all parsed intents.
     public DateTimeZone $timezone;
     public FPPSemantics $fpp;
     public HolidayResolver $holidayResolver;
 
+    // Optional context for future provider-specific or runtime-specific behavior.
     /** @var array */
     public array $extras;
 

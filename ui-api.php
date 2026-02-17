@@ -4,10 +4,9 @@ declare(strict_types=1);
 /**
  * Calendar Scheduler — UI API Endpoint
  *
- * Purpose:
- * - Serve JSON responses for plugin UI actions (status, preview, apply).
- * - Manage provider auth flows (device start/poll, upload client, disconnect).
- * - Coordinate scheduler execution and apply operations from one HTTP surface.
+ * File: ui-api.php
+ * Purpose: Expose JSON APIs used by the Calendar Scheduler UI for connection,
+ * status, preview, and apply operations.
  */
 
 use CalendarScheduler\Apply\ApplyOptions;

@@ -6,10 +6,9 @@ declare(strict_types=1);
 /**
  * Calendar Scheduler — CLI Entrypoint
  *
- * Purpose:
- * - Run reconciliation preview for FPP schedule vs calendar provider state.
- * - Optionally apply reconciliation actions.
- * - Support OAuth bootstrap commands used during setup/troubleshooting.
+ * File: bin/calendar-scheduler
+ * Purpose: Provide CLI commands for preview/apply reconciliation and OAuth
+ * bootstrap helpers used by operational and troubleshooting flows.
  */
 
 // -----------------------------------------------------------------------------
