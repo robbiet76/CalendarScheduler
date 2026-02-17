@@ -436,6 +436,7 @@
         var r = String(raw || "").trim();
         var action = String(actionType || "").toLowerCase();
         var side = String(target || "").toLowerCase() === "fpp" ? "FPP" : "calendar";
+        var sideNoun = side === "FPP" ? "entry" : "event";
         if (!r) {
           return "-";
         }
@@ -446,44 +447,44 @@
 
         if (action === "create") {
           if (r.indexOf("calendar absent") !== -1) {
-            return "Add this event in calendar to match FPP.";
+            return "Add this event in calendar to match the FPP entry.";
           }
           if (r.indexOf("fpp absent") !== -1) {
-            return "Add this event in FPP to match calendar.";
+            return "Add this entry in FPP to match the calendar event.";
           }
           if (r.indexOf("present side wins") !== -1) {
-            return "Add missing event on " + side + " to keep both sides in sync.";
+            return "Add missing " + sideNoun + " on " + side + " to keep both sides in sync.";
           }
-          return "Create this event on " + side + " to keep schedules aligned.";
+          return "Create this " + sideNoun + " on " + side + " to keep schedules aligned.";
         }
 
         if (action === "delete") {
           if (r.indexOf("calendar tombstone") !== -1 || r.indexOf("calendar newer") !== -1) {
-            return "Delete from FPP to match the calendar removal.";
+            return "Delete the FPP entry to match the calendar event removal.";
           }
           if (r.indexOf("fpp tombstone") !== -1 || r.indexOf("fpp newer") !== -1) {
-            return "Delete from calendar to match the FPP removal.";
+            return "Delete the calendar event to match the FPP entry removal.";
           }
-          return "Delete this event from " + side + " to keep both sides aligned.";
+          return "Delete this " + sideNoun + " from " + side + " to keep both sides aligned.";
         }
 
         if (action === "update") {
           if (r.indexOf("force format refresh update") !== -1) {
-            return "Refresh event formatting on calendar.";
+            return "Refresh calendar event formatting.";
           }
           if (r.indexOf("calendar newer") !== -1) {
-            return "Update FPP to match newer calendar changes.";
+            return "Update FPP entry to match newer calendar event changes.";
           }
           if (r.indexOf("fpp newer") !== -1) {
-            return "Update calendar to match newer FPP changes.";
+            return "Update calendar event to match newer FPP entry changes.";
           }
           if (r.indexOf("tie (") !== -1 && r.indexOf("fpp wins") !== -1) {
-            return "Both changed at the same time; updating using FPP values.";
+            return "Both changed at the same time; updating using FPP entry values.";
           }
           if (r.indexOf("tie (") !== -1 && r.indexOf("calendar wins") !== -1) {
-            return "Both changed at the same time; updating using calendar values.";
+            return "Both changed at the same time; updating using calendar event values.";
           }
-          return "Update " + side + " to keep both schedules synchronized.";
+          return "Update this " + sideNoun + " on " + side + " to keep both schedules synchronized.";
         }
 
         return r;
