@@ -29,7 +29,7 @@
   .cs-top-status {
     position: sticky;
     top: var(--cs-sticky-top, 8px);
-    z-index: 1030;
+    z-index: 10;
     padding: 8px 12px;
     margin-bottom: 12px;
     transition: padding 0.15s ease, font-size 0.15s ease, opacity 0.15s ease;
