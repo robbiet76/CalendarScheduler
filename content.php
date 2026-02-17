@@ -133,8 +133,8 @@
         <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
         <div class="mb-2">
-          <span class="badge text-bg-primary">Google</span>
-          <span class="badge text-bg-secondary">Outlook (Coming Soon)</span>
+          <span class="badge text-bg-primary" id="csProviderGoogleBadge">Google</span>
+          <span class="badge text-bg-secondary" id="csProviderOutlookBadge">Outlook (Coming Soon)</span>
         </div>
 
         <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
@@ -525,14 +525,20 @@
         var connectBtn = byId("csConnectBtn");
         var disconnectBtn = byId("csDisconnectBtn");
         var uploadBtn = byId("csUploadDeviceClientBtn");
+        var googleBadge = byId("csProviderGoogleBadge");
+        var outlookBadge = byId("csProviderOutlookBadge");
         connectBtn.dataset.locked = "0";
-        connectBtn.textContent = "Connect Provider";
-        connectBtn.classList.toggle("cs-hidden", providerConnected);
+        connectBtn.textContent = providerConnected ? "Refresh Provider" : "Connect Provider";
         disconnectBtn.dataset.locked = providerConnected ? "0" : "1";
         disconnectBtn.disabled = !providerConnected;
-        disconnectBtn.classList.toggle("cs-hidden", !providerConnected);
         uploadBtn.dataset.locked = providerConnected ? "1" : "0";
         uploadBtn.disabled = providerConnected;
+        if (googleBadge) {
+          googleBadge.classList.remove("cs-hidden");
+        }
+        if (outlookBadge) {
+          outlookBadge.classList.toggle("cs-hidden", providerConnected);
+        }
 
         var setup = google.setup || {};
         var deviceReady = !!setup.deviceFlowReady;
