@@ -53,6 +53,7 @@
 
   .cs-help-list {
     margin-bottom: 8px;
+    padding-left: 18px;
   }
 
   .cs-help-check-ok {
@@ -88,22 +89,6 @@
     </div>
   </div>
 
-  <div class="backdrop mb-3 cs-hidden" id="csOauthHelpBox">
-    <h4 class="cs-panel-title">OAuth Setup Helper</h4>
-    <p class="cs-muted mb-2">Provider: <strong id="csHelpProvider">Google</strong></p>
-    <ol class="cs-help-list">
-      <li>In Google Cloud Console, enable Google Calendar API.</li>
-      <li>Create OAuth client credentials of type <strong>Desktop app</strong>.</li>
-      <li>Download client JSON and place it on FPP as <code>/home/fpp/media/config/calendar-scheduler/calendar/google/client_secret_device.json</code>.</li>
-      <li>Set <code>oauth.device_client_file</code> in <code>config.json</code> to <code>client_secret_device.json</code>.</li>
-      <li>Back in this page, click <strong>Connect Provider</strong>, open <code>google.com/device</code>, and enter the displayed code.</li>
-    </ol>
-    <div class="mb-1"><strong>Current Setup Checks</strong></div>
-    <ul id="csHelpChecks" class="mb-1"></ul>
-    <div class="mb-1"><strong>Current Setup Hints</strong></div>
-    <ul id="csHelpHints" class="mb-0"></ul>
-  </div>
-
   <div class="row g-2">
     <div class="col-12">
       <div class="backdrop mb-3">
@@ -113,6 +98,29 @@
         <div class="mb-2">
           <span class="badge text-bg-primary">Google</span>
           <span class="badge text-bg-secondary">Outlook (Coming Soon)</span>
+        </div>
+
+        <div id="csConnectionHelp" class="cs-device-box mb-2">
+          <div><strong>Google OAuth Setup (TV and Limited Input)</strong></div>
+          <ol class="cs-help-list mt-1 mb-2">
+            <li>In Google Cloud Console, enable <strong>Google Calendar API</strong>.</li>
+            <li>Create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
+            <li>Download the client JSON and upload it below (no SSH needed).</li>
+            <li>Click <strong>Connect Provider</strong>, open <code>google.com/device</code>, and enter the code shown.</li>
+          </ol>
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col-12 col-md-8">
+              <label for="csDeviceClientFile" class="form-label mb-1">Upload TV/Limited Input client JSON</label>
+              <input id="csDeviceClientFile" type="file" class="form-control" accept="application/json,.json">
+            </div>
+            <div class="col-12 col-md-4 d-flex justify-content-md-end">
+              <button class="buttons btn-black" id="csUploadDeviceClientBtn" type="button">Upload Client JSON</button>
+            </div>
+          </div>
+          <div class="mb-1"><strong>Current Setup Checks</strong></div>
+          <ul id="csHelpChecks" class="mb-1"></ul>
+          <div class="mb-1"><strong>Current Setup Hints</strong></div>
+          <ul id="csHelpHints" class="mb-0"></ul>
         </div>
 
         <div class="form-group mb-2">
@@ -209,7 +217,7 @@
     }
 
     function setButtonsDisabled(disabled) {
-      ["csDisconnectBtn", "csConnectBtn"].forEach(function (id) {
+      ["csDisconnectBtn", "csConnectBtn", "csUploadDeviceClientBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -274,6 +282,12 @@
       byId("csPreviewTime").textContent = message;
     }
 
+    function setSetupStatus(message) {
+      byId("csPreviewState").textContent = "Setup Required";
+      byId("csPreviewTime").textContent = message || "Connect a provider to begin calendar sync.";
+      setTopBarClass("alert-info");
+    }
+
     function checkRow(label, ok) {
       return "<li>" + escapeHtml(label) + ": "
         + "<span class=\"" + (ok ? "cs-help-check-ok" : "cs-help-check-bad") + "\">"
@@ -281,16 +295,13 @@
         + "</span></li>";
     }
 
-    function renderOauthHelp(provider, setup, connected) {
-      var box = byId("csOauthHelpBox");
-      var providerNode = byId("csHelpProvider");
+    function renderConnectionHelp(setup, connected) {
+      var box = byId("csConnectionHelp");
       var checksNode = byId("csHelpChecks");
       var hintsNode = byId("csHelpHints");
-      if (!box || !providerNode || !checksNode || !hintsNode) {
+      if (!box || !checksNode || !hintsNode) {
         return;
       }
-
-      providerNode.textContent = provider || "Google";
 
       if (connected) {
         box.classList.add("cs-hidden");
@@ -415,8 +426,10 @@
         if (providerConnected) {
           setDeviceAuthVisible(false);
           clearDeviceAuthPoll();
+        } else {
+          setDeviceAuthVisible(false);
         }
-        renderOauthHelp("Google", google.setup || {}, providerConnected);
+        renderConnectionHelp(google.setup || {}, providerConnected);
         var account = google.account || "Not connected yet";
         byId("csConnectedAccount").value = account;
 
@@ -436,10 +449,13 @@
 
         var connectBtn = byId("csConnectBtn");
         var disconnectBtn = byId("csDisconnectBtn");
+        var uploadBtn = byId("csUploadDeviceClientBtn");
         connectBtn.dataset.locked = "0";
         connectBtn.textContent = providerConnected ? "Refresh Provider" : "Connect Provider";
         disconnectBtn.dataset.locked = providerConnected ? "0" : "1";
         disconnectBtn.disabled = !providerConnected;
+        uploadBtn.dataset.locked = providerConnected ? "1" : "0";
+        uploadBtn.disabled = providerConnected;
 
         var setup = google.setup || {};
         var deviceReady = !!setup.deviceFlowReady;
@@ -448,7 +464,9 @@
           connectBtn.disabled = true;
           var hints = Array.isArray(setup.hints) ? setup.hints : [];
           var msg = hints.length > 0 ? hints.join(" | ") : "Provider setup is incomplete.";
-          setError(msg);
+          setSetupStatus(msg);
+        } else if (!providerConnected) {
+          setSetupStatus("Not connected. Click Connect Provider to start Google device sign-in.");
         }
         renderDiagnostics(res);
       });
@@ -556,7 +574,14 @@
       setButtonsDisabled(true);
       setLoadingState();
       return loadStatus()
-        .then(function () { return runPreview(); })
+        .then(function () {
+          if (!providerConnected) {
+            renderActions([]);
+            setApplyEnabled(false);
+            return Promise.resolve();
+          }
+          return runPreview();
+        })
         .catch(function (err) { setError(err.message); })
         .finally(function () {
           refreshInFlight = false;
@@ -589,6 +614,43 @@
         })
         .catch(function (err) { setError(err.message); })
         .finally(function () { setButtonsDisabled(false); });
+    });
+
+    byId("csUploadDeviceClientBtn").addEventListener("click", function () {
+      var input = byId("csDeviceClientFile");
+      var file = input && input.files ? input.files[0] : null;
+      if (!file) {
+        setSetupStatus("Select a JSON file first, then click Upload Client JSON.");
+        return;
+      }
+      if (file.size > 1024 * 1024) {
+        setError("Client JSON is too large. Expected OAuth client JSON file.");
+        return;
+      }
+      setButtonsDisabled(true);
+      setLoadingState();
+      var reader = new FileReader();
+      reader.onload = function () {
+        var text = typeof reader.result === "string" ? reader.result : "";
+        fetchJson({
+          action: "auth_upload_device_client",
+          filename: file.name || "client_secret_device.json",
+          json: text
+        })
+          .then(function () {
+            if (input) {
+              input.value = "";
+            }
+            return refreshAll();
+          })
+          .catch(function (err) { setError(err.message); })
+          .finally(function () { setButtonsDisabled(false); });
+      };
+      reader.onerror = function () {
+        setButtonsDisabled(false);
+        setError("Failed to read selected file.");
+      };
+      reader.readAsText(file);
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {

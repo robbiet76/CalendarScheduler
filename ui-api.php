@@ -275,6 +275,86 @@ function cs_set_calendar_id(string $calendarId): void
 }
 
 /**
+ * @return array<string,mixed>
+ */
+function cs_read_google_config_json(): array
+{
+    $path = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config.json';
+    $raw = @file_get_contents($path);
+    if ($raw === false) {
+        throw new \RuntimeException("Google config not found: {$path}");
+    }
+    $data = json_decode($raw, true);
+    if (!is_array($data)) {
+        throw new \RuntimeException("Google config invalid JSON: {$path}");
+    }
+    return $data;
+}
+
+/**
+ * @param array<string,mixed> $data
+ */
+function cs_write_google_config_json(array $data): void
+{
+    $path = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config.json';
+    $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        throw new \RuntimeException('Failed to encode Google config JSON');
+    }
+    if (@file_put_contents($path, $json . "\n") === false) {
+        throw new \RuntimeException("Failed to write Google config: {$path}");
+    }
+}
+
+function cs_google_upload_device_client(string $filename, string $jsonText): string
+{
+    $filename = trim($filename);
+    if ($filename === '') {
+        $filename = 'client_secret_device.json';
+    }
+    $filename = basename($filename);
+    if (!preg_match('/\.json$/i', $filename)) {
+        $filename .= '.json';
+    }
+
+    $payload = json_decode($jsonText, true);
+    if (!is_array($payload)) {
+        throw new \RuntimeException('Uploaded file is not valid JSON.');
+    }
+
+    $clientBlock = null;
+    if (isset($payload['installed']) && is_array($payload['installed'])) {
+        $clientBlock = $payload['installed'];
+    } elseif (isset($payload['web']) && is_array($payload['web'])) {
+        $clientBlock = $payload['web'];
+    }
+    if (!is_array($clientBlock)) {
+        throw new \RuntimeException("OAuth JSON must contain an 'installed' or 'web' client block.");
+    }
+
+    $clientId = $clientBlock['client_id'] ?? null;
+    $clientSecret = $clientBlock['client_secret'] ?? null;
+    if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
+        throw new \RuntimeException('OAuth JSON is missing client_id/client_secret.');
+    }
+
+    $targetPath = rtrim(CS_GOOGLE_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $filename;
+    $normalized = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if (!is_string($normalized) || @file_put_contents($targetPath, $normalized . "\n") === false) {
+        throw new \RuntimeException("Failed to write uploaded OAuth JSON: {$targetPath}");
+    }
+    @chmod($targetPath, 0600);
+
+    $config = cs_read_google_config_json();
+    $oauth = is_array($config['oauth'] ?? null) ? $config['oauth'] : [];
+    $oauth['device_client_file'] = $filename;
+    $config['oauth'] = $oauth;
+    cs_write_google_config_json($config);
+
+    return $filename;
+}
+
+/**
  * @return array{client_id:string,client_secret:string,scopes:string,client_path:string,client_type:string}
  */
 function cs_google_device_auth_config(): array
@@ -641,6 +721,22 @@ try {
     if ($action === 'auth_disconnect') {
         cs_google_disconnect();
         cs_respond(['ok' => true]);
+    }
+
+    if ($action === 'auth_upload_device_client') {
+        $filename = $input['filename'] ?? 'client_secret_device.json';
+        $json = $input['json'] ?? '';
+        if (!is_string($filename)) {
+            $filename = 'client_secret_device.json';
+        }
+        if (!is_string($json) || trim($json) === '') {
+            cs_respond(['ok' => false, 'error' => 'json is required'], 422);
+        }
+        $stored = cs_google_upload_device_client($filename, $json);
+        cs_respond([
+            'ok' => true,
+            'stored' => $stored,
+        ]);
     }
 
     if ($action === 'preview') {
