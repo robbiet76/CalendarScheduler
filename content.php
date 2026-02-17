@@ -97,7 +97,8 @@
           </select>
         </div>
 
-        <div class="mt-3 d-flex justify-content-end">
+        <div class="mt-3 d-flex justify-content-end gap-2">
+          <button class="buttons btn-black" id="csDisconnectBtn" type="button" disabled>Disconnect Provider</button>
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
         </div>
 
@@ -178,7 +179,7 @@
     }
 
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn"].forEach(function (id) {
+      ["csDisconnectBtn", "csConnectBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -357,8 +358,11 @@
         }
 
         var connectBtn = byId("csConnectBtn");
+        var disconnectBtn = byId("csDisconnectBtn");
         connectBtn.dataset.locked = "0";
         connectBtn.textContent = providerConnected ? "Refresh Provider" : "Connect Provider";
+        disconnectBtn.dataset.locked = providerConnected ? "0" : "1";
+        disconnectBtn.disabled = !providerConnected;
 
         var setup = google.setup || {};
         var deviceReady = !!setup.deviceFlowReady;
@@ -489,6 +493,25 @@
         return;
       }
       startDeviceAuthFlow();
+    });
+
+    byId("csDisconnectBtn").addEventListener("click", function () {
+      if (!providerConnected) {
+        return;
+      }
+      if (!window.confirm("Disconnect provider and remove the local Google token from this FPP instance?")) {
+        return;
+      }
+      setButtonsDisabled(true);
+      setLoadingState();
+      fetchJson({ action: "auth_disconnect" })
+        .then(function () {
+          setDeviceAuthVisible(false);
+          clearDeviceAuthPoll();
+          return refreshAll();
+        })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {

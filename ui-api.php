@@ -542,6 +542,17 @@ function cs_google_exchange_authorization_code(string $code): void
     cs_write_google_token($resp);
 }
 
+function cs_google_disconnect(): void
+{
+    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+    $tokenPath = $config->getTokenPath();
+    if (is_file($tokenPath)) {
+        if (!@unlink($tokenPath)) {
+            throw new \RuntimeException("Unable to remove token file: {$tokenPath}");
+        }
+    }
+}
+
 function cs_apply(SchedulerRunResult $result): array
 {
     $targets = ApplyTargets::all();
@@ -624,6 +635,11 @@ try {
             cs_respond(['ok' => false, 'error' => 'code is required'], 422);
         }
         cs_google_exchange_authorization_code(trim($code));
+        cs_respond(['ok' => true]);
+    }
+
+    if ($action === 'auth_disconnect') {
+        cs_google_disconnect();
         cs_respond(['ok' => true]);
     }
 
