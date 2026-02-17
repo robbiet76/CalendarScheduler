@@ -163,13 +163,6 @@
     var providerConnected = false;
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
-    var manualAuthWatchTimer = null;
-    var manualAuthInProgress = false;
-    var manualCodePrompted = false;
-    var manualAuthCanPrompt = false;
-    var manualAuthStartedAt = 0;
-    var manualAuthPromptReadyAt = 0;
-    var manualAuthExpectCallback = false;
 
     function byId(id) {
       return document.getElementById(id);
@@ -343,8 +336,8 @@
         var google = res.google || {};
         providerConnected = !!google.connected;
         if (providerConnected) {
-          clearManualAuthState();
           setDeviceAuthVisible(false);
+          clearDeviceAuthPoll();
         }
         var account = google.account || "Not connected yet";
         byId("csConnectedAccount").value = account;
@@ -365,13 +358,11 @@
 
         var connectBtn = byId("csConnectBtn");
         connectBtn.dataset.locked = "0";
-        connectBtn.dataset.authUrl = google.authUrl || "";
         connectBtn.textContent = providerConnected ? "Refresh Provider" : "Connect Provider";
 
         var setup = google.setup || {};
         var deviceReady = !!setup.deviceFlowReady;
-        var manualReady = !!setup.manualFlowReady;
-        if (!providerConnected && !deviceReady && !manualReady) {
+        if (!providerConnected && !deviceReady) {
           connectBtn.dataset.locked = "1";
           connectBtn.disabled = true;
           var hints = Array.isArray(setup.hints) ? setup.hints : [];
@@ -404,178 +395,11 @@
       deviceAuthDeadlineEpoch = 0;
     }
 
-    function clearManualAuthWatch() {
-      if (manualAuthWatchTimer !== null) {
-        window.clearInterval(manualAuthWatchTimer);
-        manualAuthWatchTimer = null;
-      }
-    }
-
-    function clearManualAuthState() {
-      manualAuthInProgress = false;
-      manualCodePrompted = false;
-      manualAuthCanPrompt = false;
-      manualAuthStartedAt = 0;
-      manualAuthPromptReadyAt = 0;
-      manualAuthExpectCallback = false;
-      clearManualAuthWatch();
-    }
-
-    function extractQueryParam(urlString, key) {
-      try {
-        var url = new URL(urlString);
-        return url.searchParams.get(key);
-      } catch (e) {
-        return null;
-      }
-    }
-
-    function extractCodeFromUserInput(input) {
-      if (!input) {
-        return "";
-      }
-      var text = String(input).trim();
-      if (!text) {
-        return "";
-      }
-
-      var urlCode = extractQueryParam(text, "code");
-      if (urlCode) {
-        return urlCode;
-      }
-
-      var match = text.match(/[?&]code=([^&]+)/);
-      if (match && match[1]) {
-        try {
-          return decodeURIComponent(match[1]);
-        } catch (e) {
-          return match[1];
-        }
-      }
-
-      return text;
-    }
-
-    function completeManualCodeExchange(code) {
-      if (!code) {
-        return;
-      }
-      setLoadingState();
-      fetchJson({ action: "auth_exchange_code", code: code })
-        .then(function () {
-          clearManualAuthState();
-          return refreshAll();
-        })
-        .catch(function (err) {
-          manualCodePrompted = false;
-          setError("OAuth code exchange failed: " + err.message);
-        });
-    }
-
-    function maybePromptForManualCode() {
-      if (!manualAuthInProgress || providerConnected || manualCodePrompted || !manualAuthCanPrompt) {
-        return;
-      }
-      // Avoid prompting too early; allow user time to complete browser auth first.
-      if (manualAuthPromptReadyAt > 0 && Date.now() < manualAuthPromptReadyAt) {
-        return;
-      }
-      manualCodePrompted = true;
-      var pasted = window.prompt(
-        "Paste the FULL Google return URL (preferred) or just the 'code' value to complete sign-in:"
-      );
-      var code = extractCodeFromUserInput(pasted);
-      if (code) {
-        completeManualCodeExchange(code);
-        return;
-      }
-      manualCodePrompted = false;
-      manualAuthCanPrompt = false;
-      setError("OAuth code entry dismissed. Click Connect Provider when you are ready to try again.");
-    }
-
-    function watchManualAuthPopup(popupWindow) {
-      clearManualAuthWatch();
-      manualAuthWatchTimer = window.setInterval(function () {
-        if (!popupWindow || popupWindow.closed) {
-          clearManualAuthWatch();
-          if (manualAuthExpectCallback) {
-            refreshAll().finally(function () {
-              if (!providerConnected) {
-                manualAuthCanPrompt = true;
-                manualAuthPromptReadyAt = 0;
-                window.setTimeout(function () {
-                  maybePromptForManualCode();
-                }, 100);
-              }
-            });
-          } else {
-            manualAuthCanPrompt = true;
-            manualAuthPromptReadyAt = 0;
-            window.setTimeout(function () {
-              maybePromptForManualCode();
-            }, 100);
-          }
-          return;
-        }
-
-        var href = null;
-        try {
-          href = popupWindow.location.href;
-        } catch (e) {
-          return;
-        }
-
-        if (!href) {
-          return;
-        }
-
-        var code = extractQueryParam(href, "code");
-        var err = extractQueryParam(href, "error");
-        if (err) {
-          clearManualAuthState();
-          setError("OAuth authorization failed: " + err);
-          return;
-        }
-        if (code) {
-          clearManualAuthWatch();
-          try {
-            popupWindow.close();
-          } catch (e) {
-            // ignore
-          }
-          completeManualCodeExchange(code);
-        }
-      }, 1000);
-    }
-
-    function fallbackManualAuth(message) {
-      var url = byId("csConnectBtn").dataset.authUrl || "";
-      if (!url) {
-        setError(message + " Manual OAuth URL is unavailable.");
-        clearManualAuthState();
-        return;
-      }
-      setError(message + " Falling back to manual OAuth URL.");
-      var popupWindow = window.open(url, "_blank");
-      if (popupWindow) {
-        manualAuthExpectCallback = url.indexOf("oauth-callback.php") !== -1;
-        manualAuthInProgress = true;
-        manualCodePrompted = false;
-        manualAuthCanPrompt = !manualAuthExpectCallback;
-        manualAuthStartedAt = Date.now();
-        manualAuthPromptReadyAt = manualAuthExpectCallback ? 0 : (manualAuthStartedAt + 10000);
-        watchManualAuthPopup(popupWindow);
-      } else {
-        clearManualAuthState();
-      }
-    }
-
     function pollDeviceAuth(deviceCode, intervalSeconds) {
       if (Date.now() >= deviceAuthDeadlineEpoch) {
         clearDeviceAuthPoll();
         setDeviceAuthVisible(false);
-        fallbackManualAuth("Device authorization timed out.");
+        setError("Device authorization timed out. Click Connect Provider to try again.");
         return;
       }
 
@@ -592,7 +416,7 @@
           if (poll.status === "failed") {
             clearDeviceAuthPoll();
             setDeviceAuthVisible(false);
-            fallbackManualAuth("Device authorization failed (" + (poll.error || "unknown") + ").");
+            setError("Device authorization failed (" + (poll.error || "unknown") + ").");
             return;
           }
 
@@ -607,7 +431,7 @@
         .catch(function (err) {
           clearDeviceAuthPoll();
           setDeviceAuthVisible(false);
-          fallbackManualAuth("Device authorization polling error: " + err.message + ".");
+          setError("Device authorization polling error: " + err.message + ".");
         });
     }
 
@@ -623,7 +447,7 @@
           var expiresIn = Math.max(parseInt(device.expires_in || 900, 10), 60);
 
           if (!deviceCode || !userCode) {
-            fallbackManualAuth("Device authorization response was incomplete.");
+            setError("Device authorization response was incomplete.");
             return;
           }
 
@@ -638,7 +462,7 @@
         })
         .catch(function (err) {
           setDeviceAuthVisible(false);
-          fallbackManualAuth("Automatic device authorization could not start: " + err.message + ".");
+          setError("Automatic device authorization could not start: " + err.message + ".");
         });
     }
 
@@ -690,27 +514,8 @@
         .finally(function () { setButtonsDisabled(false); });
     });
 
-    window.addEventListener("message", function (event) {
-      var data = event && event.data ? event.data : null;
-      if (!data || data.type !== "cs_oauth_complete") {
-        return;
-      }
-      if (data.status === "success") {
-        clearManualAuthState();
-        refreshAll();
-        return;
-      }
-      if (data.status === "failed") {
-        manualAuthCanPrompt = true;
-        manualAuthPromptReadyAt = 0;
-        maybePromptForManualCode();
-      }
-    });
-
     window.addEventListener("focus", function () {
-      refreshAll().finally(function () {
-        maybePromptForManualCode();
-      });
+      refreshAll();
     });
 
     refreshAll();

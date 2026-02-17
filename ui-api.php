@@ -10,7 +10,6 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Engine\SchedulerEngine;
 use CalendarScheduler\Engine\SchedulerRunResult;
@@ -198,13 +197,9 @@ function cs_google_status(): array
             $base['setup']['hints'][] = "Token directory is not writable: " . dirname($tokenPath);
         }
 
-        try {
-            $base['authUrl'] = (new GoogleOAuthBootstrap($config))->getAuthorizationUrl();
-            $base['setup']['manualFlowReady'] = $base['authUrl'] !== null;
-        } catch (\Throwable $e) {
-            $base['authUrl'] = null;
-            $base['setup']['hints'][] = 'Manual OAuth URL unavailable: ' . $e->getMessage();
-        }
+        // Manual OAuth callback flow is optional fallback; device flow is primary.
+        $base['authUrl'] = null;
+        $base['setup']['manualFlowReady'] = false;
 
         // Device flow is our default path; it only needs valid client config and writable token path.
         $base['setup']['deviceFlowReady'] = $base['setup']['clientFilePresent'] && $base['setup']['tokenPathWritable'];
