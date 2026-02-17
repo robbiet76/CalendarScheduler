@@ -650,6 +650,15 @@ final class SchedulerEngine
             if (!is_array($event)) {
                 continue;
             }
+
+            // Only infer a calendar tombstone from events that were actually
+            // calendar-originated in the current manifest. This prevents
+            // unrelated/manual FPP entries from being interpreted as calendar deletes.
+            $source = $event['source'] ?? null;
+            if (!is_string($source) || strtolower(trim($source)) !== 'calendar') {
+                continue;
+            }
+
             $identityId = null;
             if (is_string($id) && $id !== '') {
                 $identityId = $id;
