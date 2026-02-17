@@ -433,7 +433,6 @@
     function renderActions(actions) {
       var tbody = byId("csActionsRows");
       var thead = byId("csActionsHead");
-      var syncModeWrap = byId("csSyncModeWrap");
       if (!tbody) {
         return 0;
       }
@@ -446,18 +445,12 @@
         if (thead) {
           thead.classList.add("cs-hidden");
         }
-        if (syncModeWrap) {
-          syncModeWrap.classList.add("cs-hidden");
-        }
         tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\"><strong>No pending changes.</strong></td></tr>";
         return 0;
       }
 
       if (thead) {
         thead.classList.remove("cs-hidden");
-      }
-      if (syncModeWrap) {
-        syncModeWrap.classList.remove("cs-hidden");
       }
 
       function friendlyReason(raw, actionType, target) {
@@ -608,6 +601,7 @@
         var connectBtn = byId("csConnectBtn");
         var disconnectBtn = byId("csDisconnectBtn");
         var uploadBtn = byId("csUploadDeviceClientBtn");
+        var syncModeWrap = byId("csSyncModeWrap");
         var syncModeSelect = byId("csSyncModeSelect");
         var googleBadge = byId("csProviderGoogleBadge");
         var outlookBadge = byId("csProviderOutlookBadge");
@@ -619,6 +613,11 @@
         uploadBtn.disabled = providerConnected;
         if (syncModeSelect) {
           syncModeSelect.value = syncMode;
+          syncModeSelect.dataset.locked = providerConnected ? "0" : "1";
+          syncModeSelect.disabled = !providerConnected;
+        }
+        if (syncModeWrap) {
+          syncModeWrap.classList.toggle("cs-hidden", !providerConnected);
         }
         if (googleBadge) {
           googleBadge.classList.remove("cs-hidden");

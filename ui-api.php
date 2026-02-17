@@ -39,6 +39,7 @@ const CS_GOOGLE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/calendar';
 const CS_SYNC_MODE_BOTH = 'both';
 const CS_SYNC_MODE_CALENDAR = 'calendar';
 const CS_SYNC_MODE_FPP = 'fpp';
+const CS_SYNC_MODE_META_KEY = 'x-cs-sync-mode';
 
 /**
  * @return array<string,mixed>
@@ -175,6 +176,35 @@ function cs_filter_actions_for_sync_mode(array $actions, string $syncMode): arra
     return array_values(array_filter($actions, static function (array $a): bool {
         return ($a['target'] ?? '') === 'calendar';
     }));
+}
+
+function cs_extract_sync_mode_from_description(mixed $description): ?string
+{
+    if (!is_string($description) || trim($description) === '') {
+        return null;
+    }
+    if (!preg_match('/^\s*' . preg_quote(CS_SYNC_MODE_META_KEY, '/') . '\s*=\s*([a-z_]+)\s*$/mi', $description, $m)) {
+        return null;
+    }
+    $mode = cs_normalize_sync_mode($m[1] ?? '');
+    return $mode;
+}
+
+function cs_set_sync_mode_in_description(string $description, string $mode): string
+{
+    $mode = cs_normalize_sync_mode($mode);
+    $line = CS_SYNC_MODE_META_KEY . '=' . $mode;
+    $pattern = '/^\s*' . preg_quote(CS_SYNC_MODE_META_KEY, '/') . '\s*=\s*[a-z_]+\s*$/mi';
+
+    if (preg_match($pattern, $description) === 1) {
+        return (string) preg_replace($pattern, $line, $description, 1);
+    }
+
+    $description = rtrim($description);
+    if ($description !== '') {
+        $description .= "\n\n";
+    }
+    return $description . $line . "\n";
 }
 
 /**
@@ -342,6 +372,21 @@ function cs_google_status(): array
 function cs_get_sync_mode(): string
 {
     $config = cs_read_google_config_json();
+    $calendarId = $config['calendar_id'] ?? $config['calendarId'] ?? 'primary';
+    $calendarId = is_string($calendarId) && trim($calendarId) !== '' ? $calendarId : 'primary';
+    try {
+        $googleConfig = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+        $googleClient = new GoogleApiClient($googleConfig);
+        $calendar = $googleClient->getCalendar($calendarId);
+        $description = $calendar['description'] ?? null;
+        $mode = cs_extract_sync_mode_from_description($description);
+        if ($mode !== null) {
+            return $mode;
+        }
+    } catch (\Throwable $e) {
+        // Fallback to local default if calendar metadata cannot be fetched.
+    }
+
     return cs_normalize_sync_mode($config['sync_mode'] ?? null);
 }
 
@@ -349,6 +394,19 @@ function cs_set_sync_mode(string $mode): void
 {
     $mode = cs_normalize_sync_mode($mode);
     $config = cs_read_google_config_json();
+
+    $calendarId = $config['calendar_id'] ?? $config['calendarId'] ?? 'primary';
+    $calendarId = is_string($calendarId) && trim($calendarId) !== '' ? $calendarId : 'primary';
+    $googleConfig = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+    $googleClient = new GoogleApiClient($googleConfig);
+    $calendar = $googleClient->getCalendar($calendarId);
+    $description = is_string($calendar['description'] ?? null) ? $calendar['description'] : '';
+    $updatedDescription = cs_set_sync_mode_in_description($description, $mode);
+    $googleClient->patchCalendar($calendarId, [
+        'description' => $updatedDescription,
+    ]);
+
+    // Keep top-level sync_mode for backward compatibility and default fallback.
     $config['sync_mode'] = $mode;
     cs_write_google_config_json($config);
 }
@@ -373,6 +431,10 @@ function cs_bootstrap_google_config_if_missing(): bool
             $syncMode = cs_normalize_sync_mode($existing['sync_mode'] ?? null);
             if (($existing['sync_mode'] ?? null) !== $syncMode) {
                 $existing['sync_mode'] = $syncMode;
+                $changed = true;
+            }
+            if (array_key_exists('sync_mode_by_calendar', $existing)) {
+                unset($existing['sync_mode_by_calendar']);
                 $changed = true;
             }
 

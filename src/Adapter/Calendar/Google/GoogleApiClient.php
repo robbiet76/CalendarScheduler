@@ -138,6 +138,37 @@ final class GoogleApiClient
     }
 
     /**
+     * Fetch full calendar resource metadata for one calendar.
+     *
+     * @return array<string,mixed>
+     */
+    public function getCalendar(string $calendarId): array
+    {
+        $this->ensureAuthenticated();
+        return $this->requestJson(
+            'GET',
+            '/calendars/' . rawurlencode($calendarId),
+            null
+        );
+    }
+
+    /**
+     * Patch calendar resource metadata (for example description).
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function patchCalendar(string $calendarId, array $payload): array
+    {
+        $this->ensureAuthenticated();
+        return $this->requestJson(
+            'PATCH',
+            '/calendars/' . rawurlencode($calendarId),
+            $payload
+        );
+    }
+
+    /**
      * List events for a given calendar.
      *
      * @param string $calendarId
