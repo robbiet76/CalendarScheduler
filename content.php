@@ -93,7 +93,7 @@
     <div class="col-12">
       <div class="backdrop mb-3">
         <h4 class="cs-panel-title">1) Connection Setup</h4>
-        <p class="cs-muted">First-time OAuth and calendar selection. Additional providers can be added over time.</p>
+        <p class="cs-muted">Connect to a calendar using OAuth. Select calendar provider.</p>
 
         <div class="mb-2">
           <span class="badge text-bg-primary">Google</span>
@@ -285,7 +285,7 @@
     function setSetupStatus(message) {
       byId("csPreviewState").textContent = "Setup Required";
       byId("csPreviewTime").textContent = message || "Connect a provider to begin calendar sync.";
-      setTopBarClass("alert-info");
+      setTopBarClass("alert-warning");
     }
 
     function checkRow(label, ok) {
