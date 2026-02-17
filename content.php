@@ -167,7 +167,11 @@
       ["csConnectBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
-          node.disabled = disabled;
+          if (!disabled && node.dataset.locked === "1") {
+            node.disabled = true;
+          } else {
+            node.disabled = disabled;
+          }
         }
       });
     }
@@ -320,8 +324,20 @@
         }
 
         var connectBtn = byId("csConnectBtn");
+        connectBtn.dataset.locked = "0";
         connectBtn.dataset.authUrl = google.authUrl || "";
         connectBtn.textContent = providerConnected ? "Refresh Provider" : "Connect Provider";
+
+        var setup = google.setup || {};
+        var deviceReady = !!setup.deviceFlowReady;
+        var manualReady = !!setup.manualFlowReady;
+        if (!providerConnected && !deviceReady && !manualReady) {
+          connectBtn.dataset.locked = "1";
+          connectBtn.disabled = true;
+          var hints = Array.isArray(setup.hints) ? setup.hints : [];
+          var msg = hints.length > 0 ? hints.join(" | ") : "Provider setup is incomplete.";
+          setError(msg);
+        }
         renderDiagnostics(res);
       });
     }

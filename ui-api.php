@@ -148,69 +148,104 @@ function cs_preview_payload(SchedulerRunResult $result): array
  */
 function cs_google_status(): array
 {
+    $base = [
+        'connected' => false,
+        'selectedCalendarId' => null,
+        'authUrl' => null,
+        'calendars' => [],
+        'account' => 'Not configured',
+        'error' => null,
+        'setup' => [
+            'configPresent' => false,
+            'configValid' => false,
+            'clientFilePresent' => false,
+            'tokenFilePresent' => false,
+            'tokenPathWritable' => false,
+            'deviceFlowReady' => false,
+            'manualFlowReady' => false,
+            'hints' => [],
+        ],
+    ];
+
     if (!is_dir(CS_GOOGLE_CONFIG_DIR) && !is_file(CS_GOOGLE_CONFIG_DIR)) {
-        return [
-            'connected' => false,
-            'selectedCalendarId' => null,
-            'authUrl' => null,
-            'calendars' => [],
-            'account' => 'Not configured',
-            'error' => null,
-        ];
+        $base['setup']['hints'][] = 'Google config directory is missing.';
+        return $base;
     }
+    $base['setup']['configPresent'] = true;
 
-    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
-    $selectedCalendarId = $config->getCalendarId();
-
-    $authUrl = null;
     try {
-        $authUrl = (new GoogleOAuthBootstrap($config))->getAuthorizationUrl();
-    } catch (\Throwable $e) {
-        $authUrl = null;
-    }
+        $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+        $base['setup']['configValid'] = true;
+        $base['selectedCalendarId'] = $config->getCalendarId();
 
-    $client = new GoogleApiClient($config);
-    try {
-        $calendarsRaw = $client->listCalendars();
-        $calendars = [];
-        $account = 'Connected';
+        $clientPath = $config->getClientSecretPath();
+        $tokenPath = $config->getTokenPath();
+        $base['setup']['clientFilePresent'] = is_file($clientPath);
+        $base['setup']['tokenFilePresent'] = is_file($tokenPath);
+        $base['setup']['tokenPathWritable'] = is_dir(dirname($tokenPath)) && is_writable(dirname($tokenPath));
 
-        foreach ($calendarsRaw as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-            $id = isset($item['id']) && is_string($item['id']) ? $item['id'] : null;
-            $summary = isset($item['summary']) && is_string($item['summary']) ? $item['summary'] : null;
-            if ($id === null || $summary === null) {
-                continue;
-            }
-            $calendars[] = [
-                'id' => $id,
-                'summary' => $summary,
-                'primary' => (bool) ($item['primary'] ?? false),
-            ];
-            if (($item['primary'] ?? false) === true) {
-                $account = $summary;
-            }
+        if (!$base['setup']['clientFilePresent']) {
+            $base['setup']['hints'][] = "Missing client file: {$clientPath}";
+        }
+        if (!$base['setup']['tokenPathWritable']) {
+            $base['setup']['hints'][] = "Token directory is not writable: " . dirname($tokenPath);
         }
 
-        return [
-            'connected' => true,
-            'selectedCalendarId' => $selectedCalendarId,
-            'authUrl' => $authUrl,
-            'calendars' => $calendars,
-            'account' => $account,
-            'error' => null,
-        ];
+        try {
+            $base['authUrl'] = (new GoogleOAuthBootstrap($config))->getAuthorizationUrl();
+            $base['setup']['manualFlowReady'] = $base['authUrl'] !== null;
+        } catch (\Throwable $e) {
+            $base['authUrl'] = null;
+            $base['setup']['hints'][] = 'Manual OAuth URL unavailable: ' . $e->getMessage();
+        }
+
+        // Device flow is our default path; it only needs valid client config and writable token path.
+        $base['setup']['deviceFlowReady'] = $base['setup']['clientFilePresent'] && $base['setup']['tokenPathWritable'];
+        if (!$base['setup']['deviceFlowReady']) {
+            $base['setup']['hints'][] = 'Device flow not ready: check client file and token directory permissions.';
+        }
+
+        $client = new GoogleApiClient($config);
+        try {
+            $calendarsRaw = $client->listCalendars();
+            $calendars = [];
+            $account = 'Connected';
+
+            foreach ($calendarsRaw as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $id = isset($item['id']) && is_string($item['id']) ? $item['id'] : null;
+                $summary = isset($item['summary']) && is_string($item['summary']) ? $item['summary'] : null;
+                if ($id === null || $summary === null) {
+                    continue;
+                }
+                $calendars[] = [
+                    'id' => $id,
+                    'summary' => $summary,
+                    'primary' => (bool) ($item['primary'] ?? false),
+                ];
+                if (($item['primary'] ?? false) === true) {
+                    $account = $summary;
+                }
+            }
+
+            $base['connected'] = true;
+            $base['calendars'] = $calendars;
+            $base['account'] = $account;
+            $base['error'] = null;
+            return $base;
+        } catch (\Throwable $e) {
+            $base['connected'] = false;
+            $base['calendars'] = [];
+            $base['account'] = 'Not connected yet';
+            $base['error'] = $e->getMessage();
+            return $base;
+        }
     } catch (\Throwable $e) {
-        return [
-            'connected' => false,
-            'selectedCalendarId' => $selectedCalendarId,
-            'authUrl' => $authUrl,
-            'calendars' => [],
-            'account' => 'Not connected yet',
-            'error' => $e->getMessage(),
-        ];
+        $base['setup']['hints'][] = 'Invalid Google config: ' . $e->getMessage();
+        $base['error'] = $e->getMessage();
+        return $base;
     }
 }
 
