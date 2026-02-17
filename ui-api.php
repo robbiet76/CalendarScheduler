@@ -234,6 +234,13 @@ function cs_google_status(): array
                 if (!is_array($item)) {
                     continue;
                 }
+                $accessRole = isset($item['accessRole']) && is_string($item['accessRole'])
+                    ? $item['accessRole']
+                    : '';
+                // Limit selectable calendars to owner-level calendars only.
+                if ($accessRole !== 'owner') {
+                    continue;
+                }
                 $id = isset($item['id']) && is_string($item['id']) ? $item['id'] : null;
                 $summary = isset($item['summary']) && is_string($item['summary']) ? $item['summary'] : null;
                 if ($id === null || $summary === null) {
