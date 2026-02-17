@@ -130,11 +130,16 @@
     <div class="col-12">
       <div class="backdrop mb-3">
         <h4 class="cs-panel-title">1) Connection Setup</h4>
-        <p class="cs-muted">Connect to a calendar using OAuth. Select calendar provider.</p>
+        <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
         <div class="mb-2">
           <span class="badge text-bg-primary">Google</span>
           <span class="badge text-bg-secondary">Outlook (Coming Soon)</span>
+        </div>
+
+        <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
+          <button class="buttons btn-black" id="csDisconnectBtn" type="button" disabled>Disconnect Provider</button>
+          <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
         </div>
 
         <div id="csConnectionHelp" class="cs-device-box mb-2">
@@ -160,9 +165,8 @@
           <ul id="csHelpHints" class="mb-0"></ul>
         </div>
 
-        <div class="form-group mb-2" id="csConnectedAccountGroup">
-          <label for="csConnectedAccount">Connected Account</label>
-          <input id="csConnectedAccount" type="text" class="form-control" value="Loading..." readonly>
+        <div class="mb-2 cs-hidden" id="csConnectedAccountGroup">
+          <strong>Connected Account:</strong> <span id="csConnectedAccountValue">Loading...</span>
         </div>
 
         <div class="form-group mb-2" id="csCalendarSelectGroup">
@@ -170,11 +174,6 @@
           <select id="csCalendarSelect" class="form-control" disabled>
             <option>Loading calendars...</option>
           </select>
-        </div>
-
-        <div class="mt-3 d-flex justify-content-end gap-2">
-          <button class="buttons btn-black" id="csDisconnectBtn" type="button" disabled>Disconnect Provider</button>
-          <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
         </div>
 
       </div>
@@ -489,8 +488,17 @@
           setDeviceAuthVisible(false);
         }
         renderConnectionHelp(google.setup || {}, providerConnected);
+        var subtitle = byId("csConnectionSubtitle");
+        if (subtitle) {
+          subtitle.textContent = providerConnected
+            ? "Connect to a calendar using OAuth."
+            : "Connect to a calendar using OAuth. Select calendar provider.";
+        }
         var account = google.account || "Not connected yet";
-        byId("csConnectedAccount").value = account;
+        var accountValue = byId("csConnectedAccountValue");
+        if (accountValue) {
+          accountValue.textContent = account;
+        }
 
         var select = byId("csCalendarSelect");
         var connectedAccountGroup = byId("csConnectedAccountGroup");
@@ -518,9 +526,11 @@
         var disconnectBtn = byId("csDisconnectBtn");
         var uploadBtn = byId("csUploadDeviceClientBtn");
         connectBtn.dataset.locked = "0";
-        connectBtn.textContent = providerConnected ? "Refresh Provider" : "Connect Provider";
+        connectBtn.textContent = "Connect Provider";
+        connectBtn.classList.toggle("cs-hidden", providerConnected);
         disconnectBtn.dataset.locked = providerConnected ? "0" : "1";
         disconnectBtn.disabled = !providerConnected;
+        disconnectBtn.classList.toggle("cs-hidden", !providerConnected);
         uploadBtn.dataset.locked = providerConnected ? "1" : "0";
         uploadBtn.disabled = providerConnected;
 
