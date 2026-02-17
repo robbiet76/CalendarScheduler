@@ -53,9 +53,11 @@ final class Reconciler
         array $tombstonesBySource,
         int $calendarSnapshotEpoch,
         int $fppSnapshotEpoch,
-        string $syncMode = self::MODE_BOTH
+        string $syncMode = self::MODE_BOTH,
+        string $calendarScope = 'default'
     ): ReconciliationResult {
         $syncMode = $this->normalizeMode($syncMode);
+        $calendarScope = trim($calendarScope) !== '' ? trim($calendarScope) : 'default';
         $cal = $this->indexEventsByIdentity($calendarManifest);
         $fpp = $this->indexEventsByIdentity($fppManifest);
         $cur = $this->indexEventsByIdentity($currentManifest);
@@ -146,11 +148,13 @@ final class Reconciler
                     $id,
                     $calEvent,
                     $fppEvent,
+                    $curEvent,
                     $calendarUpdatedAtById,
                     $fppUpdatedAtById,
                     $tombstonesBySource,
                     $calendarSnapshotEpoch,
-                    $fppSnapshotEpoch
+                    $fppSnapshotEpoch,
+                    $calendarScope
                 );
 
                 $winner = $decision['winner']; // 'calendar'|'fpp'
@@ -161,6 +165,7 @@ final class Reconciler
             if (is_array($winningEvent)) {
                 $winningEvent = $this->carryCurrentProviderCorrelation($winningEvent, $curEvent);
                 $winningEvent = $this->carryCalendarProviderCorrelation($winningEvent, $calEvent);
+                $winningEvent = $this->assignActiveCalendarScope($winningEvent, $calendarScope);
             }
 
             // Build target manifest events
@@ -437,6 +442,7 @@ final class Reconciler
     /**
      * @param array<string,mixed>|null $calEvent
      * @param array<string,mixed>|null $fppEvent
+     * @param array<string,mixed>|null $curEvent
      * @param array<string,int> $calUpdatedAtById
      * @param array<string,int> $fppUpdatedAtById
      * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
@@ -446,11 +452,13 @@ final class Reconciler
         string $id,
         ?array $calEvent,
         ?array $fppEvent,
+        ?array $curEvent,
         array $calUpdatedAtById,
         array $fppUpdatedAtById,
         array $tombstonesBySource,
         int $calSnapshotEpoch,
-        int $fppSnapshotEpoch
+        int $fppSnapshotEpoch,
+        string $calendarScope
     ): array {
         // If both exist and state hashes match -> choose either (prefer calendar) with noop reason.
         if ($calEvent !== null && $fppEvent !== null) {
@@ -481,7 +489,11 @@ final class Reconciler
             $fppTombstoneTs = (int)($tombstonesBySource['fpp'][$id] ?? 0);
 
             if ($calEvent === null && $fppEvent !== null) {
-                if ($calTombstoneTs > 0 && $calTombstoneTs >= $fppTs) {
+                if (
+                    $calTombstoneTs > 0
+                    && $calTombstoneTs >= $fppTs
+                    && $this->currentEventSupportsCalendarDeleteIntent($curEvent, $calendarScope)
+                ) {
                     return [
                         'winner' => 'calendar',
                         'event' => null,
@@ -537,6 +549,47 @@ final class Reconciler
             'event' => $fppEvent,
             'reason' => "tie ($calTs == $fppTs): fpp wins",
         ];
+    }
+
+    /**
+     * Calendar tombstones are only trusted when current manifest provenance
+     * ties the identity to the active calendar scope.
+     *
+     * @param array<string,mixed>|null $currentEvent
+     */
+    private function currentEventSupportsCalendarDeleteIntent(?array $currentEvent, string $calendarScope): bool
+    {
+        if (!is_array($currentEvent)) {
+            return false;
+        }
+
+        $source = $currentEvent['source'] ?? null;
+        if (!is_string($source) || strtolower(trim($source)) !== 'calendar') {
+            return false;
+        }
+
+        $correlation = is_array($currentEvent['correlation'] ?? null) ? $currentEvent['correlation'] : [];
+        $sourceCalendarId = $correlation['sourceCalendarId'] ?? null;
+        if (!is_string($sourceCalendarId) || trim($sourceCalendarId) === '') {
+            return false;
+        }
+
+        return trim($sourceCalendarId) === $calendarScope;
+    }
+
+    /**
+     * Ensure reconciled manifest events are associated with the active calendar scope.
+     *
+     * @param array<string,mixed> $event
+     * @return array<string,mixed>
+     */
+    private function assignActiveCalendarScope(array $event, string $calendarScope): array
+    {
+        $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+        $correlation['sourceCalendarId'] = $calendarScope;
+        $event['correlation'] = $correlation;
+
+        return $event;
     }
 
     /**

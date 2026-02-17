@@ -612,7 +612,8 @@ final class SchedulerEngine
             $effectiveTombstonesBySource,
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch,
-            $syncMode
+            $syncMode,
+            $calendarScope
         );
 
         // ------------------------------------------------------------
