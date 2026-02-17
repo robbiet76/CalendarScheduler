@@ -51,6 +51,20 @@
     display: none;
   }
 
+  .cs-help-list {
+    margin-bottom: 8px;
+  }
+
+  .cs-help-check-ok {
+    color: #1b7f3a;
+    font-weight: 600;
+  }
+
+  .cs-help-check-bad {
+    color: #b02a37;
+    font-weight: 600;
+  }
+
   .cs-device-box {
     border: 1px solid #cfd3d7;
     border-radius: 4px;
@@ -72,6 +86,22 @@
       Status: <strong id="csPreviewState">Loading...</strong> |
       Last refresh: <span id="csPreviewTime">Pending</span>
     </div>
+  </div>
+
+  <div class="backdrop mb-3 cs-hidden" id="csOauthHelpBox">
+    <h4 class="cs-panel-title">OAuth Setup Helper</h4>
+    <p class="cs-muted mb-2">Provider: <strong id="csHelpProvider">Google</strong></p>
+    <ol class="cs-help-list">
+      <li>In Google Cloud Console, enable Google Calendar API.</li>
+      <li>Create OAuth client credentials of type <strong>Desktop app</strong>.</li>
+      <li>Download client JSON and place it on FPP as <code>/home/fpp/media/config/calendar-scheduler/calendar/google/client_secret_device.json</code>.</li>
+      <li>Set <code>oauth.device_client_file</code> in <code>config.json</code> to <code>client_secret_device.json</code>.</li>
+      <li>Back in this page, click <strong>Connect Provider</strong>, open <code>google.com/device</code>, and enter the displayed code.</li>
+    </ol>
+    <div class="mb-1"><strong>Current Setup Checks</strong></div>
+    <ul id="csHelpChecks" class="mb-1"></ul>
+    <div class="mb-1"><strong>Current Setup Hints</strong></div>
+    <ul id="csHelpHints" class="mb-0"></ul>
   </div>
 
   <div class="row g-2">
@@ -244,6 +274,52 @@
       byId("csPreviewTime").textContent = message;
     }
 
+    function checkRow(label, ok) {
+      return "<li>" + escapeHtml(label) + ": "
+        + "<span class=\"" + (ok ? "cs-help-check-ok" : "cs-help-check-bad") + "\">"
+        + (ok ? "OK" : "Missing")
+        + "</span></li>";
+    }
+
+    function renderOauthHelp(provider, setup, connected) {
+      var box = byId("csOauthHelpBox");
+      var providerNode = byId("csHelpProvider");
+      var checksNode = byId("csHelpChecks");
+      var hintsNode = byId("csHelpHints");
+      if (!box || !providerNode || !checksNode || !hintsNode) {
+        return;
+      }
+
+      providerNode.textContent = provider || "Google";
+
+      if (connected) {
+        box.classList.add("cs-hidden");
+        checksNode.innerHTML = "";
+        hintsNode.innerHTML = "";
+        return;
+      }
+
+      box.classList.remove("cs-hidden");
+      setup = setup || {};
+
+      checksNode.innerHTML = [
+        checkRow("Config present", !!setup.configPresent),
+        checkRow("Config valid", !!setup.configValid),
+        checkRow("Device client file present", !!setup.clientFilePresent),
+        checkRow("Token directory writable", !!setup.tokenPathWritable),
+        checkRow("Device flow ready", !!setup.deviceFlowReady)
+      ].join("");
+
+      var hints = Array.isArray(setup.hints) ? setup.hints : [];
+      if (hints.length === 0) {
+        hintsNode.innerHTML = "<li class=\"cs-help-check-ok\">No setup issues detected.</li>";
+      } else {
+        hintsNode.innerHTML = hints.map(function (hint) {
+          return "<li>" + escapeHtml(hint) + "</li>";
+        }).join("");
+      }
+    }
+
     function renderDiagnostics(payload) {
       var out = byId("csDiagnosticJson");
       if (!out) {
@@ -340,6 +416,7 @@
           setDeviceAuthVisible(false);
           clearDeviceAuthPoll();
         }
+        renderOauthHelp("Google", google.setup || {}, providerConnected);
         var account = google.account || "Not connected yet";
         byId("csConnectedAccount").value = account;
 
