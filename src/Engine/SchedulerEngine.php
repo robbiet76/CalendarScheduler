@@ -22,6 +22,8 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator;
 use CalendarScheduler\Platform\FppEventTimestampStore;
+use CalendarScheduler\Platform\FPPSemantics;
+use CalendarScheduler\Platform\HolidayResolver;
 
 /**
  * SchedulerEngine
@@ -40,8 +42,14 @@ use CalendarScheduler\Platform\FppEventTimestampStore;
  */
 final class SchedulerEngine
 {
+    public const SYNC_MODE_BOTH = Reconciler::MODE_BOTH;
+    public const SYNC_MODE_CALENDAR = Reconciler::MODE_CALENDAR;
+    public const SYNC_MODE_FPP = Reconciler::MODE_FPP;
+
     /** @var array{calendar:array<string,int>,fpp:array<string,int>} */
     private array $lastTombstonesBySource = ['calendar' => [], 'fpp' => []];
+    /** @var array{calendar:array<string,int>,fpp:array<string,int>} */
+    private array $loadedTombstonesBySource = ['calendar' => [], 'fpp' => []];
 
     private IntentNormalizer $normalizer;
     private ManifestPlanner $manifestPlanner;
@@ -71,6 +79,7 @@ final class SchedulerEngine
     public function runFromCli(array $argv, array $opts): SchedulerRunResult
     {
         $runEpoch = time();
+        $syncMode = $this->normalizeSyncMode($opts['sync-mode'] ?? $opts['sync_mode'] ?? null);
 
         // -----------------------------------------------------------------
         // Resolve paths
@@ -82,7 +91,8 @@ final class SchedulerEngine
         $manifestPath = $opts['manifest']
             ?? '/home/fpp/media/config/calendar-scheduler/manifest.json';
         $tombstonesPath = '/home/fpp/media/config/calendar-scheduler/runtime/tombstones.json';
-        $tombstonesBySource = $this->loadTombstones($tombstonesPath);
+        $calendarScope = 'default';
+        $tombstonesBySource = $this->loadTombstones($tombstonesPath, $calendarScope);
 
         // -----------------------------------------------------------------
         // Build NormalizationContext (inject holidays from fpp-env.json)
@@ -117,8 +127,8 @@ final class SchedulerEngine
 
         $context = new NormalizationContext(
             $contextTimezone,
-            new \CalendarScheduler\Platform\FPPSemantics(),
-            new \CalendarScheduler\Platform\HolidayResolver($holidays)
+            new FPPSemantics(),
+            new HolidayResolver($holidays)
         );
 
         // -----------------------------------------------------------------
@@ -168,6 +178,14 @@ final class SchedulerEngine
         } elseif (is_array($calendarSnapshotRaw)) {
             $rawEvents = $calendarSnapshotRaw;
         }
+        if (!is_string($calendarId) || trim($calendarId) === '') {
+            $calendarId = 'default';
+        } else {
+            $calendarId = trim($calendarId);
+        }
+
+        // Re-scope calendar tombstones after calendar_id is known from snapshot.
+        $tombstonesBySource = $this->loadTombstones($tombstonesPath, $calendarId);
 
         // CalendarSnapshot expects raw provider rows.
         $calendarEvents = $rawEvents;
@@ -218,10 +236,11 @@ final class SchedulerEngine
             $tombstonesBySource,
             $context,
             $calendarSnapshotEpoch,
-            $fppSnapshotEpoch
+            $fppSnapshotEpoch,
+            $syncMode
         );
 
-        $this->saveTombstones($tombstonesPath, $this->lastTombstonesBySource);
+        $this->saveTombstones($tombstonesPath, $this->lastTombstonesBySource, $calendarId);
 
         return $runResult;
     }
@@ -247,8 +266,10 @@ final class SchedulerEngine
         array $tombstonesBySource,
         NormalizationContext $context,
         int $calendarSnapshotEpoch,
-        int $fppSnapshotEpoch
+        int $fppSnapshotEpoch,
+        string $syncMode = self::SYNC_MODE_BOTH
     ): SchedulerRunResult {
+        $syncMode = $this->normalizeSyncMode($syncMode);
         $computedCalendarUpdatedAtById = $calendarUpdatedAtById;
         $computedFppUpdatedAtById = $fppUpdatedAtById;
 
@@ -554,13 +575,16 @@ final class SchedulerEngine
         $fppManifest = $this->manifestPlanner
             ->buildManifestFromIntents($fppIntents);
 
-        $effectiveTombstonesBySource = $this->deriveEffectiveTombstones(
-            $currentManifest,
-            $calendarManifest,
-            $fppManifest,
-            $tombstonesBySource,
-            $calendarSnapshotEpoch
-        );
+        $effectiveTombstonesBySource = $tombstonesBySource;
+        if ($syncMode === self::SYNC_MODE_BOTH) {
+            $effectiveTombstonesBySource = $this->deriveEffectiveTombstones(
+                $currentManifest,
+                $calendarManifest,
+                $fppManifest,
+                $tombstonesBySource,
+                $calendarSnapshotEpoch
+            );
+        }
         $this->lastTombstonesBySource = $effectiveTombstonesBySource;
 
         // ------------------------------------------------------------
@@ -582,7 +606,8 @@ final class SchedulerEngine
             $computedFppUpdatedAtById,
             $effectiveTombstonesBySource,
             $calendarSnapshotEpoch,
-            $fppSnapshotEpoch
+            $fppSnapshotEpoch,
+            $syncMode
         );
 
         // ------------------------------------------------------------
@@ -698,12 +723,38 @@ final class SchedulerEngine
     /**
      * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
      */
-    private function saveTombstones(string $path, array $tombstonesBySource): void
+    private function saveTombstones(string $path, array $tombstonesBySource, string $calendarScope): void
     {
+        // Keep FPP tombstones global, but namespace calendar tombstones by selected calendar.
+        $calendarScope = trim($calendarScope) !== '' ? trim($calendarScope) : 'default';
+        $merged = $this->loadedTombstonesBySource;
+        if (!isset($merged['calendar']) || !is_array($merged['calendar'])) {
+            $merged['calendar'] = [];
+        }
+        if (!isset($merged['fpp']) || !is_array($merged['fpp'])) {
+            $merged['fpp'] = [];
+        }
+
+        $prefix = $calendarScope . '::';
+        foreach (array_keys($merged['calendar']) as $rawKey) {
+            if (is_string($rawKey) && strpos($rawKey, $prefix) === 0) {
+                unset($merged['calendar'][$rawKey]);
+            }
+        }
+
+        foreach ($tombstonesBySource['calendar'] as $id => $ts) {
+            if (!is_string($id) || $id === '' || !is_int($ts) || $ts <= 0) {
+                continue;
+            }
+            $merged['calendar'][$prefix . $id] = $ts;
+        }
+
+        $merged['fpp'] = $tombstonesBySource['fpp'];
+
         $doc = [
             'version' => 1,
             'generatedAtEpoch' => time(),
-            'sources' => $tombstonesBySource,
+            'sources' => $merged,
         ];
         $json = json_encode($doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $dir = dirname($path);
@@ -723,34 +774,57 @@ final class SchedulerEngine
     /**
      * @return array{calendar:array<string,int>,fpp:array<string,int>}
      */
-    private function loadTombstones(string $path): array
+    private function loadTombstones(string $path, string $calendarScope): array
     {
         $empty = ['calendar' => [], 'fpp' => []];
+        $calendarScope = trim($calendarScope) !== '' ? trim($calendarScope) : 'default';
         if (!is_file($path)) {
+            $this->loadedTombstonesBySource = $empty;
             return $empty;
         }
         $raw = @file_get_contents($path);
         if (!is_string($raw) || trim($raw) === '') {
+            $this->loadedTombstonesBySource = $empty;
             return $empty;
         }
         $decoded = @json_decode($raw, true);
         if (!is_array($decoded)) {
+            $this->loadedTombstonesBySource = $empty;
             return $empty;
         }
         $sources = is_array($decoded['sources'] ?? null) ? $decoded['sources'] : [];
-        $out = ['calendar' => [], 'fpp' => []];
+        $rawOut = ['calendar' => [], 'fpp' => []];
         foreach (['calendar', 'fpp'] as $source) {
             $rows = is_array($sources[$source] ?? null) ? $sources[$source] : [];
-            foreach ($rows as $id => $ts) {
-                if (!is_string($id) || $id === '' || !is_numeric($ts)) {
+            foreach ($rows as $rawKey => $ts) {
+                if (!is_string($rawKey) || $rawKey === '' || !is_numeric($ts)) {
                     continue;
                 }
                 $n = (int)$ts;
                 if ($n > 0) {
-                    $out[$source][$id] = $n;
+                    $rawOut[$source][$rawKey] = $n;
                 }
             }
         }
+
+        $this->loadedTombstonesBySource = $rawOut;
+
+        $out = ['calendar' => [], 'fpp' => $rawOut['fpp']];
+        $prefix = $calendarScope . '::';
+        foreach ($rawOut['calendar'] as $rawKey => $ts) {
+            if (!is_string($rawKey)) {
+                continue;
+            }
+            if (strpos($rawKey, $prefix) !== 0) {
+                continue;
+            }
+            $identity = substr($rawKey, strlen($prefix));
+            if (!is_string($identity) || $identity === '') {
+                continue;
+            }
+            $out['calendar'][$identity] = $ts;
+        }
+
         return $out;
     }
 
@@ -848,6 +922,24 @@ final class SchedulerEngine
         }
 
         return $default;
+    }
+
+    private function normalizeSyncMode(mixed $syncMode): string
+    {
+        if (!is_string($syncMode)) {
+            return self::SYNC_MODE_BOTH;
+        }
+
+        $syncMode = strtolower(trim($syncMode));
+        if (
+            $syncMode === self::SYNC_MODE_BOTH
+            || $syncMode === self::SYNC_MODE_CALENDAR
+            || $syncMode === self::SYNC_MODE_FPP
+        ) {
+            return $syncMode;
+        }
+
+        return self::SYNC_MODE_BOTH;
     }
 
     /**

@@ -28,6 +28,10 @@ namespace CalendarScheduler\Diff;
  */
 final class Reconciler
 {
+    public const MODE_BOTH = 'both';
+    public const MODE_CALENDAR = 'calendar';
+    public const MODE_FPP = 'fpp';
+
     /**
      * Reconcile two candidate manifests into a target manifest and an action plan.
      *
@@ -48,17 +52,17 @@ final class Reconciler
         array $fppUpdatedAtById,
         array $tombstonesBySource,
         int $calendarSnapshotEpoch,
-        int $fppSnapshotEpoch
+        int $fppSnapshotEpoch,
+        string $syncMode = self::MODE_BOTH
     ): ReconciliationResult {
+        $syncMode = $this->normalizeMode($syncMode);
         $cal = $this->indexEventsByIdentity($calendarManifest);
         $fpp = $this->indexEventsByIdentity($fppManifest);
         $cur = $this->indexEventsByIdentity($currentManifest);
 
-        // Safety guard:
-        // If both sources are non-empty but have zero shared identities, treat as a hard failure.
-        // This indicates a normalization/identity regression and would otherwise plan destructive
-        // bidirectional deletes.
-        if ($cal !== [] && $fpp !== []) {
+        // Safety guard applies only to two-way mode. In one-way mirror modes,
+        // zero overlap is a normal state (for example after calendar switching).
+        if ($syncMode === self::MODE_BOTH && $cal !== [] && $fpp !== []) {
             $sharedIds = array_intersect(array_keys($cal), array_keys($fpp));
             if ($sharedIds === []) {
                 throw new \RuntimeException(
@@ -70,16 +74,18 @@ final class Reconciler
         $allIds = array_unique(array_merge(array_keys($cal), array_keys($fpp), array_keys($cur)));
         sort($allIds);
 
-        $tombstonesBySource = $this->inferCrossIdentityTombstones(
-            $allIds,
-            $cal,
-            $fpp,
-            $calendarUpdatedAtById,
-            $fppUpdatedAtById,
-            $tombstonesBySource,
-            $calendarSnapshotEpoch,
-            $fppSnapshotEpoch
-        );
+        if ($syncMode === self::MODE_BOTH) {
+            $tombstonesBySource = $this->inferCrossIdentityTombstones(
+                $allIds,
+                $cal,
+                $fpp,
+                $calendarUpdatedAtById,
+                $fppUpdatedAtById,
+                $tombstonesBySource,
+                $calendarSnapshotEpoch,
+                $fppSnapshotEpoch
+            );
+        }
 
         $targetEvents = [];
         $actions = [];
@@ -124,21 +130,33 @@ final class Reconciler
                 continue;
             }
 
-            // Decide winning side and winning event (may be null meaning "delete everywhere")
-            $decision = $this->decideWinner(
-                $id,
-                $calEvent,
-                $fppEvent,
-                $calendarUpdatedAtById,
-                $fppUpdatedAtById,
-                $tombstonesBySource,
-                $calendarSnapshotEpoch,
-                $fppSnapshotEpoch
-            );
+            if ($syncMode === self::MODE_CALENDAR) {
+                // One-way mirror: calendar is authoritative regardless of tombstones/timestamps.
+                $winner = 'calendar';
+                $winningEvent = $calEvent;
+                $reason = 'sync mode calendar->fpp: mirror calendar into fpp';
+            } elseif ($syncMode === self::MODE_FPP) {
+                // One-way mirror: FPP is authoritative regardless of tombstones/timestamps.
+                $winner = 'fpp';
+                $winningEvent = $fppEvent;
+                $reason = 'sync mode fpp->calendar: mirror fpp into calendar';
+            } else {
+                // Two-way mode: full authority arbitration.
+                $decision = $this->decideWinner(
+                    $id,
+                    $calEvent,
+                    $fppEvent,
+                    $calendarUpdatedAtById,
+                    $fppUpdatedAtById,
+                    $tombstonesBySource,
+                    $calendarSnapshotEpoch,
+                    $fppSnapshotEpoch
+                );
 
-            $winner = $decision['winner']; // 'calendar'|'fpp'
-            $winningEvent = $decision['event']; // array|null
-            $reason = $decision['reason'];
+                $winner = $decision['winner']; // 'calendar'|'fpp'
+                $winningEvent = $decision['event']; // array|null
+                $reason = $decision['reason'];
+            }
 
             if (is_array($winningEvent)) {
                 $winningEvent = $this->carryCurrentProviderCorrelation($winningEvent, $curEvent);
@@ -167,6 +185,20 @@ final class Reconciler
         ];
 
         return new ReconciliationResult($targetManifest, $actions);
+    }
+
+    private function normalizeMode(string $syncMode): string
+    {
+        $syncMode = strtolower(trim($syncMode));
+        if (
+            $syncMode === self::MODE_BOTH
+            || $syncMode === self::MODE_CALENDAR
+            || $syncMode === self::MODE_FPP
+        ) {
+            return $syncMode;
+        }
+
+        return self::MODE_BOTH;
     }
 
     /**

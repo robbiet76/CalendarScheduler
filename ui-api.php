@@ -80,15 +80,19 @@ function cs_export_fpp_env(): void
     }
 }
 
-function cs_run_preview_engine(): SchedulerRunResult
+function cs_run_preview_engine(?string $syncMode = null): SchedulerRunResult
 {
     // Always refresh FPP environment before computing a reconciliation preview.
     cs_export_fpp_env();
 
+    $syncMode = cs_normalize_sync_mode($syncMode ?? CS_SYNC_MODE_BOTH);
     $engine = new SchedulerEngine();
     return $engine->runFromCli(
         $_SERVER['argv'] ?? [],
-        ['refresh-calendar' => true]
+        [
+            'refresh-calendar' => true,
+            'sync-mode' => $syncMode,
+        ]
     );
 }
 
@@ -888,9 +892,9 @@ function cs_google_disconnect(): void
     }
 }
 
-function cs_apply(SchedulerRunResult $result): array
+function cs_apply(SchedulerRunResult $result, ?string $syncMode = null): array
 {
-    $syncMode = cs_get_sync_mode();
+    $syncMode = cs_normalize_sync_mode($syncMode ?? cs_get_sync_mode());
     if ($syncMode === CS_SYNC_MODE_CALENDAR) {
         $targets = [ApplyTargets::FPP];
     } elseif ($syncMode === CS_SYNC_MODE_FPP) {
@@ -1016,8 +1020,8 @@ try {
     }
 
     if ($action === 'preview') {
-        $runResult = cs_run_preview_engine();
         $syncMode = cs_get_sync_mode();
+        $runResult = cs_run_preview_engine($syncMode);
         cs_respond([
             'ok' => true,
             'preview' => cs_preview_payload($runResult, $syncMode),
@@ -1025,10 +1029,10 @@ try {
     }
 
     if ($action === 'apply') {
-        $runResult = cs_run_preview_engine();
-        $applied = cs_apply($runResult);
-        $post = cs_run_preview_engine();
         $syncMode = cs_get_sync_mode();
+        $runResult = cs_run_preview_engine($syncMode);
+        $applied = cs_apply($runResult, $syncMode);
+        $post = cs_run_preview_engine($syncMode);
         cs_respond([
             'ok' => true,
             'applied' => $applied,
