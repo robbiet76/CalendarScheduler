@@ -101,16 +101,16 @@
         </div>
 
         <div id="csConnectionHelp" class="cs-device-box mb-2">
-          <div><strong>Google OAuth Setup (TV and Limited Input)</strong></div>
+          <div><strong>Google OAuth Setup</strong></div>
           <ol class="cs-help-list mt-1 mb-2">
             <li>In Google Cloud Console, enable <strong>Google Calendar API</strong>.</li>
             <li>Create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
-            <li>Download the client JSON and upload it below (no SSH needed).</li>
+            <li>Download the client JSON and upload it below.</li>
             <li>Click <strong>Connect Provider</strong>, open <code>google.com/device</code>, and enter the code shown.</li>
           </ol>
           <div class="row g-2 align-items-end mb-2">
             <div class="col-12 col-md-8">
-              <label for="csDeviceClientFile" class="form-label mb-1">Upload TV/Limited Input client JSON</label>
+              <label for="csDeviceClientFile" class="form-label mb-1">Upload client secret JSON:</label>
               <input id="csDeviceClientFile" type="file" class="form-control" accept="application/json,.json">
             </div>
             <div class="col-12 col-md-4 d-flex justify-content-md-end">
@@ -123,12 +123,12 @@
           <ul id="csHelpHints" class="mb-0"></ul>
         </div>
 
-        <div class="form-group mb-2">
+        <div class="form-group mb-2" id="csConnectedAccountGroup">
           <label for="csConnectedAccount">Connected Account</label>
           <input id="csConnectedAccount" type="text" class="form-control" value="Loading..." readonly>
         </div>
 
-        <div class="form-group mb-2">
+        <div class="form-group mb-2" id="csCalendarSelectGroup">
           <label for="csCalendarSelect">Sync Calendar</label>
           <select id="csCalendarSelect" class="form-control" disabled>
             <option>Loading calendars...</option>
@@ -314,9 +314,9 @@
       setup = setup || {};
 
       checksNode.innerHTML = [
+        checkRow("Device client file present", !!setup.clientFilePresent),
         checkRow("Config present", !!setup.configPresent),
         checkRow("Config valid", !!setup.configValid),
-        checkRow("Device client file present", !!setup.clientFilePresent),
         checkRow("Token directory writable", !!setup.tokenPathWritable),
         checkRow("Device flow ready", !!setup.deviceFlowReady)
       ].join("");
@@ -434,6 +434,8 @@
         byId("csConnectedAccount").value = account;
 
         var select = byId("csCalendarSelect");
+        var connectedAccountGroup = byId("csConnectedAccountGroup");
+        var calendarSelectGroup = byId("csCalendarSelectGroup");
         var calendars = Array.isArray(google.calendars) ? google.calendars : [];
         if (calendars.length === 0) {
           select.innerHTML = "<option>Connect account to load calendars</option>";
@@ -445,6 +447,12 @@
             return "<option value=\"" + escapeHtml(c.id) + "\"" + selected + ">" + escapeHtml(label) + "</option>";
           }).join("");
           select.disabled = false;
+        }
+        if (connectedAccountGroup) {
+          connectedAccountGroup.classList.toggle("cs-hidden", !providerConnected);
+        }
+        if (calendarSelectGroup) {
+          calendarSelectGroup.classList.toggle("cs-hidden", !providerConnected);
         }
 
         var connectBtn = byId("csConnectBtn");
