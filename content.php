@@ -48,7 +48,7 @@
   }
 
   .cs-hidden {
-    display: none;
+    display: none !important;
   }
 
   .cs-help-list {
@@ -188,7 +188,10 @@
       </div>
       <div class="cs-modal-body">
         <div class="mb-1">1) Open: <a id="csDeviceAuthLink" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">google.com/device</a></div>
-        <div class="mb-1">2) Enter code: <span id="csDeviceAuthCode" class="cs-device-code">-</span></div>
+        <div class="mb-1">2) Enter code:
+          <span id="csDeviceAuthCode" class="cs-device-code">-</span>
+          <button id="csCopyDeviceCodeBtn" type="button" class="buttons btn-black btn-sm">Copy</button>
+        </div>
         <div class="cs-muted">Waiting for Google authorization completion...</div>
       </div>
       <div class="cs-modal-footer">
@@ -308,11 +311,14 @@
       var codeNode = byId("csDeviceAuthCode");
       var link = byId("csDeviceAuthLink");
       var openBtn = byId("csDeviceAuthOpenBtn");
-      if (!wrap || !codeNode || !link || !openBtn) {
+      var copyBtn = byId("csCopyDeviceCodeBtn");
+      if (!wrap || !codeNode || !link || !openBtn || !copyBtn) {
         return;
       }
       if (visible) {
-        codeNode.textContent = code || "-";
+        var authCode = code || "-";
+        codeNode.textContent = authCode;
+        copyBtn.disabled = authCode === "-";
         var dest = url || "https://www.google.com/device";
         link.href = dest;
         openBtn.href = dest;
@@ -320,6 +326,7 @@
       } else {
         wrap.classList.add("cs-hidden");
         codeNode.textContent = "-";
+        copyBtn.disabled = true;
         link.href = "https://www.google.com/device";
         openBtn.href = "https://www.google.com/device";
       }
@@ -716,6 +723,27 @@
       clearDeviceAuthPoll();
       setDeviceAuthVisible(false);
       setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
+    });
+
+    byId("csCopyDeviceCodeBtn").addEventListener("click", function () {
+      var codeNode = byId("csDeviceAuthCode");
+      var value = codeNode ? (codeNode.textContent || "").trim() : "";
+      if (!value || value === "-") {
+        return;
+      }
+
+      var done = function () {
+        setSetupStatus("Device code copied to clipboard.");
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).then(done).catch(function () {
+          window.prompt("Copy this device code:", value);
+        });
+        return;
+      }
+
+      window.prompt("Copy this device code:", value);
     });
 
     byId("csCalendarSelect").addEventListener("change", function () {
