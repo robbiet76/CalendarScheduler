@@ -205,7 +205,7 @@
     <p class="cs-muted">Primary view of all pending create/update/delete changes.</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover">
-        <thead id="csActionsHead" class="cs-hidden">
+        <thead id="csActionsHead">
           <tr>
             <th>Action</th>
             <th>Target</th>
@@ -420,14 +420,51 @@
 
       if (visibleActions.length === 0) {
         if (thead) {
-          thead.style.display = "none";
+          thead.classList.add("cs-hidden");
         }
         tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\"><strong>No pending changes.</strong></td></tr>";
         return 0;
       }
 
       if (thead) {
-        thead.style.display = "";
+        thead.classList.remove("cs-hidden");
+      }
+
+      function friendlyReason(raw) {
+        var r = String(raw || "").trim();
+        if (!r) {
+          return "-";
+        }
+
+        if (r.indexOf("already converged") !== -1 || r.indexOf("already matches") !== -1) {
+          return "No differences detected.";
+        }
+        if (r.indexOf("calendar absent without tombstone") !== -1) {
+          return "Create in calendar to match FPP schedule.";
+        }
+        if (r.indexOf("fpp absent without tombstone") !== -1) {
+          return "Create in FPP schedule to match calendar.";
+        }
+        if (r.indexOf("calendar tombstone newer/equal") !== -1 || r.indexOf("calendar newer") !== -1) {
+          return "Calendar deletion/changes are newer; update FPP to match.";
+        }
+        if (r.indexOf("fpp tombstone newer/equal") !== -1 || r.indexOf("fpp newer") !== -1) {
+          return "FPP deletion/changes are newer; update calendar to match.";
+        }
+        if (r.indexOf("present side wins") !== -1) {
+          return "Only one side has this event; copying to the missing side.";
+        }
+        if (r.indexOf("force format refresh update") !== -1) {
+          return "Calendar formatting refresh required.";
+        }
+        if (r.indexOf("tie (") !== -1 && r.indexOf("fpp wins") !== -1) {
+          return "Both sides changed at the same time; using FPP as source.";
+        }
+        if (r.indexOf("tie (") !== -1 && r.indexOf("calendar wins") !== -1) {
+          return "Both sides changed at the same time; using calendar as source.";
+        }
+
+        return r;
       }
 
       var html = visibleActions.map(function (a) {
@@ -440,7 +477,7 @@
           badgeClass = "text-bg-danger";
         }
         var eventName = a.event && a.event.target ? a.event.target : "-";
-        var reason = a.reason || "-";
+        var reason = friendlyReason(a.reason || "-");
         return "<tr>"
           + "<td><span class=\"badge " + badgeClass + "\">" + escapeHtml(String(a.type || "").toUpperCase()) + "</span></td>"
           + "<td>" + escapeHtml(a.target || "-") + "</td>"
