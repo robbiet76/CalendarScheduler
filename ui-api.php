@@ -36,6 +36,9 @@ const CS_FPP_ENV_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-e
 const CS_GOOGLE_DEVICE_CLIENT_FILENAME = 'client_secret_device.json';
 const CS_GOOGLE_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
 const CS_GOOGLE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/calendar';
+const CS_SYNC_MODE_BOTH = 'both';
+const CS_SYNC_MODE_CALENDAR = 'calendar';
+const CS_SYNC_MODE_FPP = 'fpp';
 
 /**
  * @return array<string,mixed>
@@ -138,20 +141,81 @@ function cs_actions_for_ui(SchedulerRunResult $result): array
     return $out;
 }
 
+function cs_normalize_sync_mode(mixed $mode): string
+{
+    if (!is_string($mode)) {
+        return CS_SYNC_MODE_BOTH;
+    }
+    $mode = strtolower(trim($mode));
+    if (in_array($mode, [CS_SYNC_MODE_BOTH, CS_SYNC_MODE_CALENDAR, CS_SYNC_MODE_FPP], true)) {
+        return $mode;
+    }
+    return CS_SYNC_MODE_BOTH;
+}
+
+/**
+ * @param array<int,array<string,mixed>> $actions
+ * @return array<int,array<string,mixed>>
+ */
+function cs_filter_actions_for_sync_mode(array $actions, string $syncMode): array
+{
+    $syncMode = cs_normalize_sync_mode($syncMode);
+    if ($syncMode === CS_SYNC_MODE_BOTH) {
+        return $actions;
+    }
+
+    // Calendar -> FPP means only FPP-targeted operations are actionable.
+    if ($syncMode === CS_SYNC_MODE_CALENDAR) {
+        return array_values(array_filter($actions, static function (array $a): bool {
+            return ($a['target'] ?? '') === 'fpp';
+        }));
+    }
+
+    // FPP -> Calendar means only calendar-targeted operations are actionable.
+    return array_values(array_filter($actions, static function (array $a): bool {
+        return ($a['target'] ?? '') === 'calendar';
+    }));
+}
+
 /**
  * @return array<string,mixed>
  */
-function cs_preview_payload(SchedulerRunResult $result): array
+function cs_preview_payload(SchedulerRunResult $result, string $syncMode): array
 {
+    $actions = cs_filter_actions_for_sync_mode(cs_actions_for_ui($result), $syncMode);
+
+    $counts = [
+        'fpp' => ['created' => 0, 'updated' => 0, 'deleted' => 0],
+        'calendar' => ['created' => 0, 'updated' => 0, 'deleted' => 0],
+        'total' => ['created' => 0, 'updated' => 0, 'deleted' => 0],
+    ];
+    foreach ($actions as $action) {
+        $type = is_string($action['type'] ?? null) ? $action['type'] : '';
+        $target = is_string($action['target'] ?? null) ? $action['target'] : '';
+        if (!in_array($type, ['create', 'update', 'delete'], true)) {
+            continue;
+        }
+        if (!in_array($target, ['fpp', 'calendar'], true)) {
+            continue;
+        }
+        $counts[$target][$type . 'd'] = ($counts[$target][$type . 'd'] ?? 0) + 1;
+        $counts['total'][$type . 'd'] = ($counts['total'][$type . 'd'] ?? 0) + 1;
+    }
+
+    $hasPending = false;
+    foreach ($actions as $action) {
+        if (($action['type'] ?? '') !== 'noop') {
+            $hasPending = true;
+            break;
+        }
+    }
+
     return [
-        'noop' => $result->isNoop(),
+        'noop' => !$hasPending,
         'generatedAtUtc' => $result->generatedAt()->format(\DateTimeInterface::ATOM),
-        'counts' => [
-            'fpp' => $result->countsByTarget()['fpp'],
-            'calendar' => $result->countsByTarget()['calendar'],
-            'total' => $result->totalCounts(),
-        ],
-        'actions' => cs_actions_for_ui($result),
+        'counts' => $counts,
+        'actions' => $actions,
+        'syncMode' => $syncMode,
     ];
 }
 
@@ -275,6 +339,20 @@ function cs_google_status(): array
     }
 }
 
+function cs_get_sync_mode(): string
+{
+    $config = cs_read_google_config_json();
+    return cs_normalize_sync_mode($config['sync_mode'] ?? null);
+}
+
+function cs_set_sync_mode(string $mode): void
+{
+    $mode = cs_normalize_sync_mode($mode);
+    $config = cs_read_google_config_json();
+    $config['sync_mode'] = $mode;
+    cs_write_google_config_json($config);
+}
+
 function cs_bootstrap_google_config_if_missing(): bool
 {
     // Auto-bootstrap first-run config so UI setup can be completed without SSH.
@@ -292,6 +370,11 @@ function cs_bootstrap_google_config_if_missing(): bool
         if (is_array($existing)) {
             $oauth = is_array($existing['oauth'] ?? null) ? $existing['oauth'] : [];
             $changed = false;
+            $syncMode = cs_normalize_sync_mode($existing['sync_mode'] ?? null);
+            if (($existing['sync_mode'] ?? null) !== $syncMode) {
+                $existing['sync_mode'] = $syncMode;
+                $changed = true;
+            }
 
             if (array_key_exists('client_file', $oauth)) {
                 unset($oauth['client_file']);
@@ -333,6 +416,7 @@ function cs_bootstrap_google_config_if_missing(): bool
     $config = [
         'provider' => 'google',
         'calendar_id' => 'primary',
+        'sync_mode' => CS_SYNC_MODE_BOTH,
         'oauth' => [
             'device_client_file' => CS_GOOGLE_DEVICE_CLIENT_FILENAME,
             'token_file' => 'token.json',
@@ -744,8 +828,15 @@ function cs_google_disconnect(): void
 
 function cs_apply(SchedulerRunResult $result): array
 {
-    $targets = ApplyTargets::all();
-    $options = ApplyOptions::apply($targets, true);
+    $syncMode = cs_get_sync_mode();
+    if ($syncMode === CS_SYNC_MODE_CALENDAR) {
+        $targets = [ApplyTargets::FPP];
+    } elseif ($syncMode === CS_SYNC_MODE_FPP) {
+        $targets = [ApplyTargets::CALENDAR];
+    } else {
+        $targets = ApplyTargets::all();
+    }
+    $options = ApplyOptions::apply($targets, false);
 
     $googleExecutor = null;
     if (is_dir(CS_GOOGLE_CONFIG_DIR) || is_file(CS_GOOGLE_CONFIG_DIR)) {
@@ -780,6 +871,7 @@ try {
             'ok' => true,
             'provider' => 'google',
             'google' => cs_google_status(),
+            'syncMode' => cs_get_sync_mode(),
         ]);
     }
 
@@ -790,6 +882,18 @@ try {
         }
         cs_set_calendar_id(trim($calendarId));
         cs_respond(['ok' => true]);
+    }
+
+    if ($action === 'set_sync_mode') {
+        $syncMode = $input['sync_mode'] ?? '';
+        if (!is_string($syncMode) || trim($syncMode) === '') {
+            cs_respond(['ok' => false, 'error' => 'sync_mode is required'], 422);
+        }
+        cs_set_sync_mode($syncMode);
+        cs_respond([
+            'ok' => true,
+            'syncMode' => cs_get_sync_mode(),
+        ]);
     }
 
     if ($action === 'auth_device_start') {
@@ -851,9 +955,10 @@ try {
 
     if ($action === 'preview') {
         $runResult = cs_run_preview_engine();
+        $syncMode = cs_get_sync_mode();
         cs_respond([
             'ok' => true,
-            'preview' => cs_preview_payload($runResult),
+            'preview' => cs_preview_payload($runResult, $syncMode),
         ]);
     }
 
@@ -861,10 +966,11 @@ try {
         $runResult = cs_run_preview_engine();
         $applied = cs_apply($runResult);
         $post = cs_run_preview_engine();
+        $syncMode = cs_get_sync_mode();
         cs_respond([
             'ok' => true,
             'applied' => $applied,
-            'preview' => cs_preview_payload($post),
+            'preview' => cs_preview_payload($post, $syncMode),
         ]);
     }
 

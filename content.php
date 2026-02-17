@@ -206,6 +206,14 @@
   <div class="backdrop mb-3">
     <h4 class="cs-panel-title">2) Pending Actions</h4>
     <p class="cs-muted">Primary view of all pending create/update/delete changes.</p>
+    <div id="csSyncModeWrap" class="form-group mb-2 cs-hidden">
+      <label for="csSyncModeSelect">Sync Mode</label>
+      <select id="csSyncModeSelect" class="form-control">
+        <option value="both" selected>Two-way Merge (Both)</option>
+        <option value="calendar">Calendar -> FPP</option>
+        <option value="fpp">FPP -> Calendar</option>
+      </select>
+    </div>
     <div class="table-responsive">
       <table class="table table-sm table-hover">
         <thead id="csActionsHead">
@@ -252,6 +260,7 @@
     var providerConnected = false;
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
+    var syncMode = "both";
 
     function byId(id) {
       return document.getElementById(id);
@@ -270,7 +279,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csDisconnectBtn", "csConnectBtn", "csUploadDeviceClientBtn"].forEach(function (id) {
+      ["csDisconnectBtn", "csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -424,6 +433,7 @@
     function renderActions(actions) {
       var tbody = byId("csActionsRows");
       var thead = byId("csActionsHead");
+      var syncModeWrap = byId("csSyncModeWrap");
       if (!tbody) {
         return 0;
       }
@@ -436,12 +446,18 @@
         if (thead) {
           thead.classList.add("cs-hidden");
         }
+        if (syncModeWrap) {
+          syncModeWrap.classList.add("cs-hidden");
+        }
         tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\"><strong>No pending changes.</strong></td></tr>";
         return 0;
       }
 
       if (thead) {
         thead.classList.remove("cs-hidden");
+      }
+      if (syncModeWrap) {
+        syncModeWrap.classList.remove("cs-hidden");
       }
 
       function friendlyReason(raw, actionType, target) {
@@ -546,6 +562,7 @@
     function loadStatus() {
       return fetchJson({ action: "status" }).then(function (res) {
         var google = res.google || {};
+        syncMode = (typeof res.syncMode === "string" && res.syncMode) ? res.syncMode : "both";
         providerConnected = !!google.connected;
         if (providerConnected) {
           setDeviceAuthVisible(false);
@@ -591,6 +608,7 @@
         var connectBtn = byId("csConnectBtn");
         var disconnectBtn = byId("csDisconnectBtn");
         var uploadBtn = byId("csUploadDeviceClientBtn");
+        var syncModeSelect = byId("csSyncModeSelect");
         var googleBadge = byId("csProviderGoogleBadge");
         var outlookBadge = byId("csProviderOutlookBadge");
         connectBtn.dataset.locked = "0";
@@ -599,6 +617,9 @@
         disconnectBtn.disabled = !providerConnected;
         uploadBtn.dataset.locked = providerConnected ? "1" : "0";
         uploadBtn.disabled = providerConnected;
+        if (syncModeSelect) {
+          syncModeSelect.value = syncMode;
+        }
         if (googleBadge) {
           googleBadge.classList.remove("cs-hidden");
         }
@@ -884,6 +905,21 @@
       setButtonsDisabled(true);
       fetchJson({ action: "set_calendar", calendar_id: calendarId })
         .then(function () { return refreshAll(); })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
+    });
+
+    byId("csSyncModeSelect").addEventListener("change", function () {
+      var value = this.value || "both";
+      setButtonsDisabled(true);
+      fetchJson({ action: "set_sync_mode", sync_mode: value })
+        .then(function (res) {
+          if (res && typeof res.syncMode === "string" && res.syncMode) {
+            syncMode = res.syncMode;
+            byId("csSyncModeSelect").value = syncMode;
+          }
+          return refreshAll();
+        })
         .catch(function (err) { setError(err.message); })
         .finally(function () { setButtonsDisabled(false); });
     });
