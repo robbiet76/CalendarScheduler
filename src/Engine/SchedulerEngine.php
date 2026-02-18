@@ -406,38 +406,6 @@ final class SchedulerEngine
             // Use first intent as identity anchor (all share same parent)
             $anchor = $anchorIntents[0];
 
-            // Build subevents in FPP evaluation order: overrides first, base last.
-            // This must not reuse anchor ordering because anchor chooses base-first.
-            $executionIntents = $intentsForParent;
-            usort(
-                $executionIntents,
-                static function (PlannerIntent $a, PlannerIntent $b): int {
-                    $aRole = ($a->role === 'base') ? 1 : 0;
-                    $bRole = ($b->role === 'base') ? 1 : 0;
-                    if ($aRole !== $bRole) {
-                        return $aRole <=> $bRole;
-                    }
-
-                    if ($a->priority !== $b->priority) {
-                        return $b->priority <=> $a->priority;
-                    }
-
-                    $aStart = $a->scope->getStart()->getTimestamp();
-                    $bStart = $b->scope->getStart()->getTimestamp();
-                    if ($aStart !== $bStart) {
-                        return $aStart <=> $bStart;
-                    }
-
-                    $aEnd = $a->scope->getEnd()->getTimestamp();
-                    $bEnd = $b->scope->getEnd()->getTimestamp();
-                    if ($aEnd !== $bEnd) {
-                        return $aEnd <=> $bEnd;
-                    }
-
-                    return strcmp($a->sourceEventUid, $b->sourceEventUid);
-                }
-            );
-
             $payload = is_array($anchor->payload ?? null) ? $anchor->payload : [];
             $derived = $this->deriveTypeAndTargetFromPayload($payload);
             $eventType = $derived['type'];
@@ -445,7 +413,7 @@ final class SchedulerEngine
 
             $subEvents = [];
 
-            foreach ($executionIntents as $plannerIntent) {
+            foreach ($anchorIntents as $plannerIntent) {
                 $scopeStart = $plannerIntent->scope->getStart();
                 $scopeEndExclusive = $plannerIntent->scope->getEnd();
                 $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');

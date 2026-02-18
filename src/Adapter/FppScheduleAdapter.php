@@ -404,8 +404,6 @@ final class FppScheduleAdapter
             'target' => $target,
             'all_day' => (bool)($timing['all_day'] ?? false),
             'days' => $timing['days'] ?? null,
-            'start_time' => $timing['start_time'] ?? null,
-            'end_time' => $timing['end_time'] ?? null,
             'enabled' => $payload['enabled'] ?? true,
             'repeat' => $payload['repeat'] ?? 'none',
             'stopType' => $payload['stopType'] ?? 'graceful',

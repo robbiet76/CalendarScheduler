@@ -108,7 +108,7 @@ final class ApplyRunner
                         );
                     }
 
-                    foreach ($subEvents as $sub) {
+                    foreach ($this->sortSubEventsForFppWrite($subEvents) as $sub) {
                         if (!is_array($sub)) {
                             continue;
                         }
@@ -250,5 +250,94 @@ final class ApplyRunner
 
         $manifest['events'] = $events;
         return $manifest;
+    }
+
+    /**
+     * FPP evaluates schedule rows top-down and executes the first matching row.
+     * Write narrower/more specific subevents first, then wider base coverage last.
+     *
+     * @param array<int,mixed> $subEvents
+     * @return array<int,mixed>
+     */
+    private function sortSubEventsForFppWrite(array $subEvents): array
+    {
+        usort($subEvents, function (mixed $a, mixed $b): int {
+            $aTiming = is_array($a) ? (is_array($a['timing'] ?? null) ? $a['timing'] : []) : [];
+            $bTiming = is_array($b) ? (is_array($b['timing'] ?? null) ? $b['timing'] : []) : [];
+
+            $aSpan = $this->timingSpanDays($aTiming);
+            $bSpan = $this->timingSpanDays($bTiming);
+            if ($aSpan !== $bSpan) {
+                return $aSpan <=> $bSpan;
+            }
+
+            $aStart = $this->timingStartKey($aTiming);
+            $bStart = $this->timingStartKey($bTiming);
+            if ($aStart !== $bStart) {
+                return strcmp($bStart, $aStart);
+            }
+
+            $aHash = is_array($a) && is_string($a['stateHash'] ?? null) ? $a['stateHash'] : '';
+            $bHash = is_array($b) && is_string($b['stateHash'] ?? null) ? $b['stateHash'] : '';
+            return strcmp($aHash, $bHash);
+        });
+
+        return array_values($subEvents);
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     */
+    private function timingSpanDays(array $timing): int
+    {
+        $start = $this->timingDateYmd($timing, 'start_date');
+        $end = $this->timingDateYmd($timing, 'end_date');
+        if ($start === null || $end === null) {
+            return PHP_INT_MAX;
+        }
+
+        $startTs = strtotime($start . ' 00:00:00 UTC');
+        $endTs = strtotime($end . ' 00:00:00 UTC');
+        if (!is_int($startTs) || !is_int($endTs) || $endTs < $startTs) {
+            return PHP_INT_MAX;
+        }
+
+        return (int) floor(($endTs - $startTs) / 86400) + 1;
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     */
+    private function timingStartKey(array $timing): string
+    {
+        $date = $this->timingDateYmd($timing, 'start_date') ?? '0000-00-00';
+        $time = $this->timingTimeHms($timing, 'start_time') ?? '00:00:00';
+        return $date . ' ' . $time;
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     */
+    private function timingDateYmd(array $timing, string $key): ?string
+    {
+        $date = is_array($timing[$key] ?? null) ? $timing[$key] : [];
+        $hard = is_string($date['hard'] ?? null) ? trim($date['hard']) : '';
+        if ($hard !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $hard) === 1) {
+            return $hard;
+        }
+        return null;
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     */
+    private function timingTimeHms(array $timing, string $key): ?string
+    {
+        $time = is_array($timing[$key] ?? null) ? $timing[$key] : [];
+        $hard = is_string($time['hard'] ?? null) ? trim($time['hard']) : '';
+        if ($hard !== '' && preg_match('/^\d{2}:\d{2}:\d{2}$/', $hard) === 1) {
+            return $hard;
+        }
+        return null;
     }
 }
