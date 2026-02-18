@@ -896,9 +896,9 @@ function cs_apply(SchedulerRunResult $result, ?string $syncMode = null): array
 {
     $syncMode = cs_normalize_sync_mode($syncMode ?? cs_get_sync_mode());
     if ($syncMode === CS_SYNC_MODE_CALENDAR) {
-        $targets = [ApplyTargets::FPP];
+        $targets = [ApplyTargets::TARGET_FPP];
     } elseif ($syncMode === CS_SYNC_MODE_FPP) {
-        $targets = [ApplyTargets::CALENDAR];
+        $targets = [ApplyTargets::TARGET_CALENDAR];
     } else {
         $targets = ApplyTargets::all();
     }
