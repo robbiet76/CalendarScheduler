@@ -214,5 +214,16 @@ Defines:
 
 ---
 
+## 19. Regression Test Matrix  
+📄 **File:** `spec/19-regression-test-matrix.md`
+
+Defines:
+- Repeatable scenario list for regression validation
+- Fast daily regression subset
+- Pre/apply/post assertion workflow via CLI runner
+- Artifact capture expectations for debugging
+
+---
+
 ### Next Section to Author
 ➡️ **`spec/03-manifest.md`**
