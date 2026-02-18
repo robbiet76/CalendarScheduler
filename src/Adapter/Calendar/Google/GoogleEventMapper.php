@@ -550,6 +550,7 @@ final class GoogleEventMapper
 
         $subEventHash = $this->deriveSubEventHash($subEvent);
         $executionOrder = $this->extractExecutionOrder($subEvent);
+        $executionOrderManual = $this->extractExecutionOrderManual($subEvent);
         return [
             'summary' => $summary,
             'description' => $description,
@@ -564,6 +565,7 @@ final class GoogleEventMapper
                     $repeat !== '' ? $repeat : null,
                     $stopType !== '' ? $stopType : null,
                     $executionOrder,
+                    $executionOrderManual,
                     is_string($timing['start_time']['symbolic'] ?? null)
                         ? trim((string)$timing['start_time']['symbolic'])
                         : null,
@@ -767,6 +769,7 @@ final class GoogleEventMapper
                     $repeat !== '' ? $repeat : null,
                     $stopType !== '' ? $stopType : null,
                     $this->extractExecutionOrder($subEvent),
+                    $this->extractExecutionOrderManual($subEvent),
                     is_string($timing['start_time']['symbolic'] ?? null)
                         ? trim((string)$timing['start_time']['symbolic'])
                         : null,
@@ -801,6 +804,25 @@ final class GoogleEventMapper
         if (is_string($value) && is_numeric($value)) {
             $n = (int)$value;
             return $n >= 0 ? $n : 0;
+        }
+        return null;
+    }
+
+    /**
+     * @param array<string,mixed> $subEvent
+     */
+    private function extractExecutionOrderManual(array $subEvent): ?bool
+    {
+        $value = $subEvent['executionOrderManual'] ?? null;
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            return $value !== 0;
+        }
+        if (is_string($value)) {
+            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            return is_bool($parsed) ? $parsed : null;
         }
         return null;
     }

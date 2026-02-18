@@ -507,6 +507,7 @@ final class SchedulerEngine
                         'type'   => $eventType,
                         'target' => $eventTarget,
                         'executionOrder' => $globalExecutionRanks[spl_object_id($plannerIntent)] ?? 0,
+                        'executionOrderManual' => $this->extractExecutionOrderManualFromPayload($payload),
                         'timing' => [
                             'all_day'    => $plannerIntent->allDay,
                             'start_date' => [
@@ -960,10 +961,14 @@ final class SchedulerEngine
 
         // Preserve explicit order from provider metadata when present.
         foreach ($intents as $intent) {
+            $payload = is_array($intent->payload ?? null) ? $intent->payload : [];
             $explicit = $this->extractExecutionOrderFromPayload(
-                is_array($intent->payload ?? null) ? $intent->payload : []
+                $payload
             );
-            if ($explicit === null) {
+            if (
+                $explicit === null
+                || !$this->extractExecutionOrderManualFromPayload($payload)
+            ) {
                 $missing[] = $intent;
                 continue;
             }
@@ -1182,6 +1187,26 @@ final class SchedulerEngine
             return $n >= 0 ? $n : 0;
         }
         return null;
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    private function extractExecutionOrderManualFromPayload(array $payload): bool
+    {
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $value = $metadata['executionOrderManual'] ?? null;
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            return $value !== 0;
+        }
+        if (is_string($value)) {
+            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            return $parsed === true;
+        }
+        return false;
     }
 
     /**

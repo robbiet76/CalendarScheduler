@@ -154,6 +154,7 @@ final class IntentNormalizer
                 'payload'  => $statePayload,
                 'behavior' => $stateBehavior,
                 'executionOrder' => $this->normalizeExecutionOrder($rawSubEvent['executionOrder'] ?? null),
+                'executionOrderManual' => $this->normalizeExecutionOrderManual($rawSubEvent['executionOrderManual'] ?? null),
             ];
 
             $stateHashInput = $this->canonicalizeForStateHash($subEvent);
@@ -507,6 +508,21 @@ final class IntentNormalizer
             return $n >= 0 ? $n : 0;
         }
         return 0;
+    }
+
+    private function normalizeExecutionOrderManual(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            return $value !== 0;
+        }
+        if (is_string($value)) {
+            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            return $parsed === true;
+        }
+        return false;
     }
 
     /**

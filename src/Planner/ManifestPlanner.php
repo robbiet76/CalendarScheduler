@@ -148,6 +148,7 @@ final class ManifestPlanner
             $subEvents[] = [
                 'stateHash' => $sub['stateHash'],
                 'executionOrder' => $this->normalizeExecutionOrder($sub['executionOrder'] ?? null),
+                'executionOrderManual' => $this->normalizeExecutionOrderManual($sub['executionOrderManual'] ?? null),
                 'timing'    => $timing,
                 'behavior'  => [
                     'enabled'  => $sub['payload']['enabled'] ?? true,
@@ -218,6 +219,21 @@ final class ManifestPlanner
             return $n >= 0 ? $n : 0;
         }
         return 0;
+    }
+
+    private function normalizeExecutionOrderManual(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            return $value !== 0;
+        }
+        if (is_string($value)) {
+            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            return $parsed === true;
+        }
+        return false;
     }
 
     /**

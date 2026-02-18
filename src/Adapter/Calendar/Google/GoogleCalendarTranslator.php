@@ -409,6 +409,7 @@ final class GoogleCalendarTranslator
                 'provider' => null,
                 'schemaVersion' => null,
                 'executionOrder' => null,
+                'executionOrderManual' => null,
                 'settings' => [],
             ];
         $schedulerMetadata = $this->reconcileSchedulerMetadata(
@@ -635,6 +636,7 @@ final class GoogleCalendarTranslator
             : '';
         $needsFormatRefresh = ($currentFormatVersion !== self::MANAGED_FORMAT_VERSION);
         $executionOrder = $this->normalizeExecutionOrder($metadata['executionOrder'] ?? null);
+        $executionOrderManual = $this->normalizeExecutionOrderManual($metadata['executionOrderManual'] ?? null);
 
         return [
             'manifestEventId' => is_string($metadata['manifestEventId'] ?? null)
@@ -650,6 +652,7 @@ final class GoogleCalendarTranslator
             'formatVersion' => self::MANAGED_FORMAT_VERSION,
             'needsFormatRefresh' => $needsFormatRefresh,
             'executionOrder' => $executionOrder,
+            'executionOrderManual' => $executionOrderManual,
             'settings' => $settings,
         ];
     }
@@ -778,6 +781,21 @@ final class GoogleCalendarTranslator
         if (is_string($value) && is_numeric($value)) {
             $n = (int)$value;
             return $n >= 0 ? $n : 0;
+        }
+        return null;
+    }
+
+    private function normalizeExecutionOrderManual(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            return $value !== 0;
+        }
+        if (is_string($value)) {
+            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            return is_bool($parsed) ? $parsed : null;
         }
         return null;
     }

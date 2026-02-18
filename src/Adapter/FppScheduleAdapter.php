@@ -339,6 +339,7 @@ final class FppScheduleAdapter
                 'payload' => $payload,
                 'behavior' => $behavior,
                 'executionOrder' => is_int($executionOrder) && $executionOrder >= 0 ? $executionOrder : 0,
+                'executionOrderManual' => true,
             ]],
             'ownership' => [
                 'managed'    => true,

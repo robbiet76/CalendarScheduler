@@ -30,6 +30,7 @@ final class GoogleEventMetadataSchema
     public const KEY_REPEAT = 'cs.repeat';
     public const KEY_STOP_TYPE = 'cs.stopType';
     public const KEY_EXECUTION_ORDER = 'cs.executionOrder';
+    public const KEY_EXECUTION_ORDER_MANUAL = 'cs.executionOrderManual';
     public const KEY_SYMBOLIC_START = 'cs.symbolicStart';
     public const KEY_SYMBOLIC_START_OFFSET = 'cs.symbolicStartOffset';
     public const KEY_SYMBOLIC_END = 'cs.symbolicEnd';
@@ -55,6 +56,7 @@ final class GoogleEventMetadataSchema
         ?string $repeat = null,
         ?string $stopType = null,
         ?int $executionOrder = null,
+        ?bool $executionOrderManual = null,
         ?string $symbolicStart = null,
         ?int $symbolicStartOffset = null,
         ?string $symbolicEnd = null,
@@ -84,6 +86,9 @@ final class GoogleEventMetadataSchema
         }
         if (is_int($executionOrder) && $executionOrder >= 0) {
             $out[self::KEY_EXECUTION_ORDER] = (string)$executionOrder;
+        }
+        if (is_bool($executionOrderManual)) {
+            $out[self::KEY_EXECUTION_ORDER_MANUAL] = $executionOrderManual ? 'true' : 'false';
         }
         if (is_string($symbolicStart) && trim($symbolicStart) !== '') {
             $out[self::KEY_SYMBOLIC_START] = trim($symbolicStart);
@@ -132,6 +137,7 @@ final class GoogleEventMetadataSchema
         }
 
         $executionOrder = self::readInt($private, self::KEY_EXECUTION_ORDER);
+        $executionOrderManual = self::readBool($private, self::KEY_EXECUTION_ORDER_MANUAL);
 
         $symbolicStart = self::readString($private, self::KEY_SYMBOLIC_START);
         if ($symbolicStart !== null) {
@@ -152,6 +158,7 @@ final class GoogleEventMetadataSchema
             'schemaVersion' => $schemaVersion,
             'formatVersion' => $formatVersion,
             'executionOrder' => $executionOrder,
+            'executionOrderManual' => $executionOrderManual,
             'settings' => $settings,
         ];
     }
@@ -171,6 +178,7 @@ final class GoogleEventMetadataSchema
                 'schemaVersion' => null,
                 'formatVersion' => null,
                 'executionOrder' => null,
+                'executionOrderManual' => null,
                 'settings' => [],
             ];
         }
