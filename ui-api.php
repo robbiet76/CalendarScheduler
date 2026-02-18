@@ -415,6 +415,33 @@ function cs_set_sync_mode(string $mode): void
     cs_write_google_config_json($config);
 }
 
+function cs_get_ui_pref_bool(string $key, bool $default = false): bool
+{
+    $config = cs_read_google_config_json();
+    $ui = is_array($config['ui'] ?? null) ? $config['ui'] : [];
+    $value = $ui[$key] ?? null;
+    if (is_bool($value)) {
+        return $value;
+    }
+    if (is_int($value)) {
+        return $value !== 0;
+    }
+    if (is_string($value)) {
+        $v = strtolower(trim($value));
+        return in_array($v, ['1', 'true', 'yes', 'on'], true);
+    }
+    return $default;
+}
+
+function cs_set_ui_pref_bool(string $key, bool $value): void
+{
+    $config = cs_read_google_config_json();
+    $ui = is_array($config['ui'] ?? null) ? $config['ui'] : [];
+    $ui[$key] = $value;
+    $config['ui'] = $ui;
+    cs_write_google_config_json($config);
+}
+
 function cs_bootstrap_google_config_if_missing(): bool
 {
     // Auto-bootstrap first-run config so UI setup can be completed without SSH.
@@ -951,6 +978,9 @@ try {
             'provider' => 'google',
             'google' => cs_google_status(),
             'syncMode' => cs_get_sync_mode(),
+            'ui' => [
+                'connectionCollapsed' => cs_get_ui_pref_bool('connection_collapsed', false),
+            ],
         ]);
     }
 
@@ -973,6 +1003,28 @@ try {
             'ok' => true,
             'syncMode' => cs_get_sync_mode(),
         ]);
+    }
+
+    if ($action === 'set_ui_pref') {
+        $key = $input['key'] ?? '';
+        if (!is_string($key) || trim($key) === '') {
+            cs_respond(['ok' => false, 'error' => 'key is required'], 422);
+        }
+        $key = trim($key);
+        if ($key !== 'connection_collapsed') {
+            cs_respond(['ok' => false, 'error' => 'unsupported key'], 422);
+        }
+        $rawValue = $input['value'] ?? false;
+        $value = false;
+        if (is_bool($rawValue)) {
+            $value = $rawValue;
+        } elseif (is_int($rawValue)) {
+            $value = $rawValue !== 0;
+        } elseif (is_string($rawValue)) {
+            $value = in_array(strtolower(trim($rawValue)), ['1', 'true', 'yes', 'on'], true);
+        }
+        cs_set_ui_pref_bool($key, $value);
+        cs_respond(['ok' => true]);
     }
 
     if ($action === 'auth_device_start') {

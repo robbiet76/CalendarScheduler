@@ -289,7 +289,7 @@
     var deviceAuthDeadlineEpoch = 0;
     var syncMode = "both";
     var connectionCollapsed = false;
-    var connectionCollapseStorageKey = "cs.connection.collapsed";
+    var connectionCollapsedLoaded = false;
     var applyConfirmArmed = false;
     var applyConfirmTimer = null;
 
@@ -383,19 +383,6 @@
       connectionCollapsed = !!collapsed;
       body.classList.toggle("cs-hidden", connectionCollapsed);
       btn.textContent = connectionCollapsed ? "Expand" : "Collapse";
-      try {
-        window.localStorage.setItem(connectionCollapseStorageKey, connectionCollapsed ? "1" : "0");
-      } catch (e) {
-        // Ignore storage failures; UI still updates for this session.
-      }
-    }
-
-    function loadConnectionCollapsedPreference() {
-      try {
-        return window.localStorage.getItem(connectionCollapseStorageKey) === "1";
-      } catch (e) {
-        return false;
-      }
     }
 
     function updateTopStatusCompact() {
@@ -665,6 +652,11 @@
         var google = res.google || {};
         syncMode = (typeof res.syncMode === "string" && res.syncMode) ? res.syncMode : "both";
         providerConnected = !!google.connected;
+        if (!connectionCollapsedLoaded) {
+          var uiPrefs = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
+          setConnectionCollapsed(!!uiPrefs.connectionCollapsed);
+          connectionCollapsedLoaded = true;
+        }
         if (providerConnected) {
           setDeviceAuthVisible(false);
           clearDeviceAuthPoll();
@@ -890,6 +882,13 @@
 
     byId("csConnectionToggleBtn").addEventListener("click", function () {
       setConnectionCollapsed(!connectionCollapsed);
+      fetchJson({
+        action: "set_ui_pref",
+        key: "connection_collapsed",
+        value: connectionCollapsed
+      }).catch(function () {
+        // Keep local state even if pref persistence fails.
+      });
     });
 
     byId("csDisconnectBtn").addEventListener("click", function () {
@@ -1059,7 +1058,6 @@
 
     updateTopStatusAnchor();
     updateTopStatusCompact();
-    setConnectionCollapsed(loadConnectionCollapsedPreference());
     refreshAll();
   }());
 </script>
