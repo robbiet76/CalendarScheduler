@@ -89,7 +89,7 @@ final class ApplyRunner
                     $targetEvents = [];
                 }
 
-                $scheduleEntries = [];
+                $singleEvents = [];
                 foreach ($targetEvents as $event) {
                     if (!is_array($event)) {
                         continue;
@@ -139,8 +139,13 @@ final class ApplyRunner
                             'source'       => 'manifest',
                         ];
 
-                        $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($single);
+                        $singleEvents[] = $single;
                     }
+                }
+
+                $scheduleEntries = [];
+                foreach ($this->sortSingleEventsForFppWrite($singleEvents) as $single) {
+                    $scheduleEntries[] = $this->fppAdapter->toScheduleEntry($single);
                 }
 
                 // ALWAYS write staged schedule (even in plan/dry-run)
@@ -289,6 +294,57 @@ final class ApplyRunner
         });
 
         return array_values($subEvents);
+    }
+
+    /**
+     * Sort flattened single-subevent manifest rows by global execution order.
+     *
+     * @param array<int,array<string,mixed>> $singleEvents
+     * @return array<int,array<string,mixed>>
+     */
+    private function sortSingleEventsForFppWrite(array $singleEvents): array
+    {
+        usort($singleEvents, function (array $a, array $b): int {
+            $aSub = (is_array($a['subEvents'] ?? null) && isset($a['subEvents'][0]) && is_array($a['subEvents'][0]))
+                ? $a['subEvents'][0]
+                : [];
+            $bSub = (is_array($b['subEvents'] ?? null) && isset($b['subEvents'][0]) && is_array($b['subEvents'][0]))
+                ? $b['subEvents'][0]
+                : [];
+
+            $aOrder = $this->subEventExecutionOrder($aSub);
+            $bOrder = $this->subEventExecutionOrder($bSub);
+            if ($aOrder !== null && $bOrder !== null && $aOrder !== $bOrder) {
+                return $aOrder <=> $bOrder;
+            }
+            if ($aOrder !== null && $bOrder === null) {
+                return -1;
+            }
+            if ($aOrder === null && $bOrder !== null) {
+                return 1;
+            }
+
+            $aTiming = is_array($aSub['timing'] ?? null) ? $aSub['timing'] : [];
+            $bTiming = is_array($bSub['timing'] ?? null) ? $bSub['timing'] : [];
+
+            $aStart = $this->timingStartKey($aTiming);
+            $bStart = $this->timingStartKey($bTiming);
+            if ($aStart !== $bStart) {
+                return strcmp($aStart, $bStart);
+            }
+
+            $aSpan = $this->timingSpanDays($aTiming);
+            $bSpan = $this->timingSpanDays($bTiming);
+            if ($aSpan !== $bSpan) {
+                return $aSpan <=> $bSpan;
+            }
+
+            $aId = is_string($a['identityHash'] ?? null) ? $a['identityHash'] : '';
+            $bId = is_string($b['identityHash'] ?? null) ? $b['identityHash'] : '';
+            return strcmp($aId, $bId);
+        });
+
+        return array_values($singleEvents);
     }
 
     private function subEventExecutionOrder(mixed $subEvent): ?int

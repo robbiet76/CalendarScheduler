@@ -372,6 +372,7 @@ final class SchedulerEngine
 
             $groupedByParent[$parentUid][] = $plannerIntent;
         }
+        $globalExecutionRanks = $this->computeExecutionOrderRanks($plannerIntents);
 
         foreach ($groupedByParent as $parentUid => $intentsForParent) {
             $anchorIntents = $intentsForParent;
@@ -433,11 +434,10 @@ final class SchedulerEngine
                 $anchor = $bucketIntents[0];
                 $anchorPayload = is_array($anchor->payload ?? null) ? $anchor->payload : [];
                 $subEvents = [];
-                $executionRanks = $this->computeExecutionOrderRanks($bucketIntents);
                 $orderedBucketIntents = $bucketIntents;
-                usort($orderedBucketIntents, function (PlannerIntent $a, PlannerIntent $b) use ($executionRanks): int {
-                    $aRank = $executionRanks[spl_object_id($a)] ?? PHP_INT_MAX;
-                    $bRank = $executionRanks[spl_object_id($b)] ?? PHP_INT_MAX;
+                usort($orderedBucketIntents, function (PlannerIntent $a, PlannerIntent $b) use ($globalExecutionRanks): int {
+                    $aRank = $globalExecutionRanks[spl_object_id($a)] ?? PHP_INT_MAX;
+                    $bRank = $globalExecutionRanks[spl_object_id($b)] ?? PHP_INT_MAX;
                     if ($aRank !== $bRank) {
                         return $aRank <=> $bRank;
                     }
@@ -506,8 +506,7 @@ final class SchedulerEngine
                     $subEvents[] = [
                         'type'   => $eventType,
                         'target' => $eventTarget,
-                        'executionOrder' => $this->extractExecutionOrderFromPayload($payload)
-                            ?? ($executionRanks[spl_object_id($plannerIntent)] ?? 0),
+                        'executionOrder' => $globalExecutionRanks[spl_object_id($plannerIntent)] ?? 0,
                         'timing' => [
                             'all_day'    => $plannerIntent->allDay,
                             'start_date' => [
