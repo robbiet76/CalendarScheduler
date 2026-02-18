@@ -163,6 +163,12 @@ Run at least:
 ## Full Regression Gate (Before Release)
 Run all RR-01 through RR-25.
 
+Automated command:
+
+```bash
+php bin/cs-full-regression --label=release-gate --skip-live
+```
+
 ## Execution Workflow
 1. Prepare scenario in calendar/FPP.
 2. Run:
@@ -184,4 +190,3 @@ When a case fails, classify as:
 - `TOMBSTONE`: delete propagation mismatch
 
 This classification is required for triage and prevents ambiguous bug reports.
-
