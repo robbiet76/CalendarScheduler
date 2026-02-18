@@ -157,13 +157,16 @@ final class ManifestPlanner
             ];
         }
 
-        // Aggregate event-level stateHash deterministically
+        // Aggregate event-level stateHash deterministically.
+        // Order of subevents may differ across equivalent provider ingests.
+        $subStateHashes = array_map(
+            static fn(array $s) => (string)($s['stateHash'] ?? ''),
+            $subEvents
+        );
+        sort($subStateHashes, SORT_STRING);
         $eventStateHash = hash(
             'sha256',
-            implode('|', array_map(
-                static fn(array $s) => $s['stateHash'],
-                $subEvents
-            ))
+            implode('|', $subStateHashes)
         );
 
         // Invariants
