@@ -385,6 +385,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
 
         // Build normalized override records keyed by day
         $rows = [];
+        [$baseStartTod, $baseEndTod] = $this->extractEventTimeOfDay($event);
         foreach ($overrides as $override) {
             $anchor = null;
             if (isset($override->originalStartTime['dateTime'])) {
@@ -400,8 +401,12 @@ final class ResolutionEngine implements ResolutionEngineInterface
 
             // NOTE: Do not interpret start/end times here.
             // Symbolic time is carried in payload and resolved by FPP at execution.
+            $overrideStart = is_array($override->start ?? null) ? $override->start : [];
+            $overrideEnd = is_array($override->end ?? null) ? $override->end : [];
             $rows[] = [
                 'day' => $day,
+                'startTod' => $this->extractTimeOfDayFromDateTimeArray($overrideStart, $baseStartTod, $tz),
+                'endTod' => $this->extractTimeOfDayFromDateTimeArray($overrideEnd, $baseEndTod, $tz),
                 'payload' => $override->payload,
                 'enabled' => $override->enabled ?? true,
                 'stopType' => $override->stopType ?? null,
@@ -422,6 +427,8 @@ final class ResolutionEngine implements ResolutionEngineInterface
 
             // NOTE: Do not compare derived hard times. Payload must carry any symbolic-time intent.
             $sameGeometry = (
+                $row['startTod'] == $current['startTod'] &&
+                $row['endTod'] == $current['endTod'] &&
                 $row['enabled'] === $current['enabled'] &&
                 $row['stopType'] === $current['stopType'] &&
                 $row['payload'] == $current['payload']
@@ -504,7 +511,22 @@ final class ResolutionEngine implements ResolutionEngineInterface
     ): array {
         $tz = $event->timezone ? new \DateTimeZone($event->timezone) : $scope->getStart()->getTimezone();
         [$st, $et] = $this->extractEventTimeOfDay($event);
+        return $this->executionWindowFromScopeWithTimeOfDay($scope, $tz, $st, $et);
+    }
 
+    /**
+     * Apply explicit time-of-day geometry to a date-only [start,end) scope.
+     *
+     * @param array{h:int,m:int,s:int} $st
+     * @param array{h:int,m:int,s:int} $et
+     * @return array{0:\DateTimeImmutable,1:\DateTimeImmutable}
+     */
+    private function executionWindowFromScopeWithTimeOfDay(
+        ResolutionScope $scope,
+        \DateTimeZone $tz,
+        array $st,
+        array $et
+    ): array {
         $scopeStart = $scope->getStart()->setTimezone($tz);
         $scopeEnd   = $scope->getEnd()->setTimezone($tz); // exclusive
 
@@ -522,6 +544,40 @@ final class ResolutionEngine implements ResolutionEngineInterface
         }
 
         return [$execStart, $execEnd];
+    }
+
+    /**
+     * Parse override/base start/end arrays into H:M:S geometry.
+     *
+     * @param array<string,mixed> $dt
+     * @param array{h:int,m:int,s:int} $fallback
+     * @return array{h:int,m:int,s:int}
+     */
+    private function extractTimeOfDayFromDateTimeArray(
+        array $dt,
+        array $fallback,
+        \DateTimeZone $fallbackTz
+    ): array {
+        if (isset($dt['dateTime']) && is_string($dt['dateTime']) && trim($dt['dateTime']) !== '') {
+            $parsed = $this->parseCalendarDateTime(trim($dt['dateTime']), $fallbackTz);
+            return [
+                'h' => (int)$parsed->format('H'),
+                'm' => (int)$parsed->format('i'),
+                's' => (int)$parsed->format('s'),
+            ];
+        }
+
+        if (isset($dt['time']) && is_string($dt['time']) && trim($dt['time']) !== '') {
+            $t = substr(trim($dt['time']), 0, 8);
+            $parts = explode(':', $t);
+            return [
+                'h' => isset($parts[0]) ? (int)$parts[0] : 0,
+                'm' => isset($parts[1]) ? (int)$parts[1] : 0,
+                's' => isset($parts[2]) ? (int)$parts[2] : 0,
+            ];
+        }
+
+        return $fallback;
     }
 
     /**
@@ -613,8 +669,16 @@ final class ResolutionEngine implements ResolutionEngineInterface
         $scope = new ResolutionScope($dayStart, $dayEndExclusive);
 
         // Execution start/end MUST preserve time-of-day when available.
-        // Scope stays date-based; execution window derives from event time-of-day.
-        [$execStart, $execEnd] = $this->executionWindowFromScope($event, $scope);
+        // Scope stays date-based; use override-specific geometry when provided.
+        $tz = $event->timezone ? new \DateTimeZone($event->timezone) : $scope->getStart()->getTimezone();
+        [$baseStartTod, $baseEndTod] = $this->extractEventTimeOfDay($event);
+        $startTod = (is_array($row['startTod'] ?? null) && isset($row['startTod']['h'], $row['startTod']['m'], $row['startTod']['s']))
+            ? $row['startTod']
+            : $baseStartTod;
+        $endTod = (is_array($row['endTod'] ?? null) && isset($row['endTod']['h'], $row['endTod']['m'], $row['endTod']['s']))
+            ? $row['endTod']
+            : $baseEndTod;
+        [$execStart, $execEnd] = $this->executionWindowFromScopeWithTimeOfDay($scope, $tz, $startTod, $endTod);
 
         return new ResolvedSubevent(
             bundleUid: $bundleUid,

@@ -374,8 +374,9 @@ final class SchedulerEngine
         }
 
         foreach ($groupedByParent as $parentUid => $intentsForParent) {
+            $anchorIntents = $intentsForParent;
             usort(
-                $intentsForParent,
+                $anchorIntents,
                 /**
                  * Stable anchor selection: earliest scope wins, then shortest scope,
                  * then base before override. This keeps recurring identity anchored
@@ -403,7 +404,39 @@ final class SchedulerEngine
             );
 
             // Use first intent as identity anchor (all share same parent)
-            $anchor = $intentsForParent[0];
+            $anchor = $anchorIntents[0];
+
+            // Build subevents in FPP evaluation order: overrides first, base last.
+            // This must not reuse anchor ordering because anchor chooses base-first.
+            $executionIntents = $intentsForParent;
+            usort(
+                $executionIntents,
+                static function (PlannerIntent $a, PlannerIntent $b): int {
+                    $aRole = ($a->role === 'base') ? 1 : 0;
+                    $bRole = ($b->role === 'base') ? 1 : 0;
+                    if ($aRole !== $bRole) {
+                        return $aRole <=> $bRole;
+                    }
+
+                    if ($a->priority !== $b->priority) {
+                        return $b->priority <=> $a->priority;
+                    }
+
+                    $aStart = $a->scope->getStart()->getTimestamp();
+                    $bStart = $b->scope->getStart()->getTimestamp();
+                    if ($aStart !== $bStart) {
+                        return $aStart <=> $bStart;
+                    }
+
+                    $aEnd = $a->scope->getEnd()->getTimestamp();
+                    $bEnd = $b->scope->getEnd()->getTimestamp();
+                    if ($aEnd !== $bEnd) {
+                        return $aEnd <=> $bEnd;
+                    }
+
+                    return strcmp($a->sourceEventUid, $b->sourceEventUid);
+                }
+            );
 
             $payload = is_array($anchor->payload ?? null) ? $anchor->payload : [];
             $derived = $this->deriveTypeAndTargetFromPayload($payload);
@@ -412,7 +445,7 @@ final class SchedulerEngine
 
             $subEvents = [];
 
-            foreach ($intentsForParent as $plannerIntent) {
+            foreach ($executionIntents as $plannerIntent) {
                 $scopeStart = $plannerIntent->scope->getStart();
                 $scopeEndExclusive = $plannerIntent->scope->getEnd();
                 $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');
@@ -438,12 +471,38 @@ final class SchedulerEngine
                 $stopType = $settings['stoptype'] ?? null;
 
                 // Symbolic time extraction from reconciled metadata settings.
-                $startSymbolic = isset($settings['start']) && is_string($settings['start'])
-                    ? trim($settings['start'])
+                $startSetting = isset($settings['start']) && is_string($settings['start'])
+                    ? trim((string)$settings['start'])
                     : null;
-                $endSymbolic = isset($settings['end']) && is_string($settings['end'])
-                    ? trim($settings['end'])
+                $endSetting = isset($settings['end']) && is_string($settings['end'])
+                    ? trim((string)$settings['end'])
                     : null;
+
+                $startSymbolic = null;
+                $endSymbolic = null;
+                $startHardOverride = null;
+                $endHardOverride = null;
+
+                if (is_string($startSetting) && $startSetting !== '') {
+                    $normalized = FPPSemantics::normalizeSymbolicTimeToken($startSetting);
+                    if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
+                        $startSymbolic = $normalized;
+                    } elseif (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $startSetting) === 1) {
+                        $startHardOverride = strlen($startSetting) === 5
+                            ? $startSetting . ':00'
+                            : $startSetting;
+                    }
+                }
+                if (is_string($endSetting) && $endSetting !== '') {
+                    $normalized = FPPSemantics::normalizeSymbolicTimeToken($endSetting);
+                    if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
+                        $endSymbolic = $normalized;
+                    } elseif (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $endSetting) === 1) {
+                        $endHardOverride = strlen($endSetting) === 5
+                            ? $endSetting . ':00'
+                            : $endSetting;
+                    }
+                }
 
                 $subEvents[] = [
                     'type'   => $eventType,
@@ -468,11 +527,17 @@ final class SchedulerEngine
                                     ? (int)$settings['start_offset']
                                     : 0,
                             ]
+                            : (($startHardOverride !== null && $startHardOverride !== '')
+                                ? [
+                                    'hard'     => $startHardOverride,
+                                    'symbolic' => null,
+                                    'offset'   => 0,
+                                ]
                             : [
                                 'hard'     => $plannerIntent->start->format('H:i:s'),
                                 'symbolic' => null,
                                 'offset'   => 0,
-                            ],
+                            ]),
                         'end_time' => ($endSymbolic !== null && $endSymbolic !== '')
                             ? [
                                 'hard'     => null,
@@ -481,11 +546,17 @@ final class SchedulerEngine
                                     ? (int)$settings['end_offset']
                                     : 0,
                             ]
+                            : (($endHardOverride !== null && $endHardOverride !== '')
+                                ? [
+                                    'hard'     => $endHardOverride,
+                                    'symbolic' => null,
+                                    'offset'   => 0,
+                                ]
                             : [
                                 'hard'     => $plannerIntent->end->format('H:i:s'),
                                 'symbolic' => null,
                                 'offset'   => 0,
-                            ],
+                            ]),
                         'days' => (
                             is_array($plannerIntent->weeklyDays ?? null)
                             && $plannerIntent->weeklyDays !== []
