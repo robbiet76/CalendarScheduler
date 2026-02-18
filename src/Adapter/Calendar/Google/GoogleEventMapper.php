@@ -91,7 +91,7 @@ final class GoogleEventMapper
     /**
      * CREATE semantics
      *
-     * Default: one Google event per SubEvent.
+     * One Google event per SubEvent.
      *
      * @param ReconciliationAction $action
      * @param array<int, array<string,mixed>> $subEvents
@@ -100,11 +100,6 @@ final class GoogleEventMapper
      */
     private function mapCreate(ReconciliationAction $action, array $subEvents, string $calendarId): array
     {
-        $bundleMutations = $this->mapCreateBundleWithExDates($action, $subEvents, $calendarId);
-        if ($bundleMutations !== null) {
-            return $bundleMutations;
-        }
-
         $mutations = [];
 
         foreach ($subEvents as $subEvent) {
@@ -554,6 +549,7 @@ final class GoogleEventMapper
         );
 
         $subEventHash = $this->deriveSubEventHash($subEvent);
+        $executionOrder = $this->extractExecutionOrder($subEvent);
         return [
             'summary' => $summary,
             'description' => $description,
@@ -567,6 +563,7 @@ final class GoogleEventMapper
                     $enabled,
                     $repeat !== '' ? $repeat : null,
                     $stopType !== '' ? $stopType : null,
+                    $executionOrder,
                     is_string($timing['start_time']['symbolic'] ?? null)
                         ? trim((string)$timing['start_time']['symbolic'])
                         : null,
@@ -769,6 +766,7 @@ final class GoogleEventMapper
                     $enabled,
                     $repeat !== '' ? $repeat : null,
                     $stopType !== '' ? $stopType : null,
+                    $this->extractExecutionOrder($subEvent),
                     is_string($timing['start_time']['symbolic'] ?? null)
                         ? trim((string)$timing['start_time']['symbolic'])
                         : null,
@@ -789,6 +787,22 @@ final class GoogleEventMapper
         }
 
         return $payload;
+    }
+
+    /**
+     * @param array<string,mixed> $subEvent
+     */
+    private function extractExecutionOrder(array $subEvent): ?int
+    {
+        $value = $subEvent['executionOrder'] ?? null;
+        if (is_int($value)) {
+            return $value >= 0 ? $value : 0;
+        }
+        if (is_string($value) && is_numeric($value)) {
+            $n = (int)$value;
+            return $n >= 0 ? $n : 0;
+        }
+        return null;
     }
 
     private function composeManagedDescription(

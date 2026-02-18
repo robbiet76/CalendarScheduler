@@ -29,6 +29,7 @@ final class GoogleEventMetadataSchema
     public const KEY_ENABLED = 'cs.enabled';
     public const KEY_REPEAT = 'cs.repeat';
     public const KEY_STOP_TYPE = 'cs.stopType';
+    public const KEY_EXECUTION_ORDER = 'cs.executionOrder';
     public const KEY_SYMBOLIC_START = 'cs.symbolicStart';
     public const KEY_SYMBOLIC_START_OFFSET = 'cs.symbolicStartOffset';
     public const KEY_SYMBOLIC_END = 'cs.symbolicEnd';
@@ -53,6 +54,7 @@ final class GoogleEventMetadataSchema
         ?bool $enabled = null,
         ?string $repeat = null,
         ?string $stopType = null,
+        ?int $executionOrder = null,
         ?string $symbolicStart = null,
         ?int $symbolicStartOffset = null,
         ?string $symbolicEnd = null,
@@ -79,6 +81,9 @@ final class GoogleEventMetadataSchema
         }
         if (is_string($stopType) && trim($stopType) !== '') {
             $out[self::KEY_STOP_TYPE] = trim($stopType);
+        }
+        if (is_int($executionOrder) && $executionOrder >= 0) {
+            $out[self::KEY_EXECUTION_ORDER] = (string)$executionOrder;
         }
         if (is_string($symbolicStart) && trim($symbolicStart) !== '') {
             $out[self::KEY_SYMBOLIC_START] = trim($symbolicStart);
@@ -126,6 +131,8 @@ final class GoogleEventMetadataSchema
             $settings['stopType'] = $stopType;
         }
 
+        $executionOrder = self::readInt($private, self::KEY_EXECUTION_ORDER);
+
         $symbolicStart = self::readString($private, self::KEY_SYMBOLIC_START);
         if ($symbolicStart !== null) {
             $settings['start'] = $symbolicStart;
@@ -144,6 +151,7 @@ final class GoogleEventMetadataSchema
             'provider' => $provider,
             'schemaVersion' => $schemaVersion,
             'formatVersion' => $formatVersion,
+            'executionOrder' => $executionOrder,
             'settings' => $settings,
         ];
     }
@@ -162,6 +170,7 @@ final class GoogleEventMetadataSchema
                 'provider' => null,
                 'schemaVersion' => null,
                 'formatVersion' => null,
+                'executionOrder' => null,
                 'settings' => [],
             ];
         }

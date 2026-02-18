@@ -408,6 +408,7 @@ final class GoogleCalendarTranslator
                 'subEventHash' => null,
                 'provider' => null,
                 'schemaVersion' => null,
+                'executionOrder' => null,
                 'settings' => [],
             ];
         $schedulerMetadata = $this->reconcileSchedulerMetadata(
@@ -633,6 +634,7 @@ final class GoogleCalendarTranslator
             ? trim((string)$metadata['formatVersion'])
             : '';
         $needsFormatRefresh = ($currentFormatVersion !== self::MANAGED_FORMAT_VERSION);
+        $executionOrder = $this->normalizeExecutionOrder($metadata['executionOrder'] ?? null);
 
         return [
             'manifestEventId' => is_string($metadata['manifestEventId'] ?? null)
@@ -647,6 +649,7 @@ final class GoogleCalendarTranslator
             'schemaVersion' => GoogleEventMetadataSchema::VERSION,
             'formatVersion' => self::MANAGED_FORMAT_VERSION,
             'needsFormatRefresh' => $needsFormatRefresh,
+            'executionOrder' => $executionOrder,
             'settings' => $settings,
         ];
     }
@@ -765,6 +768,18 @@ final class GoogleCalendarTranslator
             'graceful loop' => 'graceful_loop',
             default => 'graceful',
         };
+    }
+
+    private function normalizeExecutionOrder(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value >= 0 ? $value : 0;
+        }
+        if (is_string($value) && is_numeric($value)) {
+            $n = (int)$value;
+            return $n >= 0 ? $n : 0;
+        }
+        return null;
     }
 
     private function resolveLocalTimezone(): DateTimeZone

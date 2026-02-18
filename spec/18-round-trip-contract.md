@@ -1,11 +1,12 @@
 # 18) Round-Trip Contract (FPP <-> Calendar)
 
 ## Goal
-1. Calendar must represent what FPP will actually execute.
+1. Calendar must represent full scheduling intent, including overlapping entries.
 2. Sync must be reversible in both directions:
    1. `FPP -> Calendar -> FPP`
    2. `Calendar -> FPP -> Calendar`
-3. After a successful apply, a second pass must converge to `noop`.
+3. Runtime winner/execution behavior is computed from FPP top-down order and shown as derived state (not persisted by deleting/suppressing calendar intent).
+4. After a successful apply, a second pass must converge to `noop`.
 
 ## Canonical Subevent Model
 Each canonical subevent must carry:
@@ -21,12 +22,14 @@ Additional invariants:
 1. `executionOrder` is absolute scheduler order (`0` = highest priority).
 2. Interval math uses half-open windows (`[start, end)`).
 3. Symbolic timing/date tokens remain canonical-first for identity matching.
+4. Calendar may carry `executionOrder` metadata, but calendar edits are not treated as an authority to reorder FPP.
 
 ## Hash Contract
 1. `identityHash` includes only stable logical identity.
 2. `identityHash` excludes mutable execution state (`executionOrder`, timestamps, provider IDs).
 3. `stateHash` includes executable state, including `executionOrder`.
-4. Reorder-only changes MUST produce a state diff (`update`).
+4. Reorder-only changes originating from FPP MUST produce a state diff (`update`).
+5. Calendar-side timing/target/behavior edits may change state, but calendar-side reorder attempts are ignored unless an explicit reorder capability is added in a future version.
 
 ## Calendar Metadata Contract
 Calendar-side private metadata must persist round-trip fields:
@@ -42,29 +45,28 @@ This metadata is authoritative for rebuilding FPP ordering and bundle semantics 
 ## FPP -> Calendar Rules
 1. Preserve FPP order into `cs_execution_order`.
 2. Group related rows into bundle context.
-3. Evaluate overlap by date and time window using `executionOrder`.
-4. Suppress lower-priority coverage only when fully shadowed by higher-priority coverage on that day.
-5. Keep both when overlap is partial.
-6. Treat boundary-touch (`end == next start`) as non-overlap.
-7. Write metadata needed for full reverse reconstruction.
+3. Write all subevents as calendar intent, even when overlapping.
+4. Do not suppress lower-priority rows using EXDATE or equivalent shadow-pruning.
+5. Overlap is valid and expected (including symbolic-time handoff patterns).
+6. Write metadata needed for full reverse reconstruction.
 
 ## Calendar -> FPP Rules
 1. Rebuild bundles from persisted metadata first.
-2. Rebuild row ordering from `cs_execution_order`.
+2. Preserve existing FPP row ordering as authoritative.
 3. If metadata is missing, use deterministic fallback ordering and mark degraded fidelity.
-4. Apply the same overlap/shadow model used in forward direction.
-5. Emit FPP rows in final execution order.
+4. Do not infer or force calendar-side reorder as FPP reorder.
+5. Emit FPP rows in stable final execution order while preserving overlaps.
 
 ## Reconciliation Rules
-1. Order changes are state changes.
-2. Shadow/exclusion outcomes are state changes.
+1. FPP order changes are state changes.
+2. Shadow/winner status is derived runtime interpretation and not a calendar mutation target.
 3. Two-way mode applies authority/timestamp only after identity match.
 4. One-way modes still preserve metadata for reversibility.
 
 ## Acceptance Criteria
 1. `FPP -> Calendar -> FPP` reproduces equivalent rows (type/target/timing/behavior/order).
-2. `Calendar -> FPP -> Calendar` reproduces equivalent events (including exclusions/overrides/metadata).
-3. Reorder-only edits show pending updates and apply cleanly.
-4. Full containment correctly suppresses lower-priority execution on affected day(s).
-5. Partial overlaps do not suppress both windows.
+2. `Calendar -> FPP -> Calendar` reproduces equivalent events (including overlaps/overrides/metadata).
+3. Overlapping entries remain present on calendar after sync (no shadow-pruning).
+4. Reorder-only edits on FPP show pending updates and apply cleanly.
+5. Symbolic-time overlap handoff scenarios round-trip without losing entries.
 6. Post-apply second sync is `noop`.

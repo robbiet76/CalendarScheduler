@@ -497,7 +497,8 @@ final class SchedulerEngine
                     $subEvents[] = [
                         'type'   => $eventType,
                         'target' => $eventTarget,
-                        'executionOrder' => $executionRanks[spl_object_id($plannerIntent)] ?? 0,
+                        'executionOrder' => $this->extractExecutionOrderFromPayload($payload)
+                            ?? ($executionRanks[spl_object_id($plannerIntent)] ?? 0),
                         'timing' => [
                             'all_day'    => $plannerIntent->allDay,
                             'start_date' => [
@@ -945,38 +946,177 @@ final class SchedulerEngine
             return [];
         }
 
-        $ordered = $intents;
-        usort(
-            $ordered,
-            static function (PlannerIntent $a, PlannerIntent $b): int {
-                // Resolution priority is descending (higher priority executes first).
-                if ($a->priority !== $b->priority) {
-                    return $b->priority <=> $a->priority;
-                }
-
-                // Stable tie-breakers to keep deterministic output.
-                $aStart = $a->scope->getStart()->getTimestamp();
-                $bStart = $b->scope->getStart()->getTimestamp();
-                if ($aStart !== $bStart) {
-                    return $aStart <=> $bStart;
-                }
-
-                $aEnd = $a->scope->getEnd()->getTimestamp();
-                $bEnd = $b->scope->getEnd()->getTimestamp();
-                if ($aEnd !== $bEnd) {
-                    return $aEnd <=> $bEnd;
-                }
-
-                return strcmp($a->sourceEventUid, $b->sourceEventUid);
-            }
-        );
-
         $ranks = [];
-        foreach ($ordered as $index => $intent) {
-            $ranks[spl_object_id($intent)] = (int)$index;
+        $used = [];
+        $missing = [];
+
+        // Preserve explicit order from provider metadata when present.
+        foreach ($intents as $intent) {
+            $explicit = $this->extractExecutionOrderFromPayload(
+                is_array($intent->payload ?? null) ? $intent->payload : []
+            );
+            if ($explicit === null) {
+                $missing[] = $intent;
+                continue;
+            }
+            $ranks[spl_object_id($intent)] = $explicit;
+            $used[$explicit] = true;
+        }
+
+        if ($missing === []) {
+            return $ranks;
+        }
+
+        // Treat each bundle as an atomic block in fallback ordering.
+        // Block order is chronological by bundle anchor; rows within each
+        // block follow normal chronological ordering with override exceptions.
+        $bundleGroups = [];
+        foreach ($missing as $intent) {
+            $bundleKey = trim((string)$intent->bundleUid);
+            if ($bundleKey === '') {
+                $bundleKey = '__single__' . spl_object_id($intent);
+            }
+            if (!isset($bundleGroups[$bundleKey])) {
+                $bundleGroups[$bundleKey] = [];
+            }
+            $bundleGroups[$bundleKey][] = $intent;
+        }
+
+        foreach ($bundleGroups as &$bundleIntents) {
+            usort($bundleIntents, function (PlannerIntent $a, PlannerIntent $b): int {
+                return $this->comparePlannerIntentOrder($a, $b);
+            });
+        }
+        unset($bundleIntents);
+
+        $bundleKeys = array_keys($bundleGroups);
+        usort($bundleKeys, function (string $a, string $b) use ($bundleGroups): int {
+            $aIntents = $bundleGroups[$a];
+            $bIntents = $bundleGroups[$b];
+
+            $aStart = $this->bundleAnchorStart($aIntents);
+            $bStart = $this->bundleAnchorStart($bIntents);
+            if ($aStart !== $bStart) {
+                return $aStart <=> $bStart;
+            }
+
+            $aEnd = $this->bundleAnchorEnd($aIntents);
+            $bEnd = $this->bundleAnchorEnd($bIntents);
+            if ($aEnd !== $bEnd) {
+                return $aEnd <=> $bEnd;
+            }
+
+            return strcmp($a, $b);
+        });
+
+        $orderedMissing = [];
+        foreach ($bundleKeys as $bundleKey) {
+            foreach ($bundleGroups[$bundleKey] as $intent) {
+                $orderedMissing[] = $intent;
+            }
+        }
+
+        $next = ($used !== []) ? ((int)max(array_keys($used)) + 1) : 0;
+        foreach ($orderedMissing as $intent) {
+            while (isset($used[$next])) {
+                $next++;
+            }
+            $ranks[spl_object_id($intent)] = $next;
+            $used[$next] = true;
+            $next++;
         }
 
         return $ranks;
+    }
+
+    private function comparePlannerIntentOrder(PlannerIntent $a, PlannerIntent $b): int
+    {
+        // Bundle exception: overrides must stay above base rows.
+        if ($a->bundleUid === $b->bundleUid && $a->role !== $b->role) {
+            if ($a->role === 'override' && $b->role === 'base') {
+                return -1;
+            }
+            if ($a->role === 'base' && $b->role === 'override') {
+                return 1;
+            }
+        }
+
+        // Default order: chronological by effective start date/time.
+        $aStart = $a->start->getTimestamp();
+        $bStart = $b->start->getTimestamp();
+        if ($aStart !== $bStart) {
+            return $aStart <=> $bStart;
+        }
+
+        $aEnd = $a->end->getTimestamp();
+        $bEnd = $b->end->getTimestamp();
+        if ($aEnd !== $bEnd) {
+            return $aEnd <=> $bEnd;
+        }
+
+        // Keep overrides before base as a stable tiebreaker as well.
+        if ($a->role !== $b->role) {
+            if ($a->role === 'override') {
+                return -1;
+            }
+            if ($b->role === 'override') {
+                return 1;
+            }
+        }
+
+        return strcmp($a->sourceEventUid, $b->sourceEventUid);
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundleIntents
+     */
+    private function bundleAnchorStart(array $bundleIntents): int
+    {
+        $min = PHP_INT_MAX;
+        foreach ($bundleIntents as $intent) {
+            $ts = $intent->start->getTimestamp();
+            if ($ts < $min) {
+                $min = $ts;
+            }
+        }
+        return $min === PHP_INT_MAX ? 0 : $min;
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundleIntents
+     */
+    private function bundleAnchorEnd(array $bundleIntents): int
+    {
+        $max = PHP_INT_MIN;
+        foreach ($bundleIntents as $intent) {
+            $ts = $intent->end->getTimestamp();
+            if ($ts > $max) {
+                $max = $ts;
+            }
+        }
+        return $max === PHP_INT_MIN ? 0 : $max;
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    private function extractExecutionOrderFromPayload(array $payload): ?int
+    {
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+
+        $value = $metadata['executionOrder'] ?? null;
+        if ($value === null) {
+            $settings = is_array($metadata['settings'] ?? null) ? $metadata['settings'] : [];
+            $value = $settings['executionOrder'] ?? $settings['execution_order'] ?? null;
+        }
+        if (is_int($value)) {
+            return $value >= 0 ? $value : 0;
+        }
+        if (is_string($value) && is_numeric($value)) {
+            $n = (int)$value;
+            return $n >= 0 ? $n : 0;
+        }
+        return null;
     }
 
     /**
