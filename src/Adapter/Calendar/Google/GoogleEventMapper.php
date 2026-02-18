@@ -181,8 +181,7 @@ final class GoogleEventMapper
             }
             throw $e;
         }
-        $baseTiming = is_array($baseSubEvent['timing'] ?? null) ? $baseSubEvent['timing'] : [];
-        $baseExDates = $this->buildExDateLineForOverrides($baseTiming, $subEvents, $baseIndex);
+        $baseExDates = $this->buildExDateLineForOverrides($baseSubEvent, $subEvents, $baseIndex);
         if ($baseExDates !== null) {
             $recurrence = is_array($basePayload['recurrence'] ?? null) ? $basePayload['recurrence'] : [];
             $recurrence[] = $baseExDates;
@@ -297,19 +296,37 @@ final class GoogleEventMapper
      * @param array<string,mixed> $baseTiming
      * @param array<int, array<string,mixed>> $subEvents
      */
-    private function buildExDateLineForOverrides(array $baseTiming, array $subEvents, int $baseIndex): ?string
+    private function buildExDateLineForOverrides(array $baseSubEvent, array $subEvents, int $baseIndex): ?string
     {
+        $baseTiming = is_array($baseSubEvent['timing'] ?? null) ? $baseSubEvent['timing'] : [];
+        $basePayloadIn = is_array($baseSubEvent['payload'] ?? null) ? $baseSubEvent['payload'] : [];
+
         $baseStart = is_string($baseTiming['start_date']['hard'] ?? null) ? trim((string)$baseTiming['start_date']['hard']) : '';
         $baseEnd = is_string($baseTiming['end_date']['hard'] ?? null) ? trim((string)$baseTiming['end_date']['hard']) : '';
+        if ($baseStart === '' || $baseEnd === '') {
+            [$resolvedStart, $resolvedEnd] = $this->resolveSymbolicDateBounds($baseTiming, $basePayloadIn);
+            if ($baseStart === '' && is_string($resolvedStart) && $resolvedStart !== '') {
+                $baseStart = $resolvedStart;
+            }
+            if ($baseEnd === '' && is_string($resolvedEnd) && $resolvedEnd !== '') {
+                $baseEnd = $resolvedEnd;
+            }
+        }
         if ($baseStart === '' || $baseEnd === '') {
             return null;
         }
 
-        $allDay = (bool)($baseTiming['all_day'] ?? false);
         $tz = is_string($baseTiming['timezone'] ?? null) && trim((string)$baseTiming['timezone']) !== ''
             ? trim((string)$baseTiming['timezone'])
             : 'UTC';
-        $baseStartTime = is_string($baseTiming['start_time']['hard'] ?? null) ? trim((string)$baseTiming['start_time']['hard']) : '';
+        [$baseStartBlock, $baseEndBlock] = $this->buildGoogleStartEndFromTiming($baseTiming, $basePayloadIn);
+        $baseRecurrence = $this->buildGoogleRecurrenceFromTiming($baseTiming, $tz, $baseStartBlock, $baseEndBlock);
+        if ($baseRecurrence !== []) {
+            [$baseStartBlock, $baseEndBlock] = $this->buildRecurringInstanceWindow($baseStartBlock, $baseEndBlock);
+        }
+
+        $allDay = !empty($baseStartBlock['allDay']);
+        $baseStartTime = is_string($baseStartBlock['time'] ?? null) ? trim((string)$baseStartBlock['time']) : '';
 
         $dateSet = [];
         foreach ($subEvents as $idx => $subEvent) {
@@ -317,8 +334,18 @@ final class GoogleEventMapper
                 continue;
             }
             $timing = is_array($subEvent['timing'] ?? null) ? $subEvent['timing'] : [];
+            $payloadIn = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
             $start = is_string($timing['start_date']['hard'] ?? null) ? trim((string)$timing['start_date']['hard']) : '';
             $end = is_string($timing['end_date']['hard'] ?? null) ? trim((string)$timing['end_date']['hard']) : '';
+            if ($start === '' || $end === '') {
+                [$resolvedStart, $resolvedEnd] = $this->resolveSymbolicDateBounds($timing, $payloadIn);
+                if ($start === '' && is_string($resolvedStart) && $resolvedStart !== '') {
+                    $start = $resolvedStart;
+                }
+                if ($end === '' && is_string($resolvedEnd) && $resolvedEnd !== '') {
+                    $end = $resolvedEnd;
+                }
+            }
             if ($start === '' || $end === '') {
                 continue;
             }
