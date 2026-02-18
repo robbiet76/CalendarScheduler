@@ -679,14 +679,14 @@
 
     // Execute reconciliation preview and render pending changes.
     function runPreview() {
-      return fetchJson({ action: "preview" }).then(function (res) {
+      return fetchJson({ action: "preview", sync_mode: syncMode }).then(function (res) {
         renderPreview(res.preview || {});
         renderDiagnostics(res);
       });
     }
 
     function runApply() {
-      return fetchJson({ action: "apply" }).then(function (res) {
+      return fetchJson({ action: "apply", sync_mode: syncMode }).then(function (res) {
         renderPreview(res.preview || {});
         renderDiagnostics(res);
       });

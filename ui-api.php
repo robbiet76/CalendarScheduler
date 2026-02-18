@@ -1020,7 +1020,7 @@ try {
     }
 
     if ($action === 'preview') {
-        $syncMode = cs_get_sync_mode();
+        $syncMode = cs_normalize_sync_mode($input['sync_mode'] ?? cs_get_sync_mode());
         $runResult = cs_run_preview_engine($syncMode);
         cs_respond([
             'ok' => true,
@@ -1029,7 +1029,7 @@ try {
     }
 
     if ($action === 'apply') {
-        $syncMode = cs_get_sync_mode();
+        $syncMode = cs_normalize_sync_mode($input['sync_mode'] ?? cs_get_sync_mode());
         $runResult = cs_run_preview_engine($syncMode);
         $applied = cs_apply($runResult, $syncMode);
         $post = cs_run_preview_engine($syncMode);
