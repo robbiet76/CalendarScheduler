@@ -225,5 +225,16 @@ Defines:
 
 ---
 
+## 20. Resolution Regression Suite  
+📄 **File:** `spec/20-resolution-regression-suite.md`
+
+Defines:
+- Complete resolution-layer scenario matrix (segments, overrides, cancellations)
+- Ordering and bundle invariants that must always hold
+- Minimum per-patch and full pre-release regression gates
+- Failure classification for fast triage
+
+---
+
 ### Next Section to Author
 ➡️ **`spec/03-manifest.md`**
