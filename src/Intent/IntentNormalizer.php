@@ -81,7 +81,7 @@ final class IntentNormalizer
             $rawTiming = is_array($rawSubEvent['timing'] ?? null)
                 ? $rawSubEvent['timing']
                 : (is_array($event['timing'] ?? null) ? $event['timing'] : []);
-            $timingArr = $this->normalizeHolidaySymbolics($rawTiming, $context->holidayResolver);
+            $timingArr = $this->applyHolidaySymbolics($rawTiming, $context->holidayResolver);
 
             // Days normalization source-of-truth:
             // - Calendar-side events may not populate timing.days directly.
@@ -593,32 +593,31 @@ final class IntentNormalizer
     }
 
     /**
-     * Normalize holiday symbolic fields prior to hashing.
+     * Apply holiday symbolic resolution ONCE, in the shared flow, prior to hashing.
      *
      * Rule:
-     * - Preserve explicitly-provided symbolic dates.
-     * - Do NOT infer symbolic names from hard dates.
-     *
-     * Inferring symbolics from concrete hard dates causes non-converging identity churn,
-     * because date ranges that happen to touch holidays are re-labeled on one side.
+     * - If hard date exists and symbolic is null, attempt to infer symbolic from FPP holiday map.
+     * - Never overwrite an explicitly-provided symbolic value.
      */
-    private function normalizeHolidaySymbolics(array $timing, HolidayResolver $resolver): array
+    private function applyHolidaySymbolics(array $timing, HolidayResolver $resolver): array
     {
         foreach (['start_date', 'end_date'] as $k) {
             if (!isset($timing[$k]) || !is_array($timing[$k])) {
                 continue;
             }
+            $hard = $timing[$k]['hard'] ?? null;
             $sym  = $timing[$k]['symbolic'] ?? null;
 
-            if (is_string($sym)) {
-                $sym = trim($sym);
-                $timing[$k]['symbolic'] = ($sym === '') ? null : $sym;
-            } else {
-                $timing[$k]['symbolic'] = null;
+            if (is_string($hard) && $hard !== '' && ($sym === null || $sym === '')) {
+                $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $hard);
+                if ($dt instanceof \DateTimeImmutable) {
+                    $resolved = $resolver->holidayFromDate($dt);
+                    if (is_string($resolved) && $resolved !== '') {
+                        $timing[$k]['symbolic'] = $resolved;
+                    }
+                }
             }
         }
-
-        unset($resolver); // Explicitly unused while inference is disabled.
 
         return $timing;
     }
