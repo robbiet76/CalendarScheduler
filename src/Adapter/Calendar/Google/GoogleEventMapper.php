@@ -100,6 +100,11 @@ final class GoogleEventMapper
      */
     private function mapCreate(ReconciliationAction $action, array $subEvents, string $calendarId): array
     {
+        $bundleMutations = $this->mapCreateBundleWithExDates($action, $subEvents, $calendarId);
+        if ($bundleMutations !== null) {
+            return $bundleMutations;
+        }
+
         $mutations = [];
 
         foreach ($subEvents as $subEvent) {
@@ -140,6 +145,238 @@ final class GoogleEventMapper
         }
 
         return $mutations;
+    }
+
+    /**
+     * Bundle-aware create strategy:
+     * - Keep one base recurring event
+     * - Exclude override occurrence dates from the base via EXDATE
+     * - Emit override windows as separate events
+     *
+     * This prevents duplicate rendering on override days in Google Calendar UI.
+     *
+     * @param array<int, array<string,mixed>> $subEvents
+     * @return list<GoogleMutation>|null
+     */
+    private function mapCreateBundleWithExDates(
+        ReconciliationAction $action,
+        array $subEvents,
+        string $calendarId
+    ): ?array {
+        if (count($subEvents) < 2) {
+            return null;
+        }
+
+        $baseIndex = $this->pickBaseSubEventIndex($subEvents);
+        if ($baseIndex === null || !isset($subEvents[$baseIndex]) || !is_array($subEvents[$baseIndex])) {
+            return null;
+        }
+
+        $baseSubEvent = $subEvents[$baseIndex];
+        try {
+            $basePayload = $this->buildPayload($action, $baseSubEvent);
+        } catch (RuntimeException $e) {
+            if ($this->isUnmappableTimingError($e)) {
+                return null;
+            }
+            throw $e;
+        }
+        $baseTiming = is_array($baseSubEvent['timing'] ?? null) ? $baseSubEvent['timing'] : [];
+        $baseExDates = $this->buildExDateLineForOverrides($baseTiming, $subEvents, $baseIndex);
+        if ($baseExDates !== null) {
+            $recurrence = is_array($basePayload['recurrence'] ?? null) ? $basePayload['recurrence'] : [];
+            $recurrence[] = $baseExDates;
+            $basePayload['recurrence'] = array_values(array_unique($recurrence));
+        }
+
+        $mutations = [];
+        $mutations[] = new GoogleMutation(
+            op: GoogleMutation::OP_CREATE,
+            calendarId: $calendarId,
+            googleEventId: null,
+            payload: $basePayload,
+            manifestEventId: $action->identityHash,
+            subEventHash: $this->deriveSubEventHash($baseSubEvent)
+        );
+
+        foreach ($subEvents as $idx => $subEvent) {
+            if ($idx === $baseIndex || !is_array($subEvent)) {
+                continue;
+            }
+
+            $subEventHash = $this->deriveSubEventHash($subEvent);
+            try {
+                $payload = $this->buildPayload($action, $subEvent);
+            } catch (RuntimeException $e) {
+                if (!$this->isUnmappableTimingError($e)) {
+                    throw $e;
+                }
+                $reason = $e->getMessage();
+                $this->diagnostics['unmappable_skipped']++;
+                if (!isset($this->diagnostics['unmappable_reasons'][$reason])) {
+                    $this->diagnostics['unmappable_reasons'][$reason] = 0;
+                }
+                $this->diagnostics['unmappable_reasons'][$reason]++;
+                $this->debug(
+                    'GoogleEventMapper: skipping override create for unmappable timing ' .
+                    'identityHash=' . $action->identityHash .
+                    ' subEventHash=' . $subEventHash .
+                    ' reason=' . $reason
+                );
+                continue;
+            }
+
+            $mutations[] = new GoogleMutation(
+                op: GoogleMutation::OP_CREATE,
+                calendarId: $calendarId,
+                googleEventId: null,
+                payload: $payload,
+                manifestEventId: $action->identityHash,
+                subEventHash: $subEventHash
+            );
+        }
+
+        return $mutations;
+    }
+
+    /**
+     * Choose the widest date-range subevent as bundle base.
+     *
+     * @param array<int, array<string,mixed>> $subEvents
+     */
+    private function pickBaseSubEventIndex(array $subEvents): ?int
+    {
+        $bestIndex = null;
+        $bestSpan = -1;
+        $bestStart = '';
+
+        foreach ($subEvents as $idx => $subEvent) {
+            if (!is_array($subEvent)) {
+                continue;
+            }
+            $timing = is_array($subEvent['timing'] ?? null) ? $subEvent['timing'] : [];
+            $start = is_string($timing['start_date']['hard'] ?? null) ? trim((string)$timing['start_date']['hard']) : '';
+            $end = is_string($timing['end_date']['hard'] ?? null) ? trim((string)$timing['end_date']['hard']) : '';
+            if ($start === '' || $end === '') {
+                continue;
+            }
+
+            $span = $this->inclusiveDaySpan($start, $end);
+            if ($span < 0) {
+                continue;
+            }
+
+            if ($bestIndex === null || $span > $bestSpan || ($span === $bestSpan && strcmp($start, $bestStart) < 0)) {
+                $bestIndex = $idx;
+                $bestSpan = $span;
+                $bestStart = $start;
+            }
+        }
+
+        return $bestIndex;
+    }
+
+    private function inclusiveDaySpan(string $startYmd, string $endYmd): int
+    {
+        try {
+            $start = new \DateTimeImmutable($startYmd, new \DateTimeZone('UTC'));
+            $end = new \DateTimeImmutable($endYmd, new \DateTimeZone('UTC'));
+        } catch (\Throwable) {
+            return -1;
+        }
+        $delta = $end->getTimestamp() - $start->getTimestamp();
+        if ($delta < 0) {
+            return -1;
+        }
+        return (int) floor($delta / 86400) + 1;
+    }
+
+    /**
+     * Build one EXDATE line excluding all override dates from base recurrence.
+     *
+     * @param array<string,mixed> $baseTiming
+     * @param array<int, array<string,mixed>> $subEvents
+     */
+    private function buildExDateLineForOverrides(array $baseTiming, array $subEvents, int $baseIndex): ?string
+    {
+        $baseStart = is_string($baseTiming['start_date']['hard'] ?? null) ? trim((string)$baseTiming['start_date']['hard']) : '';
+        $baseEnd = is_string($baseTiming['end_date']['hard'] ?? null) ? trim((string)$baseTiming['end_date']['hard']) : '';
+        if ($baseStart === '' || $baseEnd === '') {
+            return null;
+        }
+
+        $allDay = (bool)($baseTiming['all_day'] ?? false);
+        $tz = is_string($baseTiming['timezone'] ?? null) && trim((string)$baseTiming['timezone']) !== ''
+            ? trim((string)$baseTiming['timezone'])
+            : 'UTC';
+        $baseStartTime = is_string($baseTiming['start_time']['hard'] ?? null) ? trim((string)$baseTiming['start_time']['hard']) : '';
+
+        $dateSet = [];
+        foreach ($subEvents as $idx => $subEvent) {
+            if ($idx === $baseIndex || !is_array($subEvent)) {
+                continue;
+            }
+            $timing = is_array($subEvent['timing'] ?? null) ? $subEvent['timing'] : [];
+            $start = is_string($timing['start_date']['hard'] ?? null) ? trim((string)$timing['start_date']['hard']) : '';
+            $end = is_string($timing['end_date']['hard'] ?? null) ? trim((string)$timing['end_date']['hard']) : '';
+            if ($start === '' || $end === '') {
+                continue;
+            }
+            foreach ($this->expandDateRange($start, $end) as $day) {
+                // Only exclude occurrences within base date window.
+                if ($day < $baseStart || $day > $baseEnd) {
+                    continue;
+                }
+                $dateSet[$day] = true;
+            }
+        }
+
+        if ($dateSet === []) {
+            return null;
+        }
+
+        $days = array_keys($dateSet);
+        sort($days, SORT_STRING);
+
+        if ($allDay) {
+            $tokens = array_map(
+                static fn(string $day): string => str_replace('-', '', $day),
+                $days
+            );
+            return 'EXDATE;VALUE=DATE:' . implode(',', $tokens);
+        }
+
+        if ($baseStartTime === '' || preg_match('/^\d{2}:\d{2}:\d{2}$/', $baseStartTime) !== 1) {
+            return null;
+        }
+
+        $tokens = [];
+        foreach ($days as $day) {
+            $tokens[] = str_replace('-', '', $day) . 'T' . str_replace(':', '', $baseStartTime);
+        }
+
+        return 'EXDATE;TZID=' . $tz . ':' . implode(',', $tokens);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function expandDateRange(string $startYmd, string $endYmd): array
+    {
+        $out = [];
+        try {
+            $cursor = new \DateTimeImmutable($startYmd, new \DateTimeZone('UTC'));
+            $end = new \DateTimeImmutable($endYmd, new \DateTimeZone('UTC'));
+        } catch (\Throwable) {
+            return $out;
+        }
+
+        while ($cursor <= $end) {
+            $out[] = $cursor->format('Y-m-d');
+            $cursor = $cursor->modify('+1 day');
+        }
+
+        return $out;
     }
 
     /**
