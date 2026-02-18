@@ -289,6 +289,7 @@
     var deviceAuthDeadlineEpoch = 0;
     var syncMode = "both";
     var connectionCollapsed = false;
+    var connectionCollapseStorageKey = "cs.connection.collapsed";
     var applyConfirmArmed = false;
     var applyConfirmTimer = null;
 
@@ -382,6 +383,19 @@
       connectionCollapsed = !!collapsed;
       body.classList.toggle("cs-hidden", connectionCollapsed);
       btn.textContent = connectionCollapsed ? "Expand" : "Collapse";
+      try {
+        window.localStorage.setItem(connectionCollapseStorageKey, connectionCollapsed ? "1" : "0");
+      } catch (e) {
+        // Ignore storage failures; UI still updates for this session.
+      }
+    }
+
+    function loadConnectionCollapsedPreference() {
+      try {
+        return window.localStorage.getItem(connectionCollapseStorageKey) === "1";
+      } catch (e) {
+        return false;
+      }
     }
 
     function updateTopStatusCompact() {
@@ -1045,6 +1059,7 @@
 
     updateTopStatusAnchor();
     updateTopStatusCompact();
+    setConnectionCollapsed(loadConnectionCollapsedPreference());
     refreshAll();
   }());
 </script>
