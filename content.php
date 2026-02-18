@@ -289,7 +289,8 @@
     var deviceAuthDeadlineEpoch = 0;
     var syncMode = "both";
     var connectionCollapsed = false;
-    var connectionCollapseUserOverride = false;
+    var applyConfirmArmed = false;
+    var applyConfirmTimer = null;
 
     function byId(id) {
       return document.getElementById(id);
@@ -326,6 +327,38 @@
         return;
       }
       applyBtn.disabled = !enabled;
+      if (!enabled) {
+        resetApplyConfirm();
+      }
+    }
+
+    function clearApplyConfirmTimer() {
+      if (applyConfirmTimer !== null) {
+        window.clearTimeout(applyConfirmTimer);
+        applyConfirmTimer = null;
+      }
+    }
+
+    function resetApplyConfirm() {
+      var applyBtn = byId("csApplyBtn");
+      clearApplyConfirmTimer();
+      applyConfirmArmed = false;
+      if (applyBtn) {
+        applyBtn.textContent = "Apply Changes";
+      }
+    }
+
+    function armApplyConfirm() {
+      var applyBtn = byId("csApplyBtn");
+      if (!applyBtn || applyBtn.disabled) {
+        return;
+      }
+      clearApplyConfirmTimer();
+      applyConfirmArmed = true;
+      applyBtn.textContent = "Confirm Apply (5s)";
+      applyConfirmTimer = window.setTimeout(function () {
+        resetApplyConfirm();
+      }, 5000);
     }
 
     function setTopBarClass(className) {
@@ -631,12 +664,6 @@
             ? "Connect to a calendar using OAuth."
             : "Connect to a calendar using OAuth. Select calendar provider.";
         }
-        if (!providerConnected) {
-          connectionCollapseUserOverride = false;
-          setConnectionCollapsed(false);
-        } else if (!connectionCollapseUserOverride) {
-          setConnectionCollapsed(true);
-        }
         var account = google.account || "Not connected yet";
         var accountValue = byId("csConnectedAccountValue");
         if (accountValue) {
@@ -848,7 +875,6 @@
     });
 
     byId("csConnectionToggleBtn").addEventListener("click", function () {
-      connectionCollapseUserOverride = true;
       setConnectionCollapsed(!connectionCollapsed);
     });
 
@@ -996,9 +1022,11 @@
     });
 
     byId("csApplyBtn").addEventListener("click", function () {
-      if (!window.confirm("Apply all pending changes to FPP and the connected calendar now?")) {
+      if (!applyConfirmArmed) {
+        armApplyConfirm();
         return;
       }
+      resetApplyConfirm();
       setButtonsDisabled(true);
       setLoadingState();
       runApply()
