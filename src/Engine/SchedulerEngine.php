@@ -343,6 +343,15 @@ final class SchedulerEngine
                 ? $plannerIntent->payload
                 : [];
 
+            // If provider payload includes an explicit manifest event linkage,
+            // prefer it over provider UIDs so independently-created calendar events
+            // can be grouped back into one manifest event.
+            $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+            $manifestEventId = $metadata['manifestEventId'] ?? null;
+            if (is_string($manifestEventId) && trim($manifestEventId) !== '') {
+                $parentUid = trim($manifestEventId);
+            }
+
             // Fallback: derive from payload UID fields if resolution did not set parentUid
             if ($parentUid === null) {
                 $parentUid =
@@ -350,17 +359,6 @@ final class SchedulerEngine
                     ?? $payload['sourceEventUid']
                     ?? $payload['id']
                     ?? null;
-            }
-
-            // FPP->calendar created segment events are independent Google events,
-            // but they carry a shared manifestEventId in metadata. Use it as the
-            // grouping key so one manifest event can own multiple subEvents.
-            if ($parentUid === null) {
-                $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
-                $manifestEventId = $metadata['manifestEventId'] ?? null;
-                if (is_string($manifestEventId) && trim($manifestEventId) !== '') {
-                    $parentUid = trim($manifestEventId);
-                }
             }
 
             // Final fallback: stable synthetic UID per planner intent
