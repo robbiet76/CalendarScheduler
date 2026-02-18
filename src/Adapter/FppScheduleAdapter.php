@@ -292,6 +292,11 @@ final class FppScheduleAdapter
             'repeat'   => FPPSemantics::repeatToSemantic($repeatNumeric),
             'stopType' => $stopType,
         ];
+        $behavior = [
+            'enabled'  => (bool)$payload['enabled'],
+            'repeat'   => (string)$payload['repeat'],
+            'stopType' => (string)$payload['stopType'],
+        ];
         if (is_int($dateYearHint) && $dateYearHint > 0) {
             $payload['date_year_hint'] = $dateYearHint;
         }
@@ -320,6 +325,13 @@ final class FppScheduleAdapter
             'target' => $target,
             'timing' => $timing,
             'payload' => $payload,
+            // One FPP schedule row maps to one manifest subevent. Aggregation in
+            // loadManifestEvents() merges rows into a single manifest event.
+            'subEvents' => [[
+                'timing' => $timing,
+                'payload' => $payload,
+                'behavior' => $behavior,
+            ]],
             'ownership' => [
                 'managed'    => true,
                 'controller' => 'fpp',
