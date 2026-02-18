@@ -902,6 +902,19 @@ function cs_apply(SchedulerRunResult $result, ?string $syncMode = null): array
     } else {
         $targets = ApplyTargets::all();
     }
+
+    // Fail closed in one-way sync modes: never allow opposite-side executable writes.
+    if ($syncMode !== CS_SYNC_MODE_BOTH) {
+        $allowed = array_fill_keys($targets, true);
+        foreach ($result->reconciliationResult()->executableActions() as $action) {
+            if (!isset($allowed[$action->target])) {
+                throw new \RuntimeException(
+                    "Apply safety stop: action target '{$action->target}' is not allowed for sync mode '{$syncMode}'."
+                );
+            }
+        }
+    }
+
     $options = ApplyOptions::apply($targets, false);
 
     $googleExecutor = null;
