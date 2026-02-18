@@ -200,12 +200,12 @@ final class FppScheduleAdapter
 
         foreach ($aggregated as &$event) {
             $subs = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
-            usort($subs, fn(array $a, array $b): int => $this->compareSubEventsByStart($a, $b));
+            usort($subs, fn(array $a, array $b): int => $this->compareSubEventsForManifest($a, $b));
             $event['subEvents'] = $subs;
 
-            if ($subs !== [] && is_array($subs[0]['timing'] ?? null)) {
-                // Identity anchor mirrors calendar manifest shape: first subevent timing.
-                $event['timing'] = $subs[0]['timing'];
+            $identityTiming = $this->selectIdentityTiming($subs);
+            if ($identityTiming !== []) {
+                $event['timing'] = $identityTiming;
             }
         }
         unset($event);
@@ -446,6 +446,97 @@ final class FppScheduleAdapter
         ]);
 
         return $keyA <=> $keyB;
+    }
+
+    /**
+     * Keep explicit scheduler order when available; otherwise default to
+     * deterministic chronological ordering.
+     *
+     * @param array<string,mixed> $a
+     * @param array<string,mixed> $b
+     */
+    private function compareSubEventsForManifest(array $a, array $b): int
+    {
+        $aOrder = $this->subEventExecutionOrder($a);
+        $bOrder = $this->subEventExecutionOrder($b);
+        if ($aOrder !== null && $bOrder !== null && $aOrder !== $bOrder) {
+            return $aOrder <=> $bOrder;
+        }
+
+        $cmp = $this->compareSubEventsByStart($a, $b);
+        if ($cmp !== 0) {
+            return $cmp;
+        }
+
+        $aHash = is_string($a['stateHash'] ?? null) ? (string)$a['stateHash'] : '';
+        $bHash = is_string($b['stateHash'] ?? null) ? (string)$b['stateHash'] : '';
+        return strcmp($aHash, $bHash);
+    }
+
+    /**
+     * @param array<string,mixed> $subEvent
+     */
+    private function subEventExecutionOrder(array $subEvent): ?int
+    {
+        $value = $subEvent['executionOrder'] ?? null;
+        if (is_int($value)) {
+            return $value >= 0 ? $value : 0;
+        }
+        if (is_string($value) && is_numeric($value)) {
+            $n = (int)$value;
+            return $n >= 0 ? $n : 0;
+        }
+        return null;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $subEvents
+     * @return array<string,mixed>
+     */
+    private function selectIdentityTiming(array $subEvents): array
+    {
+        if ($subEvents === []) {
+            return [];
+        }
+
+        $bestTiming = is_array($subEvents[0]['timing'] ?? null) ? $subEvents[0]['timing'] : [];
+        $bestHash = is_string($subEvents[0]['stateHash'] ?? null) ? (string)$subEvents[0]['stateHash'] : '';
+        foreach ($subEvents as $subEvent) {
+            $timing = is_array($subEvent['timing'] ?? null) ? $subEvent['timing'] : [];
+            $hash = is_string($subEvent['stateHash'] ?? null) ? (string)$subEvent['stateHash'] : '';
+            $cmp = strcmp(
+                $this->timingIdentityKey($timing),
+                $this->timingIdentityKey($bestTiming)
+            );
+            if ($cmp < 0 || ($cmp === 0 && strcmp($hash, $bestHash) < 0)) {
+                $bestTiming = $timing;
+                $bestHash = $hash;
+            }
+        }
+
+        return $bestTiming;
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     */
+    private function timingIdentityKey(array $timing): string
+    {
+        $startDate = is_array($timing['start_date'] ?? null) ? $timing['start_date'] : [];
+        $startTime = is_array($timing['start_time'] ?? null) ? $timing['start_time'] : [];
+        $hardDate = is_string($startDate['hard'] ?? null) ? trim((string)$startDate['hard']) : '';
+        $symDate = is_string($startDate['symbolic'] ?? null) ? trim((string)$startDate['symbolic']) : '';
+        $hardTime = is_string($startTime['hard'] ?? null) ? trim((string)$startTime['hard']) : '';
+        $symTime = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
+
+        return implode('|', [
+            $hardDate !== '' ? $hardDate : '9999-99-99',
+            $symDate !== '' ? $symDate : '~',
+            $hardTime !== '' ? $hardTime : '99:99:99',
+            $symTime !== '' ? $symTime : '~',
+            sprintf('%+06d', (int)($startTime['offset'] ?? 0)),
+            !empty($timing['all_day']) ? '1' : '0',
+        ]);
     }
 
     /**

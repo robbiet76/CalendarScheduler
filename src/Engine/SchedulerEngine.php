@@ -434,8 +434,17 @@ final class SchedulerEngine
                 $anchorPayload = is_array($anchor->payload ?? null) ? $anchor->payload : [];
                 $subEvents = [];
                 $executionRanks = $this->computeExecutionOrderRanks($bucketIntents);
+                $orderedBucketIntents = $bucketIntents;
+                usort($orderedBucketIntents, function (PlannerIntent $a, PlannerIntent $b) use ($executionRanks): int {
+                    $aRank = $executionRanks[spl_object_id($a)] ?? PHP_INT_MAX;
+                    $bRank = $executionRanks[spl_object_id($b)] ?? PHP_INT_MAX;
+                    if ($aRank !== $bRank) {
+                        return $aRank <=> $bRank;
+                    }
+                    return $this->comparePlannerIntentOrder($a, $b);
+                });
 
-                foreach ($bucketIntents as $plannerIntent) {
+                foreach ($orderedBucketIntents as $plannerIntent) {
                     $scopeStart = $plannerIntent->scope->getStart();
                     $scopeEndExclusive = $plannerIntent->scope->getEnd();
                     $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');
@@ -587,7 +596,7 @@ final class SchedulerEngine
                     // Canonical manifest identity (flat structure expected by IntentNormalizer)
                     'type'   => $eventType,
                     'target' => $eventTarget,
-                    'timing' => $subEvents[0]['timing'],
+                    'timing' => $this->selectIdentityTimingFromSubEvents($subEvents),
 
                     // Top-level payload (anchor payload required by normalization)
                     'payload' => $anchorPayload,
@@ -1016,7 +1025,7 @@ final class SchedulerEngine
             }
         }
 
-        $next = ($used !== []) ? ((int)max(array_keys($used)) + 1) : 0;
+        $next = 0;
         foreach ($orderedMissing as $intent) {
             while (isset($used[$next])) {
                 $next++;
@@ -1065,6 +1074,63 @@ final class SchedulerEngine
         }
 
         return strcmp($a->sourceEventUid, $b->sourceEventUid);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $subEvents
+     * @return array<string,mixed>
+     */
+    private function selectIdentityTimingFromSubEvents(array $subEvents): array
+    {
+        if ($subEvents === []) {
+            return [];
+        }
+
+        $bestTiming = is_array($subEvents[0]['timing'] ?? null) ? $subEvents[0]['timing'] : [];
+        $bestHash = is_string($subEvents[0]['stateHash'] ?? null) ? (string)$subEvents[0]['stateHash'] : '';
+
+        foreach ($subEvents as $sub) {
+            if (!is_array($sub)) {
+                continue;
+            }
+            $timing = is_array($sub['timing'] ?? null) ? $sub['timing'] : [];
+            $hash = is_string($sub['stateHash'] ?? null) ? (string)$sub['stateHash'] : '';
+
+            $cmp = strcmp(
+                $this->identityTimingSortKey($timing),
+                $this->identityTimingSortKey($bestTiming)
+            );
+            if ($cmp < 0 || ($cmp === 0 && strcmp($hash, $bestHash) < 0)) {
+                $bestTiming = $timing;
+                $bestHash = $hash;
+            }
+        }
+
+        return $bestTiming;
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     */
+    private function identityTimingSortKey(array $timing): string
+    {
+        $date = is_array($timing['start_date'] ?? null) ? $timing['start_date'] : [];
+        $time = is_array($timing['start_time'] ?? null) ? $timing['start_time'] : [];
+
+        $dateHard = is_string($date['hard'] ?? null) ? trim((string)$date['hard']) : '';
+        $dateSymbolic = is_string($date['symbolic'] ?? null) ? trim((string)$date['symbolic']) : '';
+        $timeHard = is_string($time['hard'] ?? null) ? trim((string)$time['hard']) : '';
+        $timeSymbolic = is_string($time['symbolic'] ?? null) ? trim((string)$time['symbolic']) : '';
+        $offset = (int)($time['offset'] ?? 0);
+
+        return implode('|', [
+            $dateHard !== '' ? $dateHard : '9999-99-99',
+            $dateSymbolic !== '' ? $dateSymbolic : '~',
+            $timeHard !== '' ? $timeHard : '99:99:99',
+            $timeSymbolic !== '' ? $timeSymbolic : '~',
+            sprintf('%+06d', $offset),
+            !empty($timing['all_day']) ? '1' : '0',
+        ]);
     }
 
     /**

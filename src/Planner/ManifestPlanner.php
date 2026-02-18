@@ -183,10 +183,14 @@ final class ManifestPlanner
             );
         }
 
-        // Identity must reflect resolved timing (including weekly day masks).
-        // Use the first subEvent timing as the canonical identity timing.
+        // Preserve normalized identity timing from Intent.
+        // IntentNormalizer selects a deterministic timing anchor independent of
+        // subEvent array ordering, so ManifestPlanner must not re-anchor here.
         $identity = $intent->identity;
-        if (isset($subEvents[0]['timing']) && is_array($subEvents[0]['timing'])) {
+        if (
+            (!isset($identity['timing']) || !is_array($identity['timing']))
+            && isset($subEvents[0]['timing']) && is_array($subEvents[0]['timing'])
+        ) {
             $identity['timing'] = $subEvents[0]['timing'];
         }
 

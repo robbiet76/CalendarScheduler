@@ -163,9 +163,7 @@ final class IntentNormalizer
             $normalizedSubEvents[] = $subEvent;
         }
 
-        $identityTiming = is_array($normalizedSubEvents[0]['timing'] ?? null)
-            ? $normalizedSubEvents[0]['timing']
-            : [];
+        $identityTiming = $this->selectIdentityTiming($normalizedSubEvents);
         $identity = [
             'type'   => $event['type'],
             'target' => $event['target'],
@@ -509,6 +507,73 @@ final class IntentNormalizer
             return $n >= 0 ? $n : 0;
         }
         return 0;
+    }
+
+    /**
+     * Pick a deterministic identity timing anchor independent of subEvent array order.
+     *
+     * @param array<int,array<string,mixed>> $subEvents
+     * @return array<string,mixed>
+     */
+    private function selectIdentityTiming(array $subEvents): array
+    {
+        if ($subEvents === []) {
+            return [];
+        }
+
+        $bestTiming = is_array($subEvents[0]['timing'] ?? null)
+            ? $subEvents[0]['timing']
+            : [];
+        $bestHash = is_string($subEvents[0]['stateHash'] ?? null) ? (string)$subEvents[0]['stateHash'] : '';
+
+        foreach ($subEvents as $sub) {
+            $timing = is_array($sub['timing'] ?? null) ? $sub['timing'] : [];
+            $stateHash = is_string($sub['stateHash'] ?? null) ? (string)$sub['stateHash'] : '';
+
+            $cmp = $this->compareTimingIdentityAnchor($timing, $bestTiming);
+            if ($cmp < 0 || ($cmp === 0 && strcmp($stateHash, $bestHash) < 0)) {
+                $bestTiming = $timing;
+                $bestHash = $stateHash;
+            }
+        }
+
+        return $bestTiming;
+    }
+
+    /**
+     * @param array<string,mixed> $a
+     * @param array<string,mixed> $b
+     */
+    private function compareTimingIdentityAnchor(array $a, array $b): int
+    {
+        return strcmp(
+            $this->identityTimingSortKey($a),
+            $this->identityTimingSortKey($b)
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     */
+    private function identityTimingSortKey(array $timing): string
+    {
+        $date = is_array($timing['start_date'] ?? null) ? $timing['start_date'] : [];
+        $time = is_array($timing['start_time'] ?? null) ? $timing['start_time'] : [];
+
+        $dateHard = is_string($date['hard'] ?? null) ? trim((string)$date['hard']) : '';
+        $dateSymbolic = is_string($date['symbolic'] ?? null) ? trim((string)$date['symbolic']) : '';
+        $timeHard = is_string($time['hard'] ?? null) ? trim((string)$time['hard']) : '';
+        $timeSymbolic = is_string($time['symbolic'] ?? null) ? trim((string)$time['symbolic']) : '';
+        $offset = (int)($time['offset'] ?? 0);
+
+        return implode('|', [
+            $dateHard !== '' ? $dateHard : '9999-99-99',
+            $dateSymbolic !== '' ? $dateSymbolic : '~',
+            $timeHard !== '' ? $timeHard : '99:99:99',
+            $timeSymbolic !== '' ? $timeSymbolic : '~',
+            sprintf('%+06d', $offset),
+            !empty($timing['all_day']) ? '1' : '0',
+        ]);
     }
 
 
