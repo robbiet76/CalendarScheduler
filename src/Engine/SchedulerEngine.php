@@ -506,49 +506,39 @@ final class SchedulerEngine
             }
 
             // ------------------------------------------------------------
-            // Build one manifest event per resolved subEvent.
-            //
-            // Why: FPP schedule.json is one row per runnable segment. Splitting
-            // calendar bundles to the same granularity avoids persistent
-            // non-convergence when recurrence exceptions produce multiple segments.
+            // Build a single manifest event and normalize once
             // ------------------------------------------------------------
-            foreach ($subEvents as $subEvent) {
-                if (!is_array($subEvent)) {
-                    continue;
-                }
+            $manifestEvent = [
+                // Canonical manifest identity (flat structure expected by IntentNormalizer)
+                'type'   => $eventType,
+                'target' => $eventTarget,
+                'timing' => $subEvents[0]['timing'],
 
-                $manifestEvent = [
-                    // Canonical manifest identity (flat structure expected by IntentNormalizer)
-                    'type'   => $eventType,
-                    'target' => $eventTarget,
-                    'timing' => $subEvent['timing'] ?? [],
+                // Top-level payload (anchor payload required by normalization)
+                'payload' => $payload,
 
-                    // Top-level payload (anchor payload required by normalization)
-                    'payload' => $payload,
+                // Full state (expanded occurrences)
+                'subEvents' => $subEvents,
 
-                    // State at segment granularity
-                    'subEvents' => [$subEvent],
+                // Ownership / correlation metadata
+                'ownership' => ['managed' => true],
+                'correlation' => [
+                    'sourceEventUid' => $parentUid,
+                    'sourceCalendarId' => $calendarScope,
+                ],
 
-                    // Ownership / correlation metadata
-                    'ownership' => ['managed' => true],
-                    'correlation' => [
-                        'sourceEventUid' => $parentUid,
-                        'sourceCalendarId' => $calendarScope,
-                    ],
+                'source' => 'calendar',
+            ];
 
-                    'source' => 'calendar',
-                ];
+            $normalizedIntent = $this->normalizer->fromManifestEvent(
+                $manifestEvent,
+                $context
+            );
 
-                $normalizedIntent = $this->normalizer->fromManifestEvent(
-                    $manifestEvent,
-                    $context
-                );
-
-                $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
-                $computedCalendarUpdatedAtById[$normalizedIntent->identityHash] =
-                    $calendarUpdatedAtByUid[$parentUid]
-                    ?? $calendarSnapshotEpoch;
-            }
+            $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
+            $computedCalendarUpdatedAtById[$normalizedIntent->identityHash] =
+                $calendarUpdatedAtByUid[$parentUid]
+                ?? $calendarSnapshotEpoch;
         }
 
         // ------------------------------------------------------------

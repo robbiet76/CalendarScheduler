@@ -165,7 +165,8 @@ final class FppScheduleAdapter
             }
         }
 
-        $events = [];
+        /** @var array<string,array<string,mixed>> $aggregated */
+        $aggregated = [];
         foreach ($raw as $entry) {
             if (!is_array($entry)) {
                 continue;
@@ -174,10 +175,36 @@ final class FppScheduleAdapter
             $yearHint = (is_string($key) && isset($yearHints[$key]))
                 ? (int)$yearHints[$key]
                 : (is_int($globalYearHint) ? $globalYearHint : null);
-            $events[] = $this->fromScheduleEntry($entry, $fppTz, $updatedAt, $yearHint);
+            $event = $this->fromScheduleEntry($entry, $fppTz, $updatedAt, $yearHint);
+
+            $aggregateKey = $this->deriveManifestAggregateKey($event);
+            if (!isset($aggregated[$aggregateKey])) {
+                $aggregated[$aggregateKey] = $event;
+                continue;
+            }
+
+            $existingSubs = is_array($aggregated[$aggregateKey]['subEvents'] ?? null)
+                ? $aggregated[$aggregateKey]['subEvents']
+                : [];
+            $newSubs = is_array($event['subEvents'] ?? null)
+                ? $event['subEvents']
+                : [];
+            $aggregated[$aggregateKey]['subEvents'] = array_merge($existingSubs, $newSubs);
         }
 
-        return $events;
+        foreach ($aggregated as &$event) {
+            $subs = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
+            usort($subs, fn(array $a, array $b): int => $this->compareSubEventsByStart($a, $b));
+            $event['subEvents'] = $subs;
+
+            if ($subs !== [] && is_array($subs[0]['timing'] ?? null)) {
+                // Identity anchor mirrors calendar manifest shape: first subevent timing.
+                $event['timing'] = $subs[0]['timing'];
+            }
+        }
+        unset($event);
+
+        return array_values($aggregated);
     }
 
     /**
@@ -342,6 +369,68 @@ final class FppScheduleAdapter
         }
         $year = (int)$m[1];
         return $year > 0 ? $year : null;
+    }
+
+    /**
+     * Build a deterministic grouping key so related FPP rows become one manifest event
+     * with multiple subEvents.
+     *
+     * @param array<string,mixed> $event
+     */
+    private function deriveManifestAggregateKey(array $event): string
+    {
+        $type = (string)($event['type'] ?? '');
+        $target = (string)($event['target'] ?? '');
+        $sub = (is_array($event['subEvents'] ?? null) && isset($event['subEvents'][0]) && is_array($event['subEvents'][0]))
+            ? $event['subEvents'][0]
+            : [];
+        $timing = is_array($sub['timing'] ?? null) ? $sub['timing'] : [];
+        $payload = is_array($sub['payload'] ?? null) ? $sub['payload'] : [];
+
+        $shape = [
+            'type' => $type,
+            'target' => $target,
+            'all_day' => (bool)($timing['all_day'] ?? false),
+            'days' => $timing['days'] ?? null,
+            'start_time' => $timing['start_time'] ?? null,
+            'end_time' => $timing['end_time'] ?? null,
+            'enabled' => $payload['enabled'] ?? true,
+            'repeat' => $payload['repeat'] ?? 'none',
+            'stopType' => $payload['stopType'] ?? 'graceful',
+        ];
+
+        return hash('sha256', json_encode($shape, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * @param array<string,mixed> $a
+     * @param array<string,mixed> $b
+     */
+    private function compareSubEventsByStart(array $a, array $b): int
+    {
+        $timingA = is_array($a['timing'] ?? null) ? $a['timing'] : [];
+        $timingB = is_array($b['timing'] ?? null) ? $b['timing'] : [];
+        $dateA = is_array($timingA['start_date'] ?? null) ? $timingA['start_date'] : [];
+        $dateB = is_array($timingB['start_date'] ?? null) ? $timingB['start_date'] : [];
+        $timeA = is_array($timingA['start_time'] ?? null) ? $timingA['start_time'] : [];
+        $timeB = is_array($timingB['start_time'] ?? null) ? $timingB['start_time'] : [];
+
+        $keyA = implode('|', [
+            (string)($dateA['hard'] ?? ''),
+            (string)($dateA['symbolic'] ?? ''),
+            (string)($timeA['hard'] ?? ''),
+            (string)($timeA['symbolic'] ?? ''),
+            (string)($timeA['offset'] ?? 0),
+        ]);
+        $keyB = implode('|', [
+            (string)($dateB['hard'] ?? ''),
+            (string)($dateB['symbolic'] ?? ''),
+            (string)($timeB['hard'] ?? ''),
+            (string)($timeB['symbolic'] ?? ''),
+            (string)($timeB['offset'] ?? 0),
+        ]);
+
+        return $keyA <=> $keyB;
     }
 
     /**
