@@ -460,6 +460,8 @@ final class Reconciler
         int $fppSnapshotEpoch,
         string $calendarScope
     ): array {
+        $orderOnlyDrift = $this->eventsDifferOnlyByExecutionOrder($calEvent, $fppEvent);
+
         // If both exist and state hashes match -> choose either (prefer calendar) with noop reason.
         if ($calEvent !== null && $fppEvent !== null) {
             $calState = $this->readEventStateHashOrEmpty($calEvent);
@@ -531,7 +533,9 @@ final class Reconciler
             return [
                 'winner' => 'calendar',
                 'event' => $calEvent, // may be null => calendar deleted it
-                'reason' => "calendar newer ($calTs > $fppTs)",
+                'reason' => $orderOnlyDrift
+                    ? "calendar newer ($calTs > $fppTs); order changed"
+                    : "calendar newer ($calTs > $fppTs)",
             ];
         }
 
@@ -539,7 +543,9 @@ final class Reconciler
             return [
                 'winner' => 'fpp',
                 'event' => $fppEvent, // may be null => fpp deleted it
-                'reason' => "fpp newer ($fppTs > $calTs)",
+                'reason' => $orderOnlyDrift
+                    ? "fpp newer ($fppTs > $calTs); order changed"
+                    : "fpp newer ($fppTs > $calTs)",
             ];
         }
 
@@ -547,8 +553,88 @@ final class Reconciler
         return [
             'winner' => 'fpp',
             'event' => $fppEvent,
-            'reason' => "tie ($calTs == $fppTs): fpp wins",
+            'reason' => $orderOnlyDrift
+                ? "tie ($calTs == $fppTs): fpp wins; order changed"
+                : "tie ($calTs == $fppTs): fpp wins",
         ];
+    }
+
+    /**
+     * Determine whether two present events diverge only by execution order metadata.
+     *
+     * @param array<string,mixed>|null $calendarEvent
+     * @param array<string,mixed>|null $fppEvent
+     */
+    private function eventsDifferOnlyByExecutionOrder(?array $calendarEvent, ?array $fppEvent): bool
+    {
+        if (!is_array($calendarEvent) || !is_array($fppEvent)) {
+            return false;
+        }
+
+        $calState = $this->readEventStateHashOrEmpty($calendarEvent);
+        $fppState = $this->readEventStateHashOrEmpty($fppEvent);
+        if ($calState === '' || $fppState === '' || $calState === $fppState) {
+            return false;
+        }
+
+        $calComparable = $this->stripExecutionOrderFromEvent($calendarEvent);
+        $fppComparable = $this->stripExecutionOrderFromEvent($fppEvent);
+
+        return $calComparable === $fppComparable;
+    }
+
+    /**
+     * Remove execution-order specific metadata so logical content can be compared.
+     *
+     * @param array<string,mixed> $event
+     * @return array<string,mixed>
+     */
+    private function stripExecutionOrderFromEvent(array $event): array
+    {
+        $out = $event;
+        $subEvents = $out['subEvents'] ?? null;
+        if (!is_array($subEvents)) {
+            return $out;
+        }
+
+        foreach ($subEvents as $idx => $subEvent) {
+            if (!is_array($subEvent)) {
+                continue;
+            }
+
+            unset($subEvent['executionOrder'], $subEvent['executionOrderManual']);
+
+            $payload = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
+            $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+            unset(
+                $metadata['executionOrder'],
+                $metadata['execution_order'],
+                $metadata['executionOrderManual'],
+                $metadata['execution_order_manual'],
+                $metadata['cs.executionOrder'],
+                $metadata['cs.executionOrderManual']
+            );
+            if ($metadata === []) {
+                unset($payload['metadata']);
+            } else {
+                $payload['metadata'] = $metadata;
+            }
+            if ($payload === []) {
+                unset($subEvent['payload']);
+            } else {
+                $subEvent['payload'] = $payload;
+            }
+
+            $subEvents[$idx] = $subEvent;
+        }
+
+        $out['subEvents'] = $subEvents;
+        $eventStateHash = $out['stateHash'] ?? null;
+        if (is_string($eventStateHash)) {
+            unset($out['stateHash']);
+        }
+
+        return $out;
     }
 
     /**

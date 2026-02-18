@@ -78,9 +78,10 @@ final class FppEventTimestampStore
 
             if ($prev !== null && $prevState !== '' && $prevState === $stateHash && $prevUpdated > 0) {
                 $updatedAt = $prevUpdated;
-            } elseif (isset($previousUpdatedAtByStateHash[$stateHash])) {
-                // Preserve authority continuity when identity hashes change but
-                // executable state is unchanged.
+            } elseif ($prev === null && isset($previousUpdatedAtByStateHash[$stateHash])) {
+                // Preserve authority continuity only for newly observed identities.
+                // If the same identity changed state (for example execution-order
+                // edits), treat it as a fresh update and use nowEpoch below.
                 $updatedAt = (int)$previousUpdatedAtByStateHash[$stateHash];
             } else {
                 $updatedAt = $nowEpoch;

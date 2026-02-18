@@ -957,28 +957,10 @@ final class SchedulerEngine
 
         $ranks = [];
         $used = [];
-        $missing = [];
+        $missing = $intents;
 
-        // Preserve explicit order from provider metadata when present.
-        foreach ($intents as $intent) {
-            $payload = is_array($intent->payload ?? null) ? $intent->payload : [];
-            $explicit = $this->extractExecutionOrderFromPayload(
-                $payload
-            );
-            if (
-                $explicit === null
-                || !$this->extractExecutionOrderManualFromPayload($payload)
-            ) {
-                $missing[] = $intent;
-                continue;
-            }
-            $ranks[spl_object_id($intent)] = $explicit;
-            $used[$explicit] = true;
-        }
-
-        if ($missing === []) {
-            return $ranks;
-        }
+        // Canonical ordering is always enforced. Explicit/manual order metadata is
+        // intentionally ignored so scheduler execution stays deterministic.
 
         // Treat each bundle as an atomic block in fallback ordering.
         // Block order is chronological by bundle anchor; rows within each

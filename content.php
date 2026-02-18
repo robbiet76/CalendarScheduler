@@ -588,6 +588,15 @@
           if (r.indexOf("force format refresh update") !== -1) {
             return "Refresh calendar event formatting.";
           }
+          if (r.indexOf("order changed") !== -1) {
+            if (r.indexOf("calendar newer") !== -1) {
+              return "Update FPP entry order to match newer calendar ordering.";
+            }
+            if (r.indexOf("fpp newer") !== -1) {
+              return "Update calendar event order to match newer FPP ordering.";
+            }
+            return "Update ordering so both sides execute entries in the same sequence.";
+          }
           if (r.indexOf("calendar newer") !== -1) {
             return "Update FPP entry to match newer calendar event changes.";
           }
