@@ -26,6 +26,8 @@ $opts = getopt('', [
     'list',
     'json',
     'no-roundtrip',
+    'canary',
+    'canary-case::',
 ]);
 
 $allCases = [
@@ -72,6 +74,11 @@ if ($requestedCase !== '' && !in_array($requestedCase, $allCases, true)) {
 $caseIds = $requestedCase !== '' ? [$requestedCase] : $allCases;
 $runRoundTrip = !array_key_exists('no-roundtrip', $opts);
 $asJson = array_key_exists('json', $opts);
+$canaryEnabled = array_key_exists('canary', $opts);
+$canaryCase = trim((string)($opts['canary-case'] ?? 'RR-01'));
+if (!in_array($canaryCase, $allCases, true)) {
+    $canaryCase = 'RR-01';
+}
 
 $engine = new SchedulerEngine();
 $context = new NormalizationContext(
@@ -84,7 +91,7 @@ $results = [];
 $failed = false;
 
 foreach ($caseIds as $caseId) {
-    $result = runCase($caseId, $engine, $context, $runRoundTrip);
+    $result = runCase($caseId, $engine, $context, $runRoundTrip, $canaryEnabled, $canaryCase);
     $results[] = $result;
     if (($result['ok'] ?? false) !== true) {
         $failed = true;
@@ -96,6 +103,8 @@ if ($asJson) {
         [
             'ok' => !$failed,
             'roundTripEnabled' => $runRoundTrip,
+            'canaryEnabled' => $canaryEnabled,
+            'canaryCase' => $canaryEnabled ? $canaryCase : null,
             'cases' => $results,
         ],
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
@@ -123,10 +132,12 @@ function runCase(
     string $caseId,
     SchedulerEngine $engine,
     NormalizationContext $context,
-    bool $runRoundTrip
+    bool $runRoundTrip,
+    bool $canaryEnabled = false,
+    string $canaryCase = 'RR-01'
 ): array {
     if (in_array($caseId, ['RR-21', 'RR-22', 'RR-23', 'RR-24', 'RR-25'], true)) {
-        return runAdvancedCase($caseId, $engine, $context, $runRoundTrip);
+        return runAdvancedCase($caseId, $engine, $context, $runRoundTrip, $canaryEnabled, $canaryCase);
     }
 
     $fixture = buildCaseFixture($caseId);
@@ -157,6 +168,9 @@ function runCase(
             $errors[] = 'roundtrip mismatch: ' . ($roundTrip['message'] ?? 'unknown');
         }
     }
+    if ($canaryEnabled && $caseId === $canaryCase) {
+        $errors[] = 'canary: injected assertion failure for pipeline verification';
+    }
 
     return [
         'id' => $caseId,
@@ -174,7 +188,9 @@ function runAdvancedCase(
     string $caseId,
     SchedulerEngine $engine,
     NormalizationContext $context,
-    bool $runRoundTrip
+    bool $runRoundTrip,
+    bool $canaryEnabled = false,
+    string $canaryCase = 'RR-01'
 ): array {
     $errors = [];
     $finalRun = null;
@@ -363,6 +379,9 @@ function runAdvancedCase(
         if (($roundTrip['ok'] ?? false) !== true) {
             $errors[] = 'roundtrip mismatch: ' . ($roundTrip['message'] ?? 'unknown');
         }
+    }
+    if ($canaryEnabled && $caseId === $canaryCase) {
+        $errors[] = 'canary: injected assertion failure for pipeline verification';
     }
 
     return [
