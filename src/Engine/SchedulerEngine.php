@@ -403,189 +403,215 @@ final class SchedulerEngine
                 }
             );
 
-            // Use first intent as identity anchor (all share same parent)
-            $anchor = $anchorIntents[0];
-
-            $payload = is_array($anchor->payload ?? null) ? $anchor->payload : [];
-            $derived = $this->deriveTypeAndTargetFromPayload($payload);
-            $eventType = $derived['type'];
-            $eventTarget = $derived['target'];
-
-            $subEvents = [];
-
+            // Split one calendar parent bundle into per-target buckets so target
+            // overrides become distinct FPP entries instead of inheriting the base target.
+            $bucketedByTarget = [];
             foreach ($anchorIntents as $plannerIntent) {
-                $scopeStart = $plannerIntent->scope->getStart();
-                $scopeEndExclusive = $plannerIntent->scope->getEnd();
-                $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');
-
-                if ($scopeEndInclusive < $scopeStart) {
-                    $scopeEndInclusive = $scopeStart;
-                }
-
-                $payload = is_array($plannerIntent->payload ?? null)
+                $plannerPayload = is_array($plannerIntent->payload ?? null)
                     ? $plannerIntent->payload
                     : [];
-
-                // Scheduler settings come from reconciled metadata only.
-                $settings = $this->extractSchedulerSettingsFromPayload($payload);
-
-                // Behavior extraction from settings
-                $enabled = true;
-                if (isset($settings['enabled'])) {
-                    $enabled = $this->settingToBool($settings['enabled'], true);
+                $derived = $this->deriveTypeAndTargetFromPayload($plannerPayload);
+                $bucketKey = $derived['type'] . '|' . $derived['target'];
+                if (!isset($bucketedByTarget[$bucketKey])) {
+                    $bucketedByTarget[$bucketKey] = [
+                        'type' => $derived['type'],
+                        'target' => $derived['target'],
+                        'intents' => [],
+                    ];
                 }
-
-                $repeat = $settings['repeat'] ?? null;
-                $stopType = $settings['stoptype'] ?? null;
-
-                // Symbolic time extraction from reconciled metadata settings.
-                $startSetting = isset($settings['start']) && is_string($settings['start'])
-                    ? trim((string)$settings['start'])
-                    : null;
-                $endSetting = isset($settings['end']) && is_string($settings['end'])
-                    ? trim((string)$settings['end'])
-                    : null;
-
-                $startSymbolic = null;
-                $endSymbolic = null;
-                $startHardOverride = null;
-                $endHardOverride = null;
-
-                if (is_string($startSetting) && $startSetting !== '') {
-                    $normalized = FPPSemantics::normalizeSymbolicTimeToken($startSetting);
-                    if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
-                        $startSymbolic = $normalized;
-                    } elseif (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $startSetting) === 1) {
-                        $startHardOverride = strlen($startSetting) === 5
-                            ? $startSetting . ':00'
-                            : $startSetting;
-                    }
-                }
-                if (is_string($endSetting) && $endSetting !== '') {
-                    $normalized = FPPSemantics::normalizeSymbolicTimeToken($endSetting);
-                    if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
-                        $endSymbolic = $normalized;
-                    } elseif (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $endSetting) === 1) {
-                        $endHardOverride = strlen($endSetting) === 5
-                            ? $endSetting . ':00'
-                            : $endSetting;
-                    }
-                }
-
-                $subEvents[] = [
-                    'type'   => $eventType,
-                    'target' => $eventTarget,
-                    'timing' => [
-                        'all_day'    => $plannerIntent->allDay,
-                        'start_date' => [
-                            'hard'     => $scopeStart->format('Y-m-d'),
-                            'symbolic' => null,
-                        ],
-                        'end_date'   => [
-                            'hard'     => $scopeEndInclusive->format('Y-m-d'),
-                            'symbolic' => null,
-                        ],
-                        // Symbolic time invalidates hard time.
-                        // Hard time is resolution-only and must not leak into manifest identity.
-                        'start_time' => ($startSymbolic !== null && $startSymbolic !== '')
-                            ? [
-                                'hard'     => null,
-                                'symbolic' => $startSymbolic,
-                                'offset'   => isset($settings['start_offset'])
-                                    ? (int)$settings['start_offset']
-                                    : 0,
-                            ]
-                            : (($startHardOverride !== null && $startHardOverride !== '')
-                                ? [
-                                    'hard'     => $startHardOverride,
-                                    'symbolic' => null,
-                                    'offset'   => 0,
-                                ]
-                            : [
-                                'hard'     => $plannerIntent->start->format('H:i:s'),
-                                'symbolic' => null,
-                                'offset'   => 0,
-                            ]),
-                        'end_time' => ($endSymbolic !== null && $endSymbolic !== '')
-                            ? [
-                                'hard'     => null,
-                                'symbolic' => $endSymbolic,
-                                'offset'   => isset($settings['end_offset'])
-                                    ? (int)$settings['end_offset']
-                                    : 0,
-                            ]
-                            : (($endHardOverride !== null && $endHardOverride !== '')
-                                ? [
-                                    'hard'     => $endHardOverride,
-                                    'symbolic' => null,
-                                    'offset'   => 0,
-                                ]
-                            : [
-                                'hard'     => $plannerIntent->end->format('H:i:s'),
-                                'symbolic' => null,
-                                'offset'   => 0,
-                            ]),
-                        'days' => (
-                            is_array($plannerIntent->weeklyDays ?? null)
-                            && $plannerIntent->weeklyDays !== []
-                        )
-                            ? [
-                                'type'  => 'weekly',
-                                'value' => array_values($plannerIntent->weeklyDays),
-                            ]
-                            : null,
-                        'timezone' => (
-                            is_string($plannerIntent->timezone ?? null)
-                            && trim((string)$plannerIntent->timezone) !== ''
-                        )
-                            ? trim((string)$plannerIntent->timezone)
-                            : $context->timezone->getName(),
-                    ],
-                    'payload' => array_merge(
-                        $payload,
-                        [
-                            'enabled'  => $enabled,
-                            'repeat'   => $repeat ?? 'none',
-                            'stopType' => $stopType ?? 'graceful',
-                        ]
-                    ),
-                ];
+                $bucketedByTarget[$bucketKey]['intents'][] = $plannerIntent;
             }
 
-            // ------------------------------------------------------------
-            // Build a single manifest event and normalize once
-            // ------------------------------------------------------------
-            $manifestEvent = [
-                // Canonical manifest identity (flat structure expected by IntentNormalizer)
-                'type'   => $eventType,
-                'target' => $eventTarget,
-                'timing' => $subEvents[0]['timing'],
+            foreach ($bucketedByTarget as $bucket) {
+                $eventType = (string)($bucket['type'] ?? 'playlist');
+                $eventTarget = (string)($bucket['target'] ?? 'unknown');
+                $bucketIntents = is_array($bucket['intents'] ?? null) ? $bucket['intents'] : [];
+                if ($bucketIntents === []) {
+                    continue;
+                }
 
-                // Top-level payload (anchor payload required by normalization)
-                'payload' => $payload,
+                $anchor = $bucketIntents[0];
+                $anchorPayload = is_array($anchor->payload ?? null) ? $anchor->payload : [];
+                $subEvents = [];
 
-                // Full state (expanded occurrences)
-                'subEvents' => $subEvents,
+                foreach ($bucketIntents as $plannerIntent) {
+                    $scopeStart = $plannerIntent->scope->getStart();
+                    $scopeEndExclusive = $plannerIntent->scope->getEnd();
+                    $scopeEndInclusive = $scopeEndExclusive->modify('-1 day');
 
-                // Ownership / correlation metadata
-                'ownership' => ['managed' => true],
-                'correlation' => [
-                    'sourceEventUid' => $parentUid,
-                    'sourceCalendarId' => $calendarScope,
-                ],
+                    if ($scopeEndInclusive < $scopeStart) {
+                        $scopeEndInclusive = $scopeStart;
+                    }
 
-                'source' => 'calendar',
-            ];
+                    $payload = is_array($plannerIntent->payload ?? null)
+                        ? $plannerIntent->payload
+                        : [];
 
-            $normalizedIntent = $this->normalizer->fromManifestEvent(
-                $manifestEvent,
-                $context
-            );
+                    // Scheduler settings come from reconciled metadata only.
+                    $settings = $this->extractSchedulerSettingsFromPayload($payload);
 
-            $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
-            $computedCalendarUpdatedAtById[$normalizedIntent->identityHash] =
-                $calendarUpdatedAtByUid[$parentUid]
-                ?? $calendarSnapshotEpoch;
+                    // Behavior extraction from settings
+                    $enabled = true;
+                    if (isset($settings['enabled'])) {
+                        $enabled = $this->settingToBool($settings['enabled'], true);
+                    }
+
+                    $repeat = $settings['repeat'] ?? null;
+                    $stopType = $settings['stoptype'] ?? null;
+
+                    // Symbolic time extraction from reconciled metadata settings.
+                    $startSetting = isset($settings['start']) && is_string($settings['start'])
+                        ? trim((string)$settings['start'])
+                        : null;
+                    $endSetting = isset($settings['end']) && is_string($settings['end'])
+                        ? trim((string)$settings['end'])
+                        : null;
+
+                    $startSymbolic = null;
+                    $endSymbolic = null;
+                    $startHardOverride = null;
+                    $endHardOverride = null;
+
+                    if (is_string($startSetting) && $startSetting !== '') {
+                        $normalized = FPPSemantics::normalizeSymbolicTimeToken($startSetting);
+                        if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
+                            $startSymbolic = $normalized;
+                        } elseif (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $startSetting) === 1) {
+                            $startHardOverride = strlen($startSetting) === 5
+                                ? $startSetting . ':00'
+                                : $startSetting;
+                        }
+                    }
+                    if (is_string($endSetting) && $endSetting !== '') {
+                        $normalized = FPPSemantics::normalizeSymbolicTimeToken($endSetting);
+                        if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
+                            $endSymbolic = $normalized;
+                        } elseif (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $endSetting) === 1) {
+                            $endHardOverride = strlen($endSetting) === 5
+                                ? $endSetting . ':00'
+                                : $endSetting;
+                        }
+                    }
+
+                    $subEvents[] = [
+                        'type'   => $eventType,
+                        'target' => $eventTarget,
+                        'timing' => [
+                            'all_day'    => $plannerIntent->allDay,
+                            'start_date' => [
+                                'hard'     => $scopeStart->format('Y-m-d'),
+                                'symbolic' => null,
+                            ],
+                            'end_date'   => [
+                                'hard'     => $scopeEndInclusive->format('Y-m-d'),
+                                'symbolic' => null,
+                            ],
+                            // Symbolic time invalidates hard time.
+                            // Hard time is resolution-only and must not leak into manifest identity.
+                            'start_time' => ($startSymbolic !== null && $startSymbolic !== '')
+                                ? [
+                                    'hard'     => null,
+                                    'symbolic' => $startSymbolic,
+                                    'offset'   => isset($settings['start_offset'])
+                                        ? (int)$settings['start_offset']
+                                        : 0,
+                                ]
+                                : (($startHardOverride !== null && $startHardOverride !== '')
+                                    ? [
+                                        'hard'     => $startHardOverride,
+                                        'symbolic' => null,
+                                        'offset'   => 0,
+                                    ]
+                                : [
+                                    'hard'     => $plannerIntent->start->format('H:i:s'),
+                                    'symbolic' => null,
+                                    'offset'   => 0,
+                                ]),
+                            'end_time' => ($endSymbolic !== null && $endSymbolic !== '')
+                                ? [
+                                    'hard'     => null,
+                                    'symbolic' => $endSymbolic,
+                                    'offset'   => isset($settings['end_offset'])
+                                        ? (int)$settings['end_offset']
+                                        : 0,
+                                ]
+                                : (($endHardOverride !== null && $endHardOverride !== '')
+                                    ? [
+                                        'hard'     => $endHardOverride,
+                                        'symbolic' => null,
+                                        'offset'   => 0,
+                                    ]
+                                : [
+                                    'hard'     => $plannerIntent->end->format('H:i:s'),
+                                    'symbolic' => null,
+                                    'offset'   => 0,
+                                ]),
+                            'days' => (
+                                is_array($plannerIntent->weeklyDays ?? null)
+                                && $plannerIntent->weeklyDays !== []
+                            )
+                                ? [
+                                    'type'  => 'weekly',
+                                    'value' => array_values($plannerIntent->weeklyDays),
+                                ]
+                                : null,
+                            'timezone' => (
+                                is_string($plannerIntent->timezone ?? null)
+                                && trim((string)$plannerIntent->timezone) !== ''
+                            )
+                                ? trim((string)$plannerIntent->timezone)
+                                : $context->timezone->getName(),
+                        ],
+                        'payload' => array_merge(
+                            $payload,
+                            [
+                                'enabled'  => $enabled,
+                                'repeat'   => $repeat ?? 'none',
+                                'stopType' => $stopType ?? 'graceful',
+                            ]
+                        ),
+                    ];
+                }
+
+                if ($subEvents === []) {
+                    continue;
+                }
+
+                // ------------------------------------------------------------
+                // Build one manifest event per target bucket and normalize once
+                // ------------------------------------------------------------
+                $manifestEvent = [
+                    // Canonical manifest identity (flat structure expected by IntentNormalizer)
+                    'type'   => $eventType,
+                    'target' => $eventTarget,
+                    'timing' => $subEvents[0]['timing'],
+
+                    // Top-level payload (anchor payload required by normalization)
+                    'payload' => $anchorPayload,
+
+                    // Full state (expanded occurrences)
+                    'subEvents' => $subEvents,
+
+                    // Ownership / correlation metadata
+                    'ownership' => ['managed' => true],
+                    'correlation' => [
+                        'sourceEventUid' => $parentUid,
+                        'sourceCalendarId' => $calendarScope,
+                    ],
+
+                    'source' => 'calendar',
+                ];
+
+                $normalizedIntent = $this->normalizer->fromManifestEvent(
+                    $manifestEvent,
+                    $context
+                );
+
+                $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
+                $computedCalendarUpdatedAtById[$normalizedIntent->identityHash] =
+                    $calendarUpdatedAtByUid[$parentUid]
+                    ?? $calendarSnapshotEpoch;
+            }
         }
 
         // ------------------------------------------------------------
