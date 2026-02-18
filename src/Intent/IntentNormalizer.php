@@ -200,12 +200,16 @@ final class IntentNormalizer
         $identityHash      = hash('sha256', $identityHashJson);
 
         // Event-level state hash from all normalized subevents in deterministic order.
+        $subEventStateHashes = array_map(
+            static fn(array $s) => (string)($s['stateHash'] ?? ''),
+            $normalizedSubEvents
+        );
+        // Event state equality should not depend on subEvent array ordering.
+        // Calendar and FPP ingestion can produce equivalent subevents in different orders.
+        sort($subEventStateHashes, SORT_STRING);
         $eventStateHash = hash(
             'sha256',
-            json_encode(array_map(
-                static fn(array $s) => (string)($s['stateHash'] ?? ''),
-                $normalizedSubEvents
-            ), JSON_THROW_ON_ERROR)
+            json_encode($subEventStateHashes, JSON_THROW_ON_ERROR)
         );
 
         return new Intent(
