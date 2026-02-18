@@ -64,89 +64,111 @@ final class IntentNormalizer
         array $event,
         NormalizationContext $context
     ): Intent {
-        $timingArr = $this->applyHolidaySymbolics(
-            $event['timing'],
-            $context->holidayResolver
-        );
+        $rawSubEvents = [];
+        if (isset($event['subEvents']) && is_array($event['subEvents']) && $event['subEvents'] !== []) {
+            foreach ($event['subEvents'] as $sub) {
+                if (is_array($sub)) {
+                    $rawSubEvents[] = $sub;
+                }
+            }
+        }
+        if ($rawSubEvents === []) {
+            $rawSubEvents[] = [];
+        }
 
-        // Days normalization source-of-truth:
-        // - Calendar-side events may not populate timing.days directly.
-        // - If Resolution produced weeklyDays metadata, use it to populate timing.days.
-        // - This keeps identity/state hashing stable across calendar and FPP.
-        if (
-            (!isset($timingArr['days']) || $timingArr['days'] === null)
-            && isset($event['weeklyDays'])
-            && is_array($event['weeklyDays'])
-            && $event['weeklyDays'] !== []
-        ) {
-            $timingArr['days'] = [
-                'type'  => 'weekly',
-                'value' => array_values($event['weeklyDays']),
+        $normalizedSubEvents = [];
+        foreach ($rawSubEvents as $rawSubEvent) {
+            $rawTiming = is_array($rawSubEvent['timing'] ?? null)
+                ? $rawSubEvent['timing']
+                : (is_array($event['timing'] ?? null) ? $event['timing'] : []);
+            $timingArr = $this->applyHolidaySymbolics($rawTiming, $context->holidayResolver);
+
+            // Days normalization source-of-truth:
+            // - Calendar-side events may not populate timing.days directly.
+            // - If Resolution produced weeklyDays metadata, use it to populate timing.days.
+            // - This keeps identity/state hashing stable across calendar and FPP.
+            if (
+                (!isset($timingArr['days']) || $timingArr['days'] === null)
+                && isset($event['weeklyDays'])
+                && is_array($event['weeklyDays'])
+                && $event['weeklyDays'] !== []
+            ) {
+                $timingArr['days'] = [
+                    'type'  => 'weekly',
+                    'value' => array_values($event['weeklyDays']),
+                ];
+            }
+
+            // Debug raw days before any normalization
+            if (getenv('GCS_DEBUG_INTENTS') === '1') {
+                $rawDays = $timingArr['days'] ?? null;
+                fwrite(STDERR, "RAW DAYS [" . ($event['source'] ?? 'unknown') . "]: " . json_encode($rawDays) . "\n");
+            }
+
+            // Symbolic times (dusk/dawn/etc.) must remain symbolic end-to-end.
+            // Any hard time present alongside a symbolic value is display-only and must be ignored.
+            $timingArr = $this->normalizeSymbolicTimes($timingArr);
+
+            // Calendar invariants:
+            // - Calendar-side events must always carry concrete hard dates.
+            // - Symbolic-only dates are only valid on the FPP side.
+            $this->assertCalendarHardDates(
+                (string)($event['source'] ?? ''),
+                (string)($event['type'] ?? ''),
+                (string)($event['target'] ?? ''),
+                $timingArr
+            );
+
+            // All-day normalization:
+            // When all_day = true, time fields are semantically irrelevant
+            // and MUST be nulled for identity stability across providers.
+            if (!empty($timingArr['all_day'])) {
+                $timingArr['start_time'] = null;
+                $timingArr['end_time']   = null;
+            }
+
+            /**
+             * Command timing normalization:
+             * - Commands are point-in-time unless repeating
+             */
+            if (
+                ($event['type'] ?? null) === 'command'
+                && (($event['payload']['repeat'] ?? 'none') === 'none')
+            ) {
+                $timingArr['end_time'] = $timingArr['start_time'] ?? null;
+            }
+
+            // State hash should prefer subevent-level execution state when available.
+            // Calendar pipeline enriches subevent payload with behavior-derived defaults.
+            $statePayload = is_array($rawSubEvent['payload'] ?? null)
+                ? $rawSubEvent['payload']
+                : (is_array($event['payload'] ?? null) ? $event['payload'] : []);
+            $stateBehavior = is_array($rawSubEvent['behavior'] ?? null)
+                ? $rawSubEvent['behavior']
+                : (is_array($event['behavior'] ?? null) ? $event['behavior'] : []);
+
+            $subEvent = [
+                'type'     => $event['type'],
+                'target'   => $event['target'],
+                'timing'   => $timingArr,
+                'payload'  => $statePayload,
+                'behavior' => $stateBehavior,
             ];
-        }
-        // Debug raw days before any normalization
-        if (getenv('GCS_DEBUG_INTENTS') === '1') {
-            $rawDays = $timingArr['days'] ?? null;
-            fwrite(STDERR, "RAW DAYS [" . ($event['source'] ?? 'unknown') . "]: " . json_encode($rawDays) . "\n");
-        }
-        // Symbolic times (dusk/dawn/etc.) must remain symbolic end-to-end.
-        // Any hard time present alongside a symbolic value is display-only and must be ignored.
-        $timingArr = $this->normalizeSymbolicTimes($timingArr);
 
-        // Calendar invariants:
-        // - Calendar-side events must always carry concrete hard dates.
-        // - Symbolic-only dates are only valid on the FPP side.
-        $this->assertCalendarHardDates(
-            (string)($event['source'] ?? ''),
-            (string)($event['type'] ?? ''),
-            (string)($event['target'] ?? ''),
-            $timingArr
-        );
+            $stateHashInput = $this->canonicalizeForStateHash($subEvent);
+            $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
+            $subEvent['stateHash'] = hash('sha256', $stateHashJson);
 
-        // All-day normalization:
-        // When all_day = true, time fields are semantically irrelevant
-        // and MUST be nulled for identity stability across providers.
-        if (!empty($timingArr['all_day'])) {
-            $timingArr['start_time'] = null;
-            $timingArr['end_time']   = null;
+            $normalizedSubEvents[] = $subEvent;
         }
 
-        /**
-         * Command timing normalization:
-         * - Commands are point-in-time unless repeating
-         */
-        if (
-            ($event['type'] ?? null) === 'command'
-            && (($event['payload']['repeat'] ?? 'none') === 'none')
-        ) {
-            $timingArr['end_time'] = $timingArr['start_time'] ?? null;
-        }
-
+        $identityTiming = is_array($normalizedSubEvents[0]['timing'] ?? null)
+            ? $normalizedSubEvents[0]['timing']
+            : [];
         $identity = [
             'type'   => $event['type'],
             'target' => $event['target'],
-            'timing' => $timingArr,
-        ];
-
-        $firstSubEvent = (
-            isset($event['subEvents'][0]) && is_array($event['subEvents'][0])
-        ) ? $event['subEvents'][0] : [];
-
-        // State hash should prefer subevent-level execution state when available.
-        // Calendar pipeline enriches subevent payload with behavior-derived defaults.
-        $statePayload = is_array($firstSubEvent['payload'] ?? null)
-            ? $firstSubEvent['payload']
-            : (is_array($event['payload'] ?? null) ? $event['payload'] : []);
-        $stateBehavior = is_array($firstSubEvent['behavior'] ?? null)
-            ? $firstSubEvent['behavior']
-            : (is_array($event['behavior'] ?? null) ? $event['behavior'] : []);
-
-        $subEvent = [
-            'type'    => $event['type'],
-            'target'  => $event['target'],
-            'timing'  => $timingArr,
-            'payload' => $statePayload,
-            'behavior' => $stateBehavior,
+            'timing' => $identityTiming,
         ];
 
         // Debug raw timing state before canonicalization
@@ -177,15 +199,13 @@ final class IntentNormalizer
         $identityHashJson  = json_encode($identityHashInput, JSON_THROW_ON_ERROR);
         $identityHash      = hash('sha256', $identityHashJson);
 
-        // SubEvent state hash
-        $stateHashInput = $this->canonicalizeForStateHash($subEvent);
-        $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
-        $subEvent['stateHash'] = hash('sha256', $stateHashJson);
-
-        // Event-level state hash (single subEvent for now)
+        // Event-level state hash from all normalized subevents in deterministic order.
         $eventStateHash = hash(
             'sha256',
-            json_encode([$subEvent['stateHash']], JSON_THROW_ON_ERROR)
+            json_encode(array_map(
+                static fn(array $s) => (string)($s['stateHash'] ?? ''),
+                $normalizedSubEvents
+            ), JSON_THROW_ON_ERROR)
         );
 
         return new Intent(
@@ -193,7 +213,7 @@ final class IntentNormalizer
             $identityHashInput,
             $event['ownership'],
             $event['correlation'],
-            [$subEvent],
+            $normalizedSubEvents,
             $eventStateHash
         );
     }
