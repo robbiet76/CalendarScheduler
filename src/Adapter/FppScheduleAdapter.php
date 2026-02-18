@@ -404,9 +404,6 @@ final class FppScheduleAdapter
             'target' => $target,
             'all_day' => (bool)($timing['all_day'] ?? false),
             'days' => $timing['days'] ?? null,
-            'enabled' => $payload['enabled'] ?? true,
-            'repeat' => $payload['repeat'] ?? 'none',
-            'stopType' => $payload['stopType'] ?? 'graceful',
         ];
 
         return hash('sha256', json_encode($shape, JSON_THROW_ON_ERROR));
