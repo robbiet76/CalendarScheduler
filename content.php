@@ -68,6 +68,13 @@
     display: none !important;
   }
 
+  .cs-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
   .cs-help-list {
     margin-bottom: 8px;
     padding-left: 18px;
@@ -147,7 +154,11 @@
   <div class="row g-2">
     <div class="col-12">
       <div class="backdrop mb-3">
-        <h4 class="cs-panel-title">1) Connection Setup</h4>
+        <div class="cs-panel-header">
+          <h4 class="cs-panel-title">1) Connection Setup</h4>
+          <button class="buttons btn-black btn-sm" id="csConnectionToggleBtn" type="button">Collapse</button>
+        </div>
+        <div id="csConnectionPanelBody">
         <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
         <div class="mb-2">
@@ -192,6 +203,7 @@
         <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
           <button class="buttons btn-black" id="csDisconnectBtn" type="button" disabled>Disconnect Provider</button>
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
+        </div>
         </div>
 
       </div>
@@ -276,6 +288,8 @@
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
     var syncMode = "both";
+    var connectionCollapsed = false;
+    var connectionCollapseUserOverride = false;
 
     function byId(id) {
       return document.getElementById(id);
@@ -324,6 +338,17 @@
         bar.classList.remove(name);
       });
       bar.classList.add(className);
+    }
+
+    function setConnectionCollapsed(collapsed) {
+      var body = byId("csConnectionPanelBody");
+      var btn = byId("csConnectionToggleBtn");
+      if (!body || !btn) {
+        return;
+      }
+      connectionCollapsed = !!collapsed;
+      body.classList.toggle("cs-hidden", connectionCollapsed);
+      btn.textContent = connectionCollapsed ? "Expand" : "Collapse";
     }
 
     function updateTopStatusCompact() {
@@ -606,6 +631,12 @@
             ? "Connect to a calendar using OAuth."
             : "Connect to a calendar using OAuth. Select calendar provider.";
         }
+        if (!providerConnected) {
+          connectionCollapseUserOverride = false;
+          setConnectionCollapsed(false);
+        } else if (!connectionCollapseUserOverride) {
+          setConnectionCollapsed(true);
+        }
         var account = google.account || "Not connected yet";
         var accountValue = byId("csConnectedAccountValue");
         if (accountValue) {
@@ -814,6 +845,11 @@
         return;
       }
       startDeviceAuthFlow();
+    });
+
+    byId("csConnectionToggleBtn").addEventListener("click", function () {
+      connectionCollapseUserOverride = true;
+      setConnectionCollapsed(!connectionCollapsed);
     });
 
     byId("csDisconnectBtn").addEventListener("click", function () {
