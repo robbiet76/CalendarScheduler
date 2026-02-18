@@ -202,6 +202,17 @@ Defines:
 
 ---
 
+## 18. Round-Trip Contract (FPP ↔ Calendar)  
+📄 **File:** `spec/18-round-trip-contract.md`
+
+Defines:
+- Bidirectional round-trip invariants
+- Identity vs state hashing expectations for reversibility
+- Execution ordering persistence requirements
+- Overlap/shadow rules for execution-accurate calendar rendering
+- Acceptance criteria for true two-way convergence
+
+---
+
 ### Next Section to Author
 ➡️ **`spec/03-manifest.md`**
-

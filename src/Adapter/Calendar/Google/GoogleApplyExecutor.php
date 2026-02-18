@@ -51,8 +51,8 @@ final class GoogleApplyExecutor
 
             // FPP -> Calendar override bundles may arrive as separate identity actions.
             // Capture single-subevent create actions so we can inject EXDATE on the base.
-            $candidate = $this->extractBundleCandidate($action, $mapped, $startIndex);
-            if ($candidate !== null) {
+            $candidates = $this->extractBundleCandidates($action, $mapped, $startIndex);
+            foreach ($candidates as $candidate) {
                 $bundleCandidates[] = $candidate;
             }
         }
@@ -135,51 +135,50 @@ final class GoogleApplyExecutor
     }
 
     /**
-     * Capture create actions that can participate in base+override EXDATE stitching.
+     * Capture FPP-authoritative actions that can participate in base+override EXDATE stitching.
      *
      * @param array<int,GoogleMutation> $mapped
-     * @return array<string,mixed>|null
+     * @return array<int,array<string,mixed>>
      */
-    private function extractBundleCandidate(ReconciliationAction $action, array $mapped, int $startIndex): ?array
+    private function extractBundleCandidates(ReconciliationAction $action, array $mapped, int $startIndex): array
     {
-        if ($action->type !== ReconciliationAction::TYPE_CREATE) {
-            return null;
+        if (
+            $action->type !== ReconciliationAction::TYPE_CREATE
+            && $action->type !== ReconciliationAction::TYPE_UPDATE
+        ) {
+            return [];
         }
         if ($action->target !== ReconciliationAction::TARGET_CALENDAR) {
-            return null;
+            return [];
+        }
+        if ($action->authority !== ReconciliationAction::AUTHORITY_FPP) {
+            return [];
         }
 
         $event = is_array($action->event ?? null) ? $action->event : [];
-        if (strtolower((string)($event['source'] ?? '')) !== 'fpp') {
-            return null;
-        }
-
         $subEvents = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
         if (count($subEvents) !== 1 || !is_array($subEvents[0])) {
-            return null;
-        }
-
-        if (count($mapped) !== 1 || !($mapped[0] instanceof GoogleMutation)) {
-            return null;
-        }
-        if ($mapped[0]->op !== GoogleMutation::OP_CREATE) {
-            return null;
+            return [];
         }
 
         $timing = is_array($subEvents[0]['timing'] ?? null) ? $subEvents[0]['timing'] : [];
         $start = $this->timingDateYmd($timing, 'start_date');
         $end = $this->timingDateYmd($timing, 'end_date');
         if ($start === null || $end === null) {
-            return null;
+            return [];
         }
         if ($start > $end) {
-            return null;
+            return [];
         }
 
         $allDay = (bool)($timing['all_day'] ?? false);
         $startTime = $allDay ? '00:00:00' : ($this->timingTimeHms($timing, 'start_time') ?? '');
+        $endTime = $allDay ? '24:00:00' : ($this->timingTimeHms($timing, 'end_time') ?? '');
         if (!$allDay && $startTime === '') {
-            return null;
+            return [];
+        }
+        if (!$allDay && $endTime === '') {
+            return [];
         }
 
         $timezone = is_string($timing['timezone'] ?? null) && trim((string)$timing['timezone']) !== ''
@@ -190,20 +189,31 @@ final class GoogleApplyExecutor
             $daysKey = 'null';
         }
 
-        return [
-            'groupKey' => implode('|', [
-                $mapped[0]->calendarId,
-                $allDay ? '1' : '0',
-                $timezone,
-                $daysKey,
-            ]),
-            'mutationIndex' => $startIndex,
-            'start' => $start,
-            'end' => $end,
-            'allDay' => $allDay,
-            'timezone' => $timezone,
-            'startTime' => $startTime,
-        ];
+        $out = [];
+        foreach ($mapped as $offset => $mutation) {
+            if (!($mutation instanceof GoogleMutation) || $mutation->op !== GoogleMutation::OP_CREATE) {
+                continue;
+            }
+
+            $out[] = [
+                'groupKey' => implode('|', [
+                    $mutation->calendarId,
+                    $allDay ? '1' : '0',
+                    $timezone,
+                    $daysKey,
+                ]),
+                'mutationIndex' => $startIndex + (int)$offset,
+                'start' => $start,
+                'end' => $end,
+                'allDay' => $allDay,
+                'timezone' => $timezone,
+                'startTime' => $startTime,
+                'endTime' => $endTime,
+                'executionOrder' => $this->normalizeExecutionOrder($subEvents[0]['executionOrder'] ?? null),
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -249,7 +259,6 @@ final class GoogleApplyExecutor
 
             $dates = [];
             $hasOverride = false;
-            $validGroup = true;
             foreach ($group as $candidate) {
                 if (($candidate['mutationIndex'] ?? null) === ($base['mutationIndex'] ?? null)) {
                     continue;
@@ -266,8 +275,15 @@ final class GoogleApplyExecutor
                 }
 
                 if (!$this->rangeContainedBy($baseStart, $baseEnd, $start, $end)) {
-                    $validGroup = false;
-                    break;
+                    continue;
+                }
+
+                if (!$this->isHigherPrecedence($candidate, $base)) {
+                    continue;
+                }
+
+                if (!$this->isFullTimeShadow($candidate, $base)) {
+                    continue;
                 }
 
                 $hasOverride = true;
@@ -279,7 +295,7 @@ final class GoogleApplyExecutor
                 }
             }
 
-            if (!$validGroup || !$hasOverride || $dates === []) {
+            if (!$hasOverride || $dates === []) {
                 continue;
             }
 
@@ -374,6 +390,56 @@ final class GoogleApplyExecutor
     }
 
     /**
+     * A candidate can shadow base only if it outranks base in execution precedence.
+     *
+     * @param array<string,mixed> $candidate
+     * @param array<string,mixed> $base
+     */
+    private function isHigherPrecedence(array $candidate, array $base): bool
+    {
+        $candidateOrder = $this->normalizeExecutionOrder($candidate['executionOrder'] ?? null);
+        $baseOrder = $this->normalizeExecutionOrder($base['executionOrder'] ?? null);
+        if ($candidateOrder !== null && $baseOrder !== null) {
+            return $candidateOrder < $baseOrder;
+        }
+
+        // Fallback heuristic when explicit ordering metadata is absent:
+        // narrower date scope is likely an override of a wider base.
+        $candidateSpan = $this->inclusiveDaySpan((string)$candidate['start'], (string)$candidate['end']);
+        $baseSpan = $this->inclusiveDaySpan((string)$base['start'], (string)$base['end']);
+        return $candidateSpan > 0 && $baseSpan > 0 && $candidateSpan < $baseSpan;
+    }
+
+    /**
+     * Full shadow means candidate fully covers base execution window on overlap days.
+     *
+     * @param array<string,mixed> $candidate
+     * @param array<string,mixed> $base
+     */
+    private function isFullTimeShadow(array $candidate, array $base): bool
+    {
+        $candidateAllDay = (bool)($candidate['allDay'] ?? false);
+        $baseAllDay = (bool)($base['allDay'] ?? false);
+
+        if ($baseAllDay) {
+            return $candidateAllDay;
+        }
+        if ($candidateAllDay) {
+            return true;
+        }
+
+        $candidateStart = $this->parseClockToSeconds((string)($candidate['startTime'] ?? ''));
+        $candidateEnd = $this->parseClockToSeconds((string)($candidate['endTime'] ?? ''));
+        $baseStart = $this->parseClockToSeconds((string)($base['startTime'] ?? ''));
+        $baseEnd = $this->parseClockToSeconds((string)($base['endTime'] ?? ''));
+        if ($candidateStart === null || $candidateEnd === null || $baseStart === null || $baseEnd === null) {
+            return false;
+        }
+
+        return $candidateStart <= $baseStart && $candidateEnd >= $baseEnd;
+    }
+
+    /**
      * @return array<int,string>
      */
     private function expandDateRange(string $startYmd, string $endYmd): array
@@ -448,5 +514,38 @@ final class GoogleApplyExecutor
             return $hard;
         }
         return null;
+    }
+
+    private function normalizeExecutionOrder(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value >= 0 ? $value : 0;
+        }
+        if (is_string($value) && is_numeric($value)) {
+            $n = (int)$value;
+            return $n >= 0 ? $n : 0;
+        }
+        return null;
+    }
+
+    private function parseClockToSeconds(string $clock): ?int
+    {
+        $clock = trim($clock);
+        if ($clock === '') {
+            return null;
+        }
+        if ($clock === '24:00:00') {
+            return 86400;
+        }
+        if (preg_match('/^(\d{2}):(\d{2}):(\d{2})$/', $clock, $m) !== 1) {
+            return null;
+        }
+        $h = (int)$m[1];
+        $i = (int)$m[2];
+        $s = (int)$m[3];
+        if ($h < 0 || $h > 23 || $i < 0 || $i > 59 || $s < 0 || $s > 59) {
+            return null;
+        }
+        return ($h * 3600) + ($i * 60) + $s;
     }
 }

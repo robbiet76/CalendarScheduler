@@ -167,7 +167,7 @@ final class FppScheduleAdapter
 
         /** @var array<string,array<string,mixed>> $aggregated */
         $aggregated = [];
-        foreach ($raw as $entry) {
+        foreach ($raw as $entryIndex => $entry) {
             if (!is_array($entry)) {
                 continue;
             }
@@ -175,7 +175,13 @@ final class FppScheduleAdapter
             $yearHint = (is_string($key) && isset($yearHints[$key]))
                 ? (int)$yearHints[$key]
                 : (is_int($globalYearHint) ? $globalYearHint : null);
-            $event = $this->fromScheduleEntry($entry, $fppTz, $updatedAt, $yearHint);
+            $event = $this->fromScheduleEntry(
+                $entry,
+                $fppTz,
+                $updatedAt,
+                $yearHint,
+                is_int($entryIndex) ? $entryIndex : null
+            );
 
             $aggregateKey = $this->deriveManifestAggregateKey($event);
             if (!isset($aggregated[$aggregateKey])) {
@@ -217,7 +223,8 @@ final class FppScheduleAdapter
         array $entry,
         \DateTimeZone $fppTz,
         int $scheduleUpdatedAt,
-        ?int $dateYearHint = null
+        ?int $dateYearHint = null,
+        ?int $executionOrder = null
     ): array
     {
         // --- Type / target ---
@@ -331,6 +338,7 @@ final class FppScheduleAdapter
                 'timing' => $timing,
                 'payload' => $payload,
                 'behavior' => $behavior,
+                'executionOrder' => is_int($executionOrder) && $executionOrder >= 0 ? $executionOrder : 0,
             ]],
             'ownership' => [
                 'managed'    => true,

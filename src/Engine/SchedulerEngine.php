@@ -433,6 +433,7 @@ final class SchedulerEngine
                 $anchor = $bucketIntents[0];
                 $anchorPayload = is_array($anchor->payload ?? null) ? $anchor->payload : [];
                 $subEvents = [];
+                $executionRanks = $this->computeExecutionOrderRanks($bucketIntents);
 
                 foreach ($bucketIntents as $plannerIntent) {
                     $scopeStart = $plannerIntent->scope->getStart();
@@ -496,6 +497,7 @@ final class SchedulerEngine
                     $subEvents[] = [
                         'type'   => $eventType,
                         'target' => $eventTarget,
+                        'executionOrder' => $executionRanks[spl_object_id($plannerIntent)] ?? 0,
                         'timing' => [
                             'all_day'    => $plannerIntent->allDay,
                             'start_date' => [
@@ -927,6 +929,54 @@ final class SchedulerEngine
         }
 
         return $out;
+    }
+
+    /**
+     * Compute deterministic execution order ranks for planner intents.
+     *
+     * Lower rank = higher precedence (earlier FPP row).
+     *
+     * @param array<int,PlannerIntent> $intents
+     * @return array<int,int> map of spl_object_id(PlannerIntent) => rank
+     */
+    private function computeExecutionOrderRanks(array $intents): array
+    {
+        if ($intents === []) {
+            return [];
+        }
+
+        $ordered = $intents;
+        usort(
+            $ordered,
+            static function (PlannerIntent $a, PlannerIntent $b): int {
+                // Resolution priority is descending (higher priority executes first).
+                if ($a->priority !== $b->priority) {
+                    return $b->priority <=> $a->priority;
+                }
+
+                // Stable tie-breakers to keep deterministic output.
+                $aStart = $a->scope->getStart()->getTimestamp();
+                $bStart = $b->scope->getStart()->getTimestamp();
+                if ($aStart !== $bStart) {
+                    return $aStart <=> $bStart;
+                }
+
+                $aEnd = $a->scope->getEnd()->getTimestamp();
+                $bEnd = $b->scope->getEnd()->getTimestamp();
+                if ($aEnd !== $bEnd) {
+                    return $aEnd <=> $bEnd;
+                }
+
+                return strcmp($a->sourceEventUid, $b->sourceEventUid);
+            }
+        );
+
+        $ranks = [];
+        foreach ($ordered as $index => $intent) {
+            $ranks[spl_object_id($intent)] = (int)$index;
+        }
+
+        return $ranks;
     }
 
     /**

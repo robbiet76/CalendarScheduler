@@ -262,6 +262,12 @@ final class ApplyRunner
     private function sortSubEventsForFppWrite(array $subEvents): array
     {
         usort($subEvents, function (mixed $a, mixed $b): int {
+            $aOrder = $this->subEventExecutionOrder($a);
+            $bOrder = $this->subEventExecutionOrder($b);
+            if ($aOrder !== null && $bOrder !== null && $aOrder !== $bOrder) {
+                return $aOrder <=> $bOrder;
+            }
+
             $aTiming = is_array($a) ? (is_array($a['timing'] ?? null) ? $a['timing'] : []) : [];
             $bTiming = is_array($b) ? (is_array($b['timing'] ?? null) ? $b['timing'] : []) : [];
 
@@ -283,6 +289,22 @@ final class ApplyRunner
         });
 
         return array_values($subEvents);
+    }
+
+    private function subEventExecutionOrder(mixed $subEvent): ?int
+    {
+        if (!is_array($subEvent)) {
+            return null;
+        }
+        $value = $subEvent['executionOrder'] ?? null;
+        if (is_int($value)) {
+            return $value >= 0 ? $value : 0;
+        }
+        if (is_string($value) && is_numeric($value)) {
+            $n = (int)$value;
+            return $n >= 0 ? $n : 0;
+        }
+        return null;
     }
 
     /**
