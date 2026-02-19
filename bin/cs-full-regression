@@ -1,0 +1,303 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Calendar Scheduler - Full Regression Orchestrator
+ *
+ * File: bin/cs-full-regression
+ * Purpose: Run the full automated regression flow in one command by chaining
+ * resolution regression fixtures and optional live pre/apply/post convergence checks.
+ */
+
+$root = dirname(__DIR__);
+$resolutionRunner = $root . '/bin/cs-resolution-regression';
+$liveRunner = $root . '/bin/cs-regression';
+$apiSmokeRunner = $root . '/bin/cs-api-smoke';
+
+if (!is_file($resolutionRunner)) {
+    fwrite(STDERR, "ERROR: Missing runner: {$resolutionRunner}\n");
+    exit(2);
+}
+if (!is_file($liveRunner)) {
+    fwrite(STDERR, "ERROR: Missing runner: {$liveRunner}\n");
+    exit(2);
+}
+if (!is_file($apiSmokeRunner)) {
+    fwrite(STDERR, "ERROR: Missing runner: {$apiSmokeRunner}\n");
+    exit(2);
+}
+
+$opts = getopt('', [
+    'label::',
+    'out-dir::',
+    'sync-mode::',
+    'skip-resolution',
+    'skip-live',
+    'resolution-case::',
+    'skip-api-smoke',
+    'api-endpoint::',
+    'api-sync-mode::',
+    'api-include-auth-start',
+    'api-include-apply-noop',
+    'json',
+]);
+
+$skipResolution = array_key_exists('skip-resolution', $opts);
+$skipLive = array_key_exists('skip-live', $opts);
+$skipApiSmoke = array_key_exists('skip-api-smoke', $opts);
+if ($skipResolution && $skipLive && $skipApiSmoke) {
+    fwrite(STDERR, "ERROR: All suites are skipped. Nothing to run.\n");
+    exit(2);
+}
+
+$label = trim((string)($opts['label'] ?? 'full'));
+if ($label === '') {
+    $label = 'full';
+}
+$label = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $label) ?? 'full';
+$outBase = trim((string)($opts['out-dir'] ?? '/tmp/cs-full-regression'));
+$runDir = rtrim($outBase, '/') . '/' . date('Ymd-His') . '-' . $label;
+if (!is_dir($runDir) && !@mkdir($runDir, 0775, true) && !is_dir($runDir)) {
+    fwrite(STDERR, "ERROR: Failed to create output directory: {$runDir}\n");
+    exit(2);
+}
+
+$result = [
+    'ok' => true,
+    'label' => $label,
+    'runDir' => $runDir,
+    'resolution' => null,
+    'live' => null,
+    'apiSmoke' => null,
+];
+
+// Resolution fixture suite (in-memory).
+if (!$skipResolution) {
+    $resolutionArgs = ['--json'];
+    $resolutionCase = trim((string)($opts['resolution-case'] ?? ''));
+    if ($resolutionCase !== '') {
+        $resolutionArgs[] = '--case=' . $resolutionCase;
+    }
+
+    $res = runCommand(
+        buildPhpCommand($resolutionRunner, $resolutionArgs)
+    );
+    file_put_contents($runDir . '/resolution.raw.txt', $res['output']);
+
+    $decoded = decodeJsonObject($res['output']);
+    if ($decoded !== null) {
+        file_put_contents(
+            $runDir . '/resolution.json',
+            json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL
+        );
+    }
+
+    $resolutionOk = $res['exitCode'] === 0 && is_array($decoded) && (bool)($decoded['ok'] ?? false) === true;
+    if (!$resolutionOk) {
+        $result['ok'] = false;
+    }
+
+    $result['resolution'] = [
+        'ok' => $resolutionOk,
+        'exitCode' => $res['exitCode'],
+        'reportPath' => is_array($decoded) ? ($runDir . '/resolution.json') : null,
+        'caseCount' => is_array($decoded['cases'] ?? null) ? count($decoded['cases']) : 0,
+    ];
+}
+
+// Live scheduler convergence run (pre/apply/post).
+if (!$skipLive) {
+    $liveLabel = $label . '-live';
+    $syncModeRaw = $opts['sync-mode'] ?? null;
+    $syncModeArg = '';
+    $syncModeLabel = 'config/default';
+    if (is_string($syncModeRaw) && trim($syncModeRaw) !== '') {
+        $syncMode = normalizeSyncMode($syncModeRaw);
+        $syncModeArg = '--sync-mode=' . $syncMode;
+        $syncModeLabel = $syncMode;
+    }
+
+    $liveArgs = [
+        '--label=' . $liveLabel,
+        '--apply',
+        '--expect-post-noop=true',
+    ];
+    if ($syncModeArg !== '') {
+        $liveArgs[] = $syncModeArg;
+    }
+
+    $live = runCommand(
+        buildPhpCommand($liveRunner, $liveArgs)
+    );
+    file_put_contents($runDir . '/live.raw.txt', $live['output']);
+
+    $artifactsPath = extractArtifactsPath($live['output']);
+    $liveReport = null;
+    if (is_string($artifactsPath) && $artifactsPath !== '') {
+        $sourceReportPath = rtrim($artifactsPath, '/') . '/report.json';
+        if (is_file($sourceReportPath)) {
+            $raw = file_get_contents($sourceReportPath);
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $liveReport = $decoded;
+                    file_put_contents(
+                        $runDir . '/live.report.json',
+                        json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL
+                    );
+                }
+            }
+        }
+    }
+
+    $liveOk = $live['exitCode'] === 0;
+    if (!$liveOk) {
+        $result['ok'] = false;
+    }
+
+    $result['live'] = [
+        'ok' => $liveOk,
+        'exitCode' => $live['exitCode'],
+        'syncMode' => $syncModeLabel,
+        'artifactsPath' => $artifactsPath,
+        'reportPath' => $liveReport !== null ? ($runDir . '/live.report.json') : null,
+    ];
+}
+
+// API smoke checks (status/preview and optional auth/apply-noop paths).
+if (!$skipApiSmoke) {
+    $apiArgs = ['--json'];
+
+    $apiEndpointRaw = $opts['api-endpoint'] ?? null;
+    if (is_string($apiEndpointRaw) && trim($apiEndpointRaw) !== '') {
+        $apiArgs[] = '--endpoint=' . trim($apiEndpointRaw);
+    }
+
+    $apiSyncModeRaw = $opts['api-sync-mode'] ?? null;
+    if (is_string($apiSyncModeRaw) && trim($apiSyncModeRaw) !== '') {
+        $apiArgs[] = '--sync-mode=' . normalizeSyncMode($apiSyncModeRaw);
+    }
+
+    if (array_key_exists('api-include-auth-start', $opts)) {
+        $apiArgs[] = '--include-auth-start';
+    }
+    if (array_key_exists('api-include-apply-noop', $opts)) {
+        $apiArgs[] = '--include-apply-noop';
+    }
+
+    $api = runCommand(
+        buildPhpCommand($apiSmokeRunner, $apiArgs)
+    );
+    file_put_contents($runDir . '/api-smoke.raw.txt', $api['output']);
+
+    $decoded = decodeJsonObject($api['output']);
+    if ($decoded !== null) {
+        file_put_contents(
+            $runDir . '/api-smoke.json',
+            json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL
+        );
+    }
+
+    $apiOk = $api['exitCode'] === 0 && is_array($decoded) && (bool)($decoded['ok'] ?? false) === true;
+    if (!$apiOk) {
+        $result['ok'] = false;
+    }
+
+    $result['apiSmoke'] = [
+        'ok' => $apiOk,
+        'exitCode' => $api['exitCode'],
+        'reportPath' => is_array($decoded) ? ($runDir . '/api-smoke.json') : null,
+        'checkCount' => is_array($decoded['checks'] ?? null) ? count($decoded['checks']) : 0,
+    ];
+}
+
+$jsonMode = array_key_exists('json', $opts);
+if ($jsonMode) {
+    echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+} else {
+    echo "Full regression: " . ($result['ok'] ? 'PASS' : 'FAIL') . PHP_EOL;
+    echo "Artifacts: {$runDir}" . PHP_EOL;
+    if (is_array($result['resolution'])) {
+        echo "- Resolution suite: " . (($result['resolution']['ok'] ?? false) ? 'PASS' : 'FAIL');
+        echo " (cases=" . (int)($result['resolution']['caseCount'] ?? 0) . ")" . PHP_EOL;
+    }
+    if (is_array($result['live'])) {
+        echo "- Live apply/check: " . (($result['live']['ok'] ?? false) ? 'PASS' : 'FAIL');
+        $art = $result['live']['artifactsPath'] ?? null;
+        if (is_string($art) && $art !== '') {
+            echo " (runner artifacts={$art})";
+        }
+        echo PHP_EOL;
+    }
+    if (is_array($result['apiSmoke'])) {
+        echo "- API smoke: " . (($result['apiSmoke']['ok'] ?? false) ? 'PASS' : 'FAIL');
+        echo " (checks=" . (int)($result['apiSmoke']['checkCount'] ?? 0) . ")" . PHP_EOL;
+    }
+}
+
+exit($result['ok'] ? 0 : 1);
+
+/**
+ * @param array<int,string> $args
+ */
+function buildPhpCommand(string $scriptPath, array $args): string
+{
+    $parts = ['php', escapeshellarg($scriptPath)];
+    foreach ($args as $arg) {
+        $parts[] = escapeshellarg($arg);
+    }
+    return implode(' ', $parts) . ' 2>&1';
+}
+
+/**
+ * @return array{exitCode:int,output:string}
+ */
+function runCommand(string $command): array
+{
+    $output = [];
+    $exitCode = 0;
+    exec($command, $output, $exitCode);
+    return [
+        'exitCode' => $exitCode,
+        'output' => implode(PHP_EOL, $output) . PHP_EOL,
+    ];
+}
+
+/**
+ * @return array<string,mixed>|null
+ */
+function decodeJsonObject(string $raw): ?array
+{
+    $trimmed = trim($raw);
+    if ($trimmed === '') {
+        return null;
+    }
+
+    try {
+        $decoded = json_decode($trimmed, true, 512, JSON_THROW_ON_ERROR);
+    } catch (\Throwable) {
+        return null;
+    }
+
+    return is_array($decoded) ? $decoded : null;
+}
+
+function extractArtifactsPath(string $raw): ?string
+{
+    if (preg_match('/^Artifacts:\s*(.+)\s*$/m', $raw, $m) !== 1) {
+        return null;
+    }
+    $path = trim((string)($m[1] ?? ''));
+    return $path !== '' ? $path : null;
+}
+
+function normalizeSyncMode(string $syncMode): string
+{
+    $syncMode = strtolower(trim($syncMode));
+    if ($syncMode === 'calendar' || $syncMode === 'fpp' || $syncMode === 'both') {
+        return $syncMode;
+    }
+    return 'both';
+}

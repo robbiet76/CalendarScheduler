@@ -1,0 +1,223 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Calendar Scheduler — UI API Smoke Runner
+ *
+ * File: bin/cs-api-smoke
+ * Purpose: Run fast, repeatable smoke checks against ui-api.php actions to
+ * validate production API contract and basic endpoint health.
+ */
+
+$opts = getopt('', [
+    'endpoint::',
+    'sync-mode::',
+    'include-auth-start',
+    'include-apply-noop',
+    'json',
+]);
+
+$endpoint = trim((string)($opts['endpoint'] ?? ''));
+if ($endpoint === '') {
+    $endpoint = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=ui-api.php&nopage=1';
+}
+
+$syncMode = normalizeSyncMode((string)($opts['sync-mode'] ?? 'both'));
+$includeAuthStart = array_key_exists('include-auth-start', $opts);
+$includeApplyNoop = array_key_exists('include-apply-noop', $opts);
+$jsonMode = array_key_exists('json', $opts);
+
+$checks = [];
+$failed = false;
+
+// Status check: endpoint reachable and payload contract shape.
+$statusResp = postJson($endpoint, ['action' => 'status']);
+$statusOk = is_array($statusResp['json'] ?? null)
+    && ($statusResp['json']['ok'] ?? false) === true
+    && isset($statusResp['json']['provider'])
+    && isset($statusResp['json']['google'])
+    && isset($statusResp['json']['syncMode']);
+$checks[] = makeCheck('status', $statusOk, $statusResp, ['provider', 'google', 'syncMode']);
+$failed = $failed || !$statusOk;
+
+// Preview check: planner response contract and action list presence.
+$previewResp = postJson($endpoint, ['action' => 'preview', 'sync_mode' => $syncMode]);
+$previewJson = is_array($previewResp['json'] ?? null) ? $previewResp['json'] : [];
+$previewOk = $previewResp['httpCode'] === 200
+    && ($previewJson['ok'] ?? false) === true
+    && is_array($previewJson['preview'] ?? null)
+    && isset($previewJson['preview']['counts'])
+    && isset($previewJson['preview']['actions'])
+    && isset($previewJson['preview']['syncMode']);
+$checks[] = makeCheck('preview', $previewOk, $previewResp, ['preview.counts', 'preview.actions', 'preview.syncMode']);
+$failed = $failed || !$previewOk;
+
+if ($includeApplyNoop) {
+    // Apply smoke is allowed only on noop preview to avoid unexpected writes.
+    $previewNoop = (bool)($previewJson['preview']['noop'] ?? false);
+    if (!$previewNoop) {
+        $checks[] = [
+            'name' => 'apply_noop_gate',
+            'ok' => false,
+            'httpCode' => $previewResp['httpCode'],
+            'error' => 'preview is not noop; skipping apply smoke to avoid writes',
+        ];
+        $failed = true;
+    } else {
+        $applyResp = postJson($endpoint, ['action' => 'apply', 'sync_mode' => $syncMode]);
+        $applyJson = is_array($applyResp['json'] ?? null) ? $applyResp['json'] : [];
+        $applyOk = $applyResp['httpCode'] === 200
+            && ($applyJson['ok'] ?? false) === true
+            && is_array($applyJson['applied'] ?? null)
+            && is_array($applyJson['preview'] ?? null)
+            && (($applyJson['preview']['noop'] ?? false) === true);
+        $checks[] = makeCheck('apply_noop', $applyOk, $applyResp, ['applied', 'preview.noop']);
+        $failed = $failed || !$applyOk;
+    }
+}
+
+if ($includeAuthStart) {
+    // Auth start smoke validates device code flow contract without disconnecting current token.
+    $authResp = postJson($endpoint, ['action' => 'auth_device_start']);
+    $authJson = is_array($authResp['json'] ?? null) ? $authResp['json'] : [];
+    $device = is_array($authJson['device'] ?? null) ? $authJson['device'] : [];
+    $authOk = $authResp['httpCode'] === 200
+        && ($authJson['ok'] ?? false) === true
+        && is_string($device['device_code'] ?? null)
+        && trim((string)($device['device_code'] ?? '')) !== ''
+        && is_string($device['user_code'] ?? null)
+        && trim((string)($device['user_code'] ?? '')) !== ''
+        && is_string($device['verification_url'] ?? null)
+        && trim((string)($device['verification_url'] ?? '')) !== '';
+    $checks[] = makeCheck('auth_device_start', $authOk, $authResp, ['device.device_code', 'device.user_code', 'device.verification_url']);
+    $failed = $failed || !$authOk;
+}
+
+$result = [
+    'ok' => !$failed,
+    'endpoint' => $endpoint,
+    'syncMode' => $syncMode,
+    'includeAuthStart' => $includeAuthStart,
+    'includeApplyNoop' => $includeApplyNoop,
+    'checks' => $checks,
+];
+
+if ($jsonMode) {
+    echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+} else {
+    foreach ($checks as $check) {
+        $state = ($check['ok'] ?? false) ? 'PASS' : 'FAIL';
+        echo '[' . $state . '] ' . (string)($check['name'] ?? 'unknown');
+        if (isset($check['httpCode'])) {
+            echo ' (HTTP ' . (int)$check['httpCode'] . ')';
+        }
+        if (!empty($check['error'])) {
+            echo ' - ' . $check['error'];
+        }
+        echo PHP_EOL;
+    }
+    echo 'API Smoke Result: ' . ($failed ? 'FAIL' : 'PASS') . PHP_EOL;
+}
+
+exit($failed ? 1 : 0);
+
+/**
+ * @param array<string,mixed> $payload
+ * @return array{httpCode:int,raw:string,json:array<string,mixed>|null,error:string|null}
+ */
+function postJson(string $endpoint, array $payload): array
+{
+    if (!function_exists('curl_init')) {
+        return [
+            'httpCode' => 0,
+            'raw' => '',
+            'json' => null,
+            'error' => 'cURL extension is required',
+        ];
+    }
+
+    $jsonPayload = json_encode($payload, JSON_UNESCAPED_SLASHES);
+    if (!is_string($jsonPayload)) {
+        return [
+            'httpCode' => 0,
+            'raw' => '',
+            'json' => null,
+            'error' => 'failed to encode JSON payload',
+        ];
+    }
+
+    $ch = curl_init($endpoint);
+    if ($ch === false) {
+        return [
+            'httpCode' => 0,
+            'raw' => '',
+            'json' => null,
+            'error' => 'failed to initialize cURL',
+        ];
+    }
+
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
+
+    $raw = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if (!is_string($raw)) {
+        return [
+            'httpCode' => $httpCode,
+            'raw' => '',
+            'json' => null,
+            'error' => $curlError !== '' ? $curlError : 'request failed',
+        ];
+    }
+
+    $decoded = json_decode($raw, true);
+    return [
+        'httpCode' => $httpCode,
+        'raw' => $raw,
+        'json' => is_array($decoded) ? $decoded : null,
+        'error' => null,
+    ];
+}
+
+/**
+ * @param array{httpCode:int,raw:string,json:array<string,mixed>|null,error:string|null} $resp
+ * @param array<int,string> $requiredFields
+ * @return array<string,mixed>
+ */
+function makeCheck(string $name, bool $ok, array $resp, array $requiredFields = []): array
+{
+    $error = $resp['error'] ?? null;
+    $json = $resp['json'] ?? null;
+    if ($error === null && !$ok) {
+        if (is_array($json) && isset($json['error']) && is_string($json['error'])) {
+            $error = $json['error'];
+        } else {
+            $error = 'response contract check failed';
+        }
+    }
+
+    return [
+        'name' => $name,
+        'ok' => $ok,
+        'httpCode' => $resp['httpCode'] ?? 0,
+        'error' => $error,
+        'requiredFields' => $requiredFields,
+    ];
+}
+
+function normalizeSyncMode(string $syncMode): string
+{
+    $syncMode = strtolower(trim($syncMode));
+    if ($syncMode === 'calendar' || $syncMode === 'fpp' || $syncMode === 'both') {
+        return $syncMode;
+    }
+    return 'both';
+}

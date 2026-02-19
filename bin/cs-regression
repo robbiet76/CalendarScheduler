@@ -1,0 +1,331 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Calendar Scheduler — Regression Runner
+ *
+ * File: bin/cs-regression
+ * Purpose: Execute a repeatable pre/apply/post scheduler cycle, capture artifacts,
+ * and assert expected counters for manual regression scenarios.
+ */
+
+$root = dirname(__DIR__);
+$schedulerCli = $root . '/bin/calendar-scheduler';
+
+if (!is_file($schedulerCli)) {
+    fwrite(STDERR, "ERROR: Missing CLI: {$schedulerCli}\n");
+    exit(2);
+}
+
+$expectOptionNames = [
+    'expect-pre-noop::',
+    'expect-post-noop::',
+    'expect-pre-fpp-created::',
+    'expect-pre-fpp-updated::',
+    'expect-pre-fpp-deleted::',
+    'expect-pre-calendar-created::',
+    'expect-pre-calendar-updated::',
+    'expect-pre-calendar-deleted::',
+    'expect-post-fpp-created::',
+    'expect-post-fpp-updated::',
+    'expect-post-fpp-deleted::',
+    'expect-post-calendar-created::',
+    'expect-post-calendar-updated::',
+    'expect-post-calendar-deleted::',
+];
+
+$opts = getopt('', array_merge([
+    'label::',
+    'out-dir::',
+    'sync-mode::',
+    'apply',
+    'no-apply',
+], $expectOptionNames));
+
+$label = trim((string)($opts['label'] ?? 'adhoc'));
+if ($label === '') {
+    $label = 'adhoc';
+}
+$label = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $label) ?? 'adhoc';
+$outBase = trim((string)($opts['out-dir'] ?? '/tmp/cs-regression'));
+$doApply = array_key_exists('apply', $opts) || !array_key_exists('no-apply', $opts);
+$syncModeRaw = $opts['sync-mode'] ?? null;
+$syncModeArg = '';
+$syncModeLabel = 'config/default';
+if (is_string($syncModeRaw) && trim($syncModeRaw) !== '') {
+    $syncMode = normalizeSyncMode($syncModeRaw);
+    $syncModeArg = ' --sync-mode=' . escapeshellarg($syncMode);
+    $syncModeLabel = $syncMode;
+}
+
+$runDir = rtrim($outBase, '/') . '/' . date('Ymd-His') . '-' . $label;
+if (!is_dir($runDir) && !@mkdir($runDir, 0775, true) && !is_dir($runDir)) {
+    fwrite(STDERR, "ERROR: Failed to create output directory: {$runDir}\n");
+    exit(2);
+}
+
+$pre = runSchedulerCommand(
+    $schedulerCli,
+    '--refresh-calendar --dry-run --format=json' . $syncModeArg
+);
+file_put_contents($runDir . '/pre.raw.txt', $pre['raw']);
+if (!$pre['ok']) {
+    fwrite(STDERR, "ERROR: Pre-run failed.\n{$pre['raw']}\n");
+    exit(1);
+}
+file_put_contents($runDir . '/pre.json', json_encode($pre['json'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+
+$apply = null;
+if ($doApply) {
+    $apply = runSchedulerCommand(
+        $schedulerCli,
+        '--apply --format=json' . $syncModeArg
+    );
+    file_put_contents($runDir . '/apply.raw.txt', $apply['raw']);
+    if (!$apply['ok']) {
+        fwrite(STDERR, "ERROR: Apply failed.\n{$apply['raw']}\n");
+        exit(1);
+    }
+    file_put_contents($runDir . '/apply.json', json_encode($apply['json'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+}
+
+$post = runSchedulerCommand(
+    $schedulerCli,
+    '--refresh-calendar --dry-run --format=json' . $syncModeArg
+);
+file_put_contents($runDir . '/post.raw.txt', $post['raw']);
+if (!$post['ok']) {
+    fwrite(STDERR, "ERROR: Post-run failed.\n{$post['raw']}\n");
+    exit(1);
+}
+file_put_contents($runDir . '/post.json', json_encode($post['json'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+
+$report = [
+    'label' => $label,
+    'runDir' => $runDir,
+    'applyExecuted' => $doApply,
+    'syncMode' => $syncModeLabel,
+    'pre' => summarizePreview($pre['json']),
+    'post' => summarizePreview($post['json']),
+    'apply' => $apply !== null ? summarizeApply($apply['json']) : null,
+];
+
+$expectations = extractExpectations($opts);
+$failures = validateExpectations($report, $expectations);
+
+file_put_contents(
+    $runDir . '/report.json',
+    json_encode(
+        [
+            'report' => $report,
+            'expectations' => $expectations,
+            'failures' => $failures,
+        ],
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+    ) . PHP_EOL
+);
+
+echo "Regression run: {$label}\n";
+echo "Artifacts: {$runDir}\n";
+echo "Pre:  " . json_encode($report['pre'], JSON_UNESCAPED_SLASHES) . "\n";
+if ($report['apply'] !== null) {
+    echo "Apply:" . json_encode($report['apply'], JSON_UNESCAPED_SLASHES) . "\n";
+}
+echo "Post: " . json_encode($report['post'], JSON_UNESCAPED_SLASHES) . "\n";
+
+if ($failures !== []) {
+    echo "Result: FAIL\n";
+    foreach ($failures as $failure) {
+        echo "- {$failure}\n";
+    }
+    exit(1);
+}
+
+echo "Result: PASS\n";
+exit(0);
+
+/**
+ * @return array{ok:bool,raw:string,json:array<string,mixed>}
+ */
+function runSchedulerCommand(string $schedulerCli, string $args): array
+{
+    $cmd = 'php ' . escapeshellarg($schedulerCli) . ' ' . $args . ' 2>&1';
+    $raw = (string)shell_exec($cmd);
+    $json = extractJsonObject($raw);
+    $ok = is_array($json);
+
+    return [
+        'ok' => $ok,
+        'raw' => $raw,
+        'json' => $ok ? $json : [],
+    ];
+}
+
+function normalizeSyncMode(string $syncMode): string
+{
+    $syncMode = strtolower(trim($syncMode));
+    if ($syncMode === 'calendar' || $syncMode === 'fpp' || $syncMode === 'both') {
+        return $syncMode;
+    }
+    return 'both';
+}
+
+/**
+ * @return array<string,mixed>|null
+ */
+function extractJsonObject(string $raw): ?array
+{
+    $start = strpos($raw, '{');
+    $end = strrpos($raw, '}');
+    if ($start === false || $end === false || $end < $start) {
+        return null;
+    }
+
+    $slice = substr($raw, $start, $end - $start + 1);
+    if (!is_string($slice) || trim($slice) === '') {
+        return null;
+    }
+
+    try {
+        $decoded = json_decode($slice, true, 512, JSON_THROW_ON_ERROR);
+    } catch (\Throwable) {
+        return null;
+    }
+
+    return is_array($decoded) ? $decoded : null;
+}
+
+/**
+ * @param array<string,mixed> $json
+ * @return array<string,mixed>
+ */
+function summarizePreview(array $json): array
+{
+    $fpp = is_array($json['fpp'] ?? null) ? $json['fpp'] : [];
+    $calendar = is_array($json['calendar'] ?? null) ? $json['calendar'] : [];
+
+    return [
+        'noop' => (bool)($json['noop'] ?? false),
+        'fpp' => [
+            'created' => (int)($fpp['created'] ?? 0),
+            'updated' => (int)($fpp['updated'] ?? 0),
+            'deleted' => (int)($fpp['deleted'] ?? 0),
+        ],
+        'calendar' => [
+            'created' => (int)($calendar['created'] ?? 0),
+            'updated' => (int)($calendar['updated'] ?? 0),
+            'deleted' => (int)($calendar['deleted'] ?? 0),
+        ],
+    ];
+}
+
+/**
+ * @param array<string,mixed> $json
+ * @return array<string,mixed>
+ */
+function summarizeApply(array $json): array
+{
+    return [
+        'noop' => (bool)($json['noop'] ?? false),
+        'created' => (int)($json['created'] ?? 0),
+        'updated' => (int)($json['updated'] ?? 0),
+        'deleted' => (int)($json['deleted'] ?? 0),
+    ];
+}
+
+/**
+ * @param array<string,mixed> $opts
+ * @return array<string,mixed>
+ */
+function extractExpectations(array $opts): array
+{
+    $map = [
+        'expect-pre-noop' => 'pre.noop',
+        'expect-post-noop' => 'post.noop',
+        'expect-pre-fpp-created' => 'pre.fpp.created',
+        'expect-pre-fpp-updated' => 'pre.fpp.updated',
+        'expect-pre-fpp-deleted' => 'pre.fpp.deleted',
+        'expect-pre-calendar-created' => 'pre.calendar.created',
+        'expect-pre-calendar-updated' => 'pre.calendar.updated',
+        'expect-pre-calendar-deleted' => 'pre.calendar.deleted',
+        'expect-post-fpp-created' => 'post.fpp.created',
+        'expect-post-fpp-updated' => 'post.fpp.updated',
+        'expect-post-fpp-deleted' => 'post.fpp.deleted',
+        'expect-post-calendar-created' => 'post.calendar.created',
+        'expect-post-calendar-updated' => 'post.calendar.updated',
+        'expect-post-calendar-deleted' => 'post.calendar.deleted',
+    ];
+
+    $out = [];
+    foreach ($map as $optKey => $path) {
+        if (!array_key_exists($optKey, $opts)) {
+            continue;
+        }
+        $raw = $opts[$optKey];
+        if ($raw === false || $raw === null || $raw === '') {
+            continue;
+        }
+        $value = normalizeExpectedValue((string)$raw);
+        $out[$path] = $value;
+    }
+
+    return $out;
+}
+
+/**
+ * @return int|bool|string
+ */
+function normalizeExpectedValue(string $raw)
+{
+    $v = strtolower(trim($raw));
+    if ($v === 'true' || $v === '1') {
+        return true;
+    }
+    if ($v === 'false' || $v === '0') {
+        return false;
+    }
+    if (preg_match('/^-?\d+$/', $v) === 1) {
+        return (int)$v;
+    }
+    return trim($raw);
+}
+
+/**
+ * @param array<string,mixed> $report
+ * @param array<string,mixed> $expectations
+ * @return array<int,string>
+ */
+function validateExpectations(array $report, array $expectations): array
+{
+    $failures = [];
+    foreach ($expectations as $path => $expected) {
+        $actual = readPath($report, $path);
+        if ($actual !== $expected) {
+            $failures[] = sprintf(
+                '%s expected=%s actual=%s',
+                $path,
+                json_encode($expected, JSON_UNESCAPED_SLASHES),
+                json_encode($actual, JSON_UNESCAPED_SLASHES)
+            );
+        }
+    }
+    return $failures;
+}
+
+/**
+ * @param array<string,mixed> $root
+ */
+function readPath(array $root, string $path): mixed
+{
+    $parts = explode('.', $path);
+    $cur = $root;
+    foreach ($parts as $part) {
+        if (!is_array($cur) || !array_key_exists($part, $cur)) {
+            return null;
+        }
+        $cur = $cur[$part];
+    }
+    return $cur;
+}

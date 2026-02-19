@@ -1,0 +1,1579 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Calendar Scheduler — Resolution Regression Runner
+ *
+ * File: bin/cs-resolution-regression
+ * Purpose: Build deterministic calendar fixtures, run the full scheduler pipeline
+ * in-memory, and validate resolution behavior (segments, overrides, cancellations,
+ * ordering, and round-trip stability) without requiring live provider edits.
+ */
+
+require_once __DIR__ . '/../bootstrap.php';
+
+use CalendarScheduler\Adapter\FppScheduleAdapter;
+use CalendarScheduler\Engine\SchedulerEngine;
+use CalendarScheduler\Engine\SchedulerRunResult;
+use CalendarScheduler\Intent\NormalizationContext;
+use CalendarScheduler\Platform\FPPSemantics;
+use CalendarScheduler\Platform\HolidayResolver;
+
+$opts = getopt('', [
+    'case::',
+    'list',
+    'json',
+    'no-roundtrip',
+    'canary',
+    'canary-case::',
+]);
+
+$allCases = [
+    'RR-01',
+    'RR-02',
+    'RR-03',
+    'RR-04',
+    'RR-05',
+    'RR-06',
+    'RR-07',
+    'RR-08',
+    'RR-09',
+    'RR-10',
+    'RR-11',
+    'RR-12',
+    'RR-13',
+    'RR-14',
+    'RR-15',
+    'RR-16',
+    'RR-17',
+    'RR-18',
+    'RR-19',
+    'RR-20',
+    'RR-21',
+    'RR-22',
+    'RR-23',
+    'RR-24',
+    'RR-25',
+    'RR-26',
+    'RR-27',
+    'RR-28',
+    'RR-29',
+];
+
+if (array_key_exists('list', $opts)) {
+    foreach ($allCases as $id) {
+        echo $id . ' - ' . caseTitle($id) . PHP_EOL;
+    }
+    exit(0);
+}
+
+$requestedCase = trim((string)($opts['case'] ?? ''));
+if ($requestedCase !== '' && !in_array($requestedCase, $allCases, true)) {
+    fwrite(STDERR, "ERROR: Unknown case '{$requestedCase}'. Use --list.\n");
+    exit(2);
+}
+
+$caseIds = $requestedCase !== '' ? [$requestedCase] : $allCases;
+$runRoundTrip = !array_key_exists('no-roundtrip', $opts);
+$asJson = array_key_exists('json', $opts);
+$canaryEnabled = array_key_exists('canary', $opts);
+$canaryCase = trim((string)($opts['canary-case'] ?? 'RR-01'));
+if (!in_array($canaryCase, $allCases, true)) {
+    $canaryCase = 'RR-01';
+}
+
+$engine = new SchedulerEngine();
+$context = new NormalizationContext(
+    new DateTimeZone('UTC'),
+    new FPPSemantics(),
+    new HolidayResolver([])
+);
+
+$results = [];
+$failed = false;
+
+foreach ($caseIds as $caseId) {
+    $result = runCase($caseId, $engine, $context, $runRoundTrip, $canaryEnabled, $canaryCase);
+    $results[] = $result;
+    if (($result['ok'] ?? false) !== true) {
+        $failed = true;
+    }
+}
+
+if ($asJson) {
+    echo json_encode(
+        [
+            'ok' => !$failed,
+            'roundTripEnabled' => $runRoundTrip,
+            'canaryEnabled' => $canaryEnabled,
+            'canaryCase' => $canaryEnabled ? $canaryCase : null,
+            'cases' => $results,
+        ],
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+    ) . PHP_EOL;
+    exit($failed ? 1 : 0);
+}
+
+foreach ($results as $result) {
+    $status = ($result['ok'] ?? false) ? 'PASS' : 'FAIL';
+    echo '[' . $status . '] ' . $result['id'] . ' - ' . $result['title'] . PHP_EOL;
+    if (!empty($result['errors'])) {
+        foreach ($result['errors'] as $err) {
+            echo '  - ' . $err . PHP_EOL;
+        }
+    }
+}
+
+echo 'Suite Result: ' . ($failed ? 'FAIL' : 'PASS') . PHP_EOL;
+exit($failed ? 1 : 0);
+
+/**
+ * @return array<string,mixed>
+ */
+function runCase(
+    string $caseId,
+    SchedulerEngine $engine,
+    NormalizationContext $context,
+    bool $runRoundTrip,
+    bool $canaryEnabled = false,
+    string $canaryCase = 'RR-01'
+): array {
+    if (in_array($caseId, ['RR-21', 'RR-22', 'RR-23', 'RR-24', 'RR-25'], true)) {
+        return runAdvancedCase($caseId, $engine, $context, $runRoundTrip, $canaryEnabled, $canaryCase);
+    }
+
+    $fixture = buildCaseFixture($caseId);
+
+    $runResult = executeRun(
+        $engine,
+        $context,
+        $fixture['calendarRows'],
+        [],
+        [],
+        ['calendar' => [], 'fpp' => []],
+        SchedulerEngine::SYNC_MODE_CALENDAR
+    );
+
+    $summary = summarizeRun($runResult);
+    $errors = [];
+
+    assertTrue($summary['counts']['calendar']['create'] === 0, 'calendar.create should be 0', $errors);
+    assertTrue($summary['counts']['calendar']['update'] === 0, 'calendar.update should be 0', $errors);
+    assertTrue($summary['counts']['calendar']['delete'] === 0, 'calendar.delete should be 0', $errors);
+
+    $assertFn = $fixture['assert'];
+    $assertFn($summary, $errors);
+
+    if ($runRoundTrip) {
+        $roundTrip = roundTripCheck($runResult, $context);
+        if (($roundTrip['ok'] ?? false) !== true) {
+            $errors[] = 'roundtrip mismatch: ' . ($roundTrip['message'] ?? 'unknown');
+        }
+    }
+    if ($canaryEnabled && $caseId === $canaryCase) {
+        $errors[] = 'canary: injected assertion failure for pipeline verification';
+    }
+
+    return [
+        'id' => $caseId,
+        'title' => caseTitle($caseId),
+        'ok' => $errors === [],
+        'summary' => $summary,
+        'errors' => $errors,
+    ];
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function runAdvancedCase(
+    string $caseId,
+    SchedulerEngine $engine,
+    NormalizationContext $context,
+    bool $runRoundTrip,
+    bool $canaryEnabled = false,
+    string $canaryCase = 'RR-01'
+): array {
+    $errors = [];
+    $finalRun = null;
+    $summary = [
+        'noop' => true,
+        'counts' => ['fpp' => ['create' => 0, 'update' => 0, 'delete' => 0], 'calendar' => ['create' => 0, 'update' => 0, 'delete' => 0]],
+        'eventCount' => 0,
+        'subEventCount' => 0,
+        'windows' => [],
+    ];
+
+    $baseRows = [
+        makeBaseRow('rrx', 'RRX_Target', '2026-02-01', '2026-02-28', '18:00:00', '22:00:00'),
+        makeCancellationRow('rrx', '2026-02-15', '18:00:00'),
+        makeOverrideRow('rrx', '2026-02-05', 'RRX_Target', '18:00:00', '23:00:00'),
+        makeOverrideRow('rrx', '2026-02-06', 'RRX_Target', '18:00:00', '23:00:00'),
+    ];
+
+    if ($caseId === 'RR-21') {
+        $finalRun = executeRun(
+            $engine,
+            $context,
+            $baseRows,
+            [],
+            [],
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_CALENDAR
+        );
+        $summary = summarizeRun($finalRun);
+        assertTrue($summary['counts']['fpp']['create'] >= 1, 'RR-21 should create fpp rows', $errors);
+        assertTrue($summary['counts']['calendar']['create'] === 0, 'RR-21 should not create calendar rows', $errors);
+        assertTrue($summary['eventCount'] === 1, 'RR-21 eventCount should be 1', $errors);
+        assertTrue($summary['subEventCount'] === 3, 'RR-21 subEventCount should be 3', $errors);
+    }
+
+    if ($caseId === 'RR-22') {
+        $seedRun = executeRun(
+            $engine,
+            $context,
+            $baseRows,
+            [],
+            [],
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_CALENDAR
+        );
+        $seedSummary = summarizeRun($seedRun);
+        $seedEvents = getTargetManifestEvents($seedRun);
+        $seedFppEvents = manifestEventsToSourceFppEvents($seedEvents, $context);
+
+        $finalRun = executeRun(
+            $engine,
+            $context,
+            [],
+            $seedFppEvents,
+            [],
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_FPP
+        );
+        $summary = summarizeRun($finalRun);
+        assertTrue($summary['counts']['calendar']['create'] >= 1, 'RR-22 should create calendar rows from fpp source', $errors);
+        assertTrue($summary['eventCount'] === $seedSummary['eventCount'], 'RR-22 eventCount should match seed', $errors);
+        assertTrue($summary['subEventCount'] === $seedSummary['subEventCount'], 'RR-22 subEventCount should match seed', $errors);
+        assertSameSigSet($summary, $seedSummary, 'RR-22 windows', $errors);
+    }
+
+    if ($caseId === 'RR-23') {
+        $seedRows = $baseRows;
+        $calendarRows = $baseRows;
+        $calendarRows[] = makeCancellationRow('rrx', '2026-02-20', '18:00:00');
+
+        $seedRun = executeRun(
+            $engine,
+            $context,
+            $seedRows,
+            [],
+            [],
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_CALENDAR
+        );
+        $seedEvents = getTargetManifestEvents($seedRun);
+        $seedFppEvents = manifestEventsToSourceFppEvents($seedEvents, $context);
+        $seedManifest = ['events' => $seedEvents];
+
+        $mergeRun = executeRun(
+            $engine,
+            $context,
+            $calendarRows,
+            $seedFppEvents,
+            $seedManifest,
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_BOTH,
+            1700000020,
+            1700000000
+        );
+        $mergeSummary = summarizeRun($mergeRun);
+        assertTrue($mergeSummary['noop'] === false, 'RR-23 first merge should not be noop', $errors);
+
+        $mergedEvents = getTargetManifestEvents($mergeRun);
+        $mergedFppEvents = manifestEventsToSourceFppEvents($mergedEvents, $context);
+        $finalRun = executeRun(
+            $engine,
+            $context,
+            $calendarRows,
+            $mergedFppEvents,
+            ['events' => $mergedEvents],
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_BOTH
+        );
+        $summary = summarizeRun($finalRun);
+        assertTrue($summary['counts']['fpp']['create'] === 0, 'RR-23 second pass should not create fpp rows', $errors);
+        assertTrue($summary['counts']['fpp']['update'] === 0, 'RR-23 second pass should not update fpp rows', $errors);
+        assertTrue($summary['counts']['fpp']['delete'] === 0, 'RR-23 second pass should not delete fpp rows', $errors);
+    }
+
+    if ($caseId === 'RR-24') {
+        $seedRun = executeRun(
+            $engine,
+            $context,
+            $baseRows,
+            [],
+            [],
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_CALENDAR
+        );
+        $seedEvents = getTargetManifestEvents($seedRun);
+        $seedManifest = ['events' => $seedEvents];
+        $seedFppEvents = manifestEventsToSourceFppEvents($seedEvents, $context);
+        $deleteId = (string)array_key_first($seedEvents);
+        assertTrue($deleteId !== '', 'RR-24 seed event id should be available', $errors);
+
+        $tombstones = [
+            'calendar' => [$deleteId => 1700009999],
+            'fpp' => [],
+        ];
+
+        $finalRun = executeRun(
+            $engine,
+            $context,
+            [],
+            $seedFppEvents,
+            $seedManifest,
+            $tombstones,
+            SchedulerEngine::SYNC_MODE_CALENDAR
+        );
+        $summary = summarizeRun($finalRun);
+        assertTrue($summary['eventCount'] === 0, 'RR-24 target should be empty after tombstone delete', $errors);
+        assertTrue($summary['counts']['fpp']['delete'] >= 1, 'RR-24 should delete fpp side from calendar tombstone', $errors);
+    }
+
+    if ($caseId === 'RR-25') {
+        $firstRun = executeRun(
+            $engine,
+            $context,
+            $baseRows,
+            [],
+            [],
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_CALENDAR
+        );
+        $firstSummary = summarizeRun($firstRun);
+        assertTrue($firstSummary['noop'] === false, 'RR-25 first pass should not be noop', $errors);
+
+        $firstEvents = getTargetManifestEvents($firstRun);
+        $fppEvents = manifestEventsToSourceFppEvents($firstEvents, $context);
+
+        $finalRun = executeRun(
+            $engine,
+            $context,
+            $baseRows,
+            $fppEvents,
+            ['events' => $firstEvents],
+            ['calendar' => [], 'fpp' => []],
+            SchedulerEngine::SYNC_MODE_CALENDAR
+        );
+        $summary = summarizeRun($finalRun);
+        assertTrue($summary['noop'] === true, 'RR-25 second pass should be noop', $errors);
+        assertTrue($summary['counts']['fpp']['create'] === 0, 'RR-25 second pass should not create fpp rows', $errors);
+        assertTrue($summary['counts']['fpp']['update'] === 0, 'RR-25 second pass should not update fpp rows', $errors);
+        assertTrue($summary['counts']['fpp']['delete'] === 0, 'RR-25 second pass should not delete fpp rows', $errors);
+    }
+
+    if (!$finalRun instanceof SchedulerRunResult) {
+        $errors[] = 'advanced case execution failed';
+    } elseif ($runRoundTrip) {
+        $roundTrip = roundTripCheck($finalRun, $context);
+        if (($roundTrip['ok'] ?? false) !== true) {
+            $errors[] = 'roundtrip mismatch: ' . ($roundTrip['message'] ?? 'unknown');
+        }
+    }
+    if ($canaryEnabled && $caseId === $canaryCase) {
+        $errors[] = 'canary: injected assertion failure for pipeline verification';
+    }
+
+    return [
+        'id' => $caseId,
+        'title' => caseTitle($caseId),
+        'ok' => $errors === [],
+        'summary' => $summary,
+        'errors' => $errors,
+    ];
+}
+
+/**
+ * @return array{calendarRows:array<int,array<string,mixed>>,assert:callable}
+ */
+function buildCaseFixture(string $caseId): array
+{
+    switch ($caseId) {
+        case 'RR-01': {
+            $rows = [
+                makeBaseRow('rr01', 'RR01_Target', '2026-02-01', '2026-02-28', '18:00:00', '22:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-01 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-01 subEventCount should be 1', $errors);
+                    assertTrue($summary['counts']['fpp']['create'] === 1, 'RR-01 fpp.create should be 1', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR01_Target', '2026-02-01', '2026-02-28', '18:00:00', '22:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-01 windows'
+                    );
+                },
+            ];
+        }
+
+        case 'RR-02': {
+            $rows = [
+                makeBaseRow('rr02', 'RR02_Target', '2026-02-01', '2026-02-28', '18:00:00', '22:00:00'),
+                makeCancellationRow('rr02', '2026-02-15', '18:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-02 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-02 subEventCount should be 2', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR02_Target', '2026-02-01', '2026-02-14', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR02_Target', '2026-02-16', '2026-02-28', '18:00:00', '22:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-02 windows'
+                    );
+                },
+            ];
+        }
+
+        case 'RR-03': {
+            $rows = [
+                makeBaseRow('rr03', 'RR03_Target', '2026-02-01', '2026-02-28', '18:00:00', '22:00:00'),
+                makeCancellationRow('rr03', '2026-02-10', '18:00:00'),
+                makeCancellationRow('rr03', '2026-02-15', '18:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-03 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 3, 'RR-03 subEventCount should be 3', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR03_Target', '2026-02-01', '2026-02-09', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR03_Target', '2026-02-11', '2026-02-14', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR03_Target', '2026-02-16', '2026-02-28', '18:00:00', '22:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-03 windows'
+                    );
+                },
+            ];
+        }
+
+        case 'RR-04': {
+            $rows = [
+                makeBaseRow('rr04', 'RR04_Target', '2026-02-01', '2026-02-03', '18:00:00', '22:00:00'),
+                makeCancellationRow('rr04', '2026-02-01', '18:00:00'),
+                makeCancellationRow('rr04', '2026-02-02', '18:00:00'),
+                makeCancellationRow('rr04', '2026-02-03', '18:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['noop'] === true, 'RR-04 should be noop', $errors);
+                    assertTrue($summary['eventCount'] === 0, 'RR-04 eventCount should be 0', $errors);
+                    assertTrue($summary['subEventCount'] === 0, 'RR-04 subEventCount should be 0', $errors);
+                    assertTrue($summary['counts']['fpp']['create'] === 0, 'RR-04 fpp.create should be 0', $errors);
+                },
+            ];
+        }
+
+        case 'RR-05': {
+            $rows = [
+                makeBaseRow('rr05', 'RR05_Target', '2026-02-01', '2026-02-10', '18:00:00', '22:00:00'),
+                makeOverrideRow('rr05', '2026-02-05', 'RR05_Target', '18:00:00', '23:00:00'),
+                makeOverrideRow('rr05', '2026-02-06', 'RR05_Target', '18:00:00', '23:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-05 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-05 subEventCount should be 2', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR05_Target', '2026-02-01', '2026-02-10', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR05_Target', '2026-02-05', '2026-02-06', '18:00:00', '23:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-05 windows'
+                    );
+                    assertTrue(
+                        hasEarlierExecutionOrder(
+                            $summary,
+                            sig('RR05_Target', '2026-02-05', '2026-02-06', '18:00:00', '23:00:00', 'graceful'),
+                            sig('RR05_Target', '2026-02-01', '2026-02-10', '18:00:00', '22:00:00', 'graceful')
+                        ),
+                        'RR-05 override should execute before base',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-06': {
+            $rows = [
+                makeBaseRow('rr06', 'RR06_Target', '2026-02-01', '2026-02-10', '18:00:00', '22:00:00'),
+                makeOverrideRow('rr06', '2026-02-05', 'RR06_Target', '18:00:00', '23:00:00'),
+                makeOverrideRow('rr06', '2026-02-07', 'RR06_Target', '18:00:00', '23:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-06 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 3, 'RR-06 subEventCount should be 3', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR06_Target', '2026-02-01', '2026-02-10', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR06_Target', '2026-02-05', '2026-02-05', '18:00:00', '23:00:00', 'graceful'),
+                            sig('RR06_Target', '2026-02-07', '2026-02-07', '18:00:00', '23:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-06 windows'
+                    );
+                },
+            ];
+        }
+
+        case 'RR-07': {
+            $rows = [
+                makeBaseRow('rr07', 'RR07_Target', '2026-02-10', '2026-02-20', '18:00:00', '22:00:00'),
+                makeOverrideRow(
+                    'rr07',
+                    '2026-02-13',
+                    'RR07_Target',
+                    '18:00:00',
+                    '22:00:00',
+                    ['stopType' => 'hard']
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-07 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-07 subEventCount should be 2', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR07_Target', '2026-02-10', '2026-02-20', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR07_Target', '2026-02-13', '2026-02-13', '18:00:00', '22:00:00', 'hard'),
+                        ],
+                        $errors,
+                        'RR-07 windows'
+                    );
+                },
+            ];
+        }
+
+        case 'RR-08': {
+            $rows = [
+                makeBaseRow('rr08', 'RR08_Base_Target', '2026-02-01', '2026-02-10', '18:00:00', '22:00:00'),
+                makeOverrideRow('rr08', '2026-02-05', 'RR08_Override_Target', '18:00:00', '22:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 2, 'RR-08 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-08 subEventCount should be 2', $errors);
+                    assertTrue($summary['counts']['fpp']['create'] === 2, 'RR-08 fpp.create should be 2', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR08_Base_Target', '2026-02-01', '2026-02-10', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR08_Override_Target', '2026-02-05', '2026-02-05', '18:00:00', '22:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-08 windows'
+                    );
+                },
+            ];
+        }
+
+        case 'RR-09': {
+            $rows = [
+                makeBaseRow(
+                    'rr09',
+                    'RR09_Target',
+                    '2026-03-01',
+                    '2026-03-15',
+                    '18:00:00',
+                    '22:00:00',
+                    ['freq' => 'WEEKLY', 'byday' => ['MO', 'TU', 'WE', 'TH', 'FR']]
+                ),
+                makeCancellationRow('rr09', '2026-03-05', '18:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-09 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-09 subEventCount should be 2', $errors);
+                    assertTrue(
+                        weeklyDaysPresent($summary, 'RR09_Target', ['MO', 'TU', 'WE', 'TH', 'FR']),
+                        'RR-09 weekly day metadata should be preserved',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-10': {
+            $rows = [
+                makeBaseRow('rr10', 'RR10_Target', '2026-02-01', '2026-02-28', '18:00:00', '22:00:00'),
+                makeCancellationRow('rr10', '2026-02-15', '18:00:00'),
+                makeOverrideRow('rr10', '2026-02-05', 'RR10_Target', '18:00:00', '23:00:00'),
+                makeOverrideRow('rr10', '2026-02-06', 'RR10_Target', '18:00:00', '23:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-10 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 3, 'RR-10 subEventCount should be 3', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR10_Target', '2026-02-01', '2026-02-14', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR10_Target', '2026-02-16', '2026-02-28', '18:00:00', '22:00:00', 'graceful'),
+                            sig('RR10_Target', '2026-02-05', '2026-02-06', '18:00:00', '23:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-10 windows'
+                    );
+                },
+            ];
+        }
+
+        case 'RR-11': {
+            $rows = [
+                makeBaseRow(
+                    'rr11',
+                    'RR11_Command',
+                    '2026-02-01',
+                    '2026-02-05',
+                    '19:00:00',
+                    '21:00:00',
+                    ['type' => 'command', 'settings' => ['command' => 'echo base']]
+                ),
+                makeOverrideRow(
+                    'rr11',
+                    '2026-02-03',
+                    'RR11_Command',
+                    '19:00:00',
+                    '22:00:00',
+                    ['type' => 'command', 'settings' => ['command' => 'echo override']]
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-11 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-11 subEventCount should be 2', $errors);
+                    assertTrue(allWindowsType($summary, 'command'), 'RR-11 windows should all be command type', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR11_Command', '2026-02-01', '2026-02-05', '19:00:00', '19:00:00', 'graceful'),
+                            sig('RR11_Command', '2026-02-03', '2026-02-03', '19:00:00', '19:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-11 windows'
+                    );
+                },
+            ];
+        }
+
+        case 'RR-12': {
+            $rows = [
+                makeBaseRow(
+                    'rr12',
+                    'RR12_Target',
+                    '2026-03-01',
+                    '2026-03-05',
+                    '18:00:00',
+                    '22:00:00',
+                    ['settings' => ['start' => 'SunSet', 'start_offset' => -15]]
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-12 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-12 subEventCount should be 1', $errors);
+                    assertTrue(
+                        windowExists($summary, sig('RR12_Target', '2026-03-01', '2026-03-05', 'SunSet', '22:00:00', 'graceful')),
+                        'RR-12 should preserve symbolic start time',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-13': {
+            $rows = [
+                makeBaseRow(
+                    'rr13',
+                    'RR13_Target',
+                    '2026-03-10',
+                    '2026-03-15',
+                    '18:00:00',
+                    '22:00:00',
+                    ['settings' => ['end' => 'Dusk', 'end_offset' => 30]]
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-13 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-13 subEventCount should be 1', $errors);
+                    assertTrue(
+                        windowExists($summary, sig('RR13_Target', '2026-03-10', '2026-03-15', '18:00:00', 'Dusk', 'graceful')),
+                        'RR-13 should preserve symbolic end time',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-14': {
+            $rows = [
+                makeBaseRow('rr14', 'RR14_Target', '2026-04-01', '2026-04-03', '22:00:00', '02:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-14 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-14 subEventCount should be 1', $errors);
+                    assertTrue(
+                        windowExists($summary, sig('RR14_Target', '2026-04-01', '2026-04-03', '22:00:00', '02:00:00', 'graceful')),
+                        'RR-14 overnight window should be retained',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-15': {
+            $rows = [
+                makeBaseRow(
+                    'rr15',
+                    'RR15_Target',
+                    '2026-04-01',
+                    '2026-04-30',
+                    '18:00:00',
+                    '22:00:00',
+                    ['freq' => 'WEEKLY', 'byday' => ['MO', 'WE', 'FR']]
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-15 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-15 subEventCount should be 1', $errors);
+                    assertTrue(
+                        weeklyDaysPresent($summary, 'RR15_Target', ['MO', 'WE', 'FR']),
+                        'RR-15 weekly day metadata should be preserved',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-16': {
+            $rows = [
+                makeBaseRow(
+                    'rr16',
+                    'RR16_Target',
+                    '2026-11-01',
+                    '2026-11-04',
+                    '18:00:00',
+                    '22:00:00',
+                    ['timezone' => 'America/New_York']
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-16 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-16 subEventCount should be 1', $errors);
+                    assertTrue(
+                        windowExists($summary, sig('RR16_Target', '2026-11-01', '2026-11-04', '18:00:00', '22:00:00', 'graceful')),
+                        'RR-16 timezone-bound window should be present',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-17': {
+            $rows = [
+                makeBaseRow('rr17', 'RR17_Target', '2026-02-01', '2026-02-20', '18:00:00', '22:00:00'),
+                makeOverrideRow('rr17', '2026-02-05', 'RR17_Target', '18:00:00', '23:00:00'),
+                makeOverrideRow('rr17', '2026-02-10', 'RR17_Target', '18:00:00', '23:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $baseSig = sig('RR17_Target', '2026-02-01', '2026-02-20', '18:00:00', '22:00:00', 'graceful');
+                    $ovr5Sig = sig('RR17_Target', '2026-02-05', '2026-02-05', '18:00:00', '23:00:00', 'graceful');
+                    $ovr10Sig = sig('RR17_Target', '2026-02-10', '2026-02-10', '18:00:00', '23:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 1, 'RR-17 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 3, 'RR-17 subEventCount should be 3', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $ovr5Sig, $baseSig), 'RR-17 first override must execute before base', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $ovr10Sig, $baseSig), 'RR-17 second override must execute before base', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $ovr5Sig, $ovr10Sig), 'RR-17 overrides should remain chronological', $errors);
+                },
+            ];
+        }
+
+        case 'RR-18': {
+            $rows = [
+                makeBaseRow('rr18b', 'RR18_Broad_Target', '2026-04-01', '2026-04-30', '18:00:00', '23:00:00'),
+                makeBaseRow('rr18a', 'RR18_Narrow_Target', '2026-04-10', '2026-04-12', '18:00:00', '23:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $broadSig = sig('RR18_Broad_Target', '2026-04-01', '2026-04-30', '18:00:00', '23:00:00', 'graceful');
+                    $narrowSig = sig('RR18_Narrow_Target', '2026-04-10', '2026-04-12', '18:00:00', '23:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-18 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-18 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $narrowSig, $broadSig), 'RR-18 narrower overlap should execute before broad overlap', $errors);
+                },
+            ];
+        }
+
+        case 'RR-19': {
+            $rows = [
+                makeBaseRow('rr19a', 'RR19_EarlyStart_Target', '2026-05-01', '2026-05-31', '17:00:00', '22:00:00'),
+                makeBaseRow('rr19b', 'RR19_LateStart_Target', '2026-05-01', '2026-05-31', '19:00:00', '21:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $earlyStartSig = sig('RR19_EarlyStart_Target', '2026-05-01', '2026-05-31', '17:00:00', '22:00:00', 'graceful');
+                    $lateStartSig = sig('RR19_LateStart_Target', '2026-05-01', '2026-05-31', '19:00:00', '21:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-19 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-19 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $lateStartSig, $earlyStartSig), 'RR-19 later daily start should execute first', $errors);
+                },
+            ];
+        }
+
+        case 'RR-20': {
+            $rows = [
+                makeBaseRow('rr20', 'RR20_Target', '2026-02-01', '2026-02-28', '18:00:00', '22:00:00'),
+                makeCancellationRow('rr20', '2026-02-15', '18:00:00'),
+                makeOverrideRow('rr20', '2026-02-05', 'RR20_Target', '18:00:00', '23:00:00'),
+                makeOverrideRow('rr20', '2026-02-06', 'RR20_Target', '18:00:00', '23:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['counts']['fpp']['create'] >= 1, 'RR-20 should create fpp event(s)', $errors);
+                    assertTrue($summary['counts']['calendar']['create'] === 0, 'RR-20 should not create calendar events', $errors);
+                    assertTrue($summary['eventCount'] === 1, 'RR-20 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 3, 'RR-20 subEventCount should be 3', $errors);
+                },
+            ];
+        }
+
+        case 'RR-26': {
+            $rows = [
+                makeBaseRow('rr26a', 'RR26_EarlySeason_Target', '2026-06-01', '2026-06-30', '18:00:00', '22:00:00'),
+                makeBaseRow('rr26b', 'RR26_LateSeason_Target', '2026-06-10', '2026-06-20', '18:00:00', '22:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $earlySig = sig('RR26_EarlySeason_Target', '2026-06-01', '2026-06-30', '18:00:00', '22:00:00', 'graceful');
+                    $lateSig = sig('RR26_LateSeason_Target', '2026-06-10', '2026-06-20', '18:00:00', '22:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-26 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-26 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $lateSig, $earlySig), 'RR-26 later calendar start date should execute first when daily start matches', $errors);
+                },
+            ];
+        }
+
+        case 'RR-27': {
+            $rows = [
+                makeBaseRow('rr27a', 'RR27_BroadBackground_Target', '2026-07-01', '2026-07-31', '18:00:00', '23:00:00'),
+                makeBaseRow('rr27b', 'RR27_SpecificWindow_Target', '2026-07-10', '2026-07-12', '20:00:00', '22:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $broadSig = sig('RR27_BroadBackground_Target', '2026-07-01', '2026-07-31', '18:00:00', '23:00:00', 'graceful');
+                    $specificSig = sig('RR27_SpecificWindow_Target', '2026-07-10', '2026-07-12', '20:00:00', '22:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-27 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-27 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $specificSig, $broadSig), 'RR-27 specific overlap should execute before broad background', $errors);
+                },
+            ];
+        }
+
+        case 'RR-28': {
+            $rows = [
+                makeBaseRow('rr28a', 'RR28_ChronologyA_Target', '2026-08-01', '2026-08-31', '18:00:00', '22:00:00'),
+                makeBaseRow('rr28b', 'RR28_ChronologyB_Target', '2026-09-01', '2026-09-30', '18:00:00', '22:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $aSig = sig('RR28_ChronologyA_Target', '2026-08-01', '2026-08-31', '18:00:00', '22:00:00', 'graceful');
+                    $bSig = sig('RR28_ChronologyB_Target', '2026-09-01', '2026-09-30', '18:00:00', '22:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-28 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-28 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $aSig, $bSig), 'RR-28 non-overlap bundles should remain chronological', $errors);
+                },
+            ];
+        }
+
+        case 'RR-29': {
+            $rows = [
+                makeBaseRow(
+                    'rr29a',
+                    'RR29_Static_Target',
+                    '2026-11-20',
+                    '2026-12-31',
+                    '18:00:00',
+                    '23:00:00',
+                    ['freq' => 'WEEKLY', 'byday' => ['SU', 'MO', 'TU', 'WE', 'TH']]
+                ),
+                makeBaseRow(
+                    'rr29b',
+                    'RR29_Show_Target',
+                    '2026-11-20',
+                    '2026-12-31',
+                    '19:00:00',
+                    '21:00:00',
+                    ['freq' => 'DAILY']
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $staticSig = sig('RR29_Static_Target', '2026-11-20', '2026-12-31', '18:00:00', '23:00:00', 'graceful');
+                    $showSig = sig('RR29_Show_Target', '2026-11-20', '2026-12-31', '19:00:00', '21:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-29 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-29 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $showSig, $staticSig), 'RR-29 later daily start show should execute before static overlap', $errors);
+                },
+            ];
+        }
+    }
+
+    throw new InvalidArgumentException("Unknown case: {$caseId}");
+}
+
+/**
+ * @param array<string,mixed> $summary
+ * @param array<int,string> $errors
+ */
+function assertWindows(array $summary, array $expectedSigs, array &$errors, string $label): void
+{
+    $actual = array_map(static fn(array $w): string => (string)$w['sig'], $summary['windows']);
+    sort($actual, SORT_STRING);
+    sort($expectedSigs, SORT_STRING);
+
+    if ($actual !== $expectedSigs) {
+        $errors[] = $label . ' mismatch: expected=' . json_encode($expectedSigs) . ' actual=' . json_encode($actual);
+    }
+}
+
+/**
+ * @param array<string,mixed> $summary
+ */
+function hasEarlierExecutionOrder(array $summary, string $leftSig, string $rightSig): bool
+{
+    $left = null;
+    $right = null;
+
+    foreach ($summary['windows'] as $window) {
+        if (($window['sig'] ?? null) === $leftSig) {
+            $left = (int)($window['executionOrder'] ?? 0);
+        }
+        if (($window['sig'] ?? null) === $rightSig) {
+            $right = (int)($window['executionOrder'] ?? 0);
+        }
+    }
+
+    if ($left === null || $right === null) {
+        return false;
+    }
+
+    return $left < $right;
+}
+
+/**
+ * @param array<string,mixed> $summary
+ * @param array<int,string> $days
+ */
+function weeklyDaysPresent(array $summary, string $target, array $days): bool
+{
+    foreach ($summary['windows'] as $window) {
+        if (($window['target'] ?? '') !== $target) {
+            continue;
+        }
+        $have = is_array($window['days'] ?? null) ? $window['days'] : [];
+        if ($have === $days) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @param array<int,string> $errors
+ */
+function assertTrue(bool $value, string $message, array &$errors): void
+{
+    if (!$value) {
+        $errors[] = $message;
+    }
+}
+
+function caseTitle(string $id): string
+{
+    $titles = [
+        'RR-01' => 'Base recurrence (no exceptions)',
+        'RR-02' => 'Single EXDATE split',
+        'RR-03' => 'Multiple EXDATE split',
+        'RR-04' => 'All occurrences cancelled',
+        'RR-05' => 'Contiguous override merge',
+        'RR-06' => 'Non-contiguous overrides',
+        'RR-07' => 'StopType override',
+        'RR-08' => 'Target override split',
+        'RR-09' => 'Weekly BYDAY with cancellation split',
+        'RR-10' => 'Complex split + override round-trip',
+        'RR-11' => 'Command type override behavior',
+        'RR-12' => 'Symbolic start time token preservation',
+        'RR-13' => 'Symbolic end time token preservation',
+        'RR-14' => 'Overnight window handling',
+        'RR-15' => 'Weekday constrained recurrence canonicalization',
+        'RR-16' => 'Timezone scoped recurrence stability',
+        'RR-17' => 'Bundle override precedence ordering',
+        'RR-18' => 'Cross-bundle overlap specificity precedence',
+        'RR-19' => 'Cross-bundle overlap later daily start precedence',
+        'RR-20' => 'Calendar->FPP segmented mirror',
+        'RR-21' => 'Calendar->FPP mirror invariants',
+        'RR-22' => 'FPP->Calendar segmented mirror',
+        'RR-23' => 'Two-way merge segment stability',
+        'RR-24' => 'Calendar tombstone with segmented event delete',
+        'RR-25' => 'Idempotent second pass convergence',
+        'RR-26' => 'Overlap tie on daily start resolved by later calendar start date',
+        'RR-27' => 'Specific overlap window precedence over broad background',
+        'RR-28' => 'Non-overlap chronological fallback',
+        'RR-29' => 'Later-start show precedence over overlapping static layer',
+    ];
+
+    return $titles[$id] ?? $id;
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function summarizeRun(SchedulerRunResult $runResult): array
+{
+    $targetManifest = $runResult->reconciliationResult()->targetManifest();
+    $events = is_array($targetManifest['events'] ?? null) ? $targetManifest['events'] : [];
+
+    $windows = [];
+    foreach ($events as $eventId => $event) {
+        if (!is_array($event)) {
+            continue;
+        }
+        $identity = is_array($event['identity'] ?? null) ? $event['identity'] : [];
+        $target = is_string($identity['target'] ?? null) ? $identity['target'] : 'unknown';
+        $type = is_string($identity['type'] ?? null) ? $identity['type'] : 'playlist';
+        $subEvents = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
+
+        foreach ($subEvents as $sub) {
+            if (!is_array($sub)) {
+                continue;
+            }
+            $timing = is_array($sub['timing'] ?? null) ? $sub['timing'] : [];
+            $startDate = readDateValue($timing, 'start_date');
+            $endDate = readDateValue($timing, 'end_date');
+            $startTime = readTimeValue($timing, 'start_time');
+            $endTime = readTimeValue($timing, 'end_time');
+            $behavior = is_array($sub['behavior'] ?? null) ? $sub['behavior'] : [];
+            $stopType = is_string($behavior['stopType'] ?? null) ? $behavior['stopType'] : 'graceful';
+            $executionOrder = normalizeInt($sub['executionOrder'] ?? null);
+            $days = null;
+            $timingDays = is_array($timing['days'] ?? null) ? $timing['days'] : [];
+            if (is_array($timingDays['value'] ?? null)) {
+                $days = array_values(array_map(static fn($v): string => (string)$v, $timingDays['value']));
+            }
+
+            $sig = sig($target, $startDate, $endDate, $startTime, $endTime, $stopType);
+            $windows[] = [
+                'eventId' => is_string($eventId) ? $eventId : (string)($event['identityHash'] ?? ''),
+                'target' => $target,
+                'type' => $type,
+                'startDate' => $startDate,
+                'endDate' => $endDate,
+                'startTime' => $startTime,
+                'endTime' => $endTime,
+                'stopType' => $stopType,
+                'executionOrder' => $executionOrder,
+                'days' => $days,
+                'sig' => $sig,
+            ];
+        }
+    }
+
+    usort($windows, static function (array $a, array $b): int {
+        $aOrder = (int)($a['executionOrder'] ?? PHP_INT_MAX);
+        $bOrder = (int)($b['executionOrder'] ?? PHP_INT_MAX);
+        if ($aOrder !== $bOrder) {
+            return $aOrder <=> $bOrder;
+        }
+        $aSig = (string)($a['sig'] ?? '');
+        $bSig = (string)($b['sig'] ?? '');
+        return strcmp($aSig, $bSig);
+    });
+
+    return [
+        'noop' => $runResult->isNoop(),
+        'counts' => $runResult->countsByTarget(),
+        'eventCount' => count($events),
+        'subEventCount' => count($windows),
+        'windows' => $windows,
+    ];
+}
+
+function windowExists(array $summary, string $signature): bool
+{
+    foreach ($summary['windows'] as $window) {
+        if (($window['sig'] ?? null) === $signature) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function allWindowsType(array $summary, string $type): bool
+{
+    foreach ($summary['windows'] as $window) {
+        if (($window['type'] ?? '') !== $type) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * @param array<int,string> $errors
+ */
+function assertSameSigSet(array $leftSummary, array $rightSummary, string $label, array &$errors): void
+{
+    $left = array_map(static fn(array $w): string => (string)$w['sig'], $leftSummary['windows']);
+    $right = array_map(static fn(array $w): string => (string)$w['sig'], $rightSummary['windows']);
+    sort($left, SORT_STRING);
+    sort($right, SORT_STRING);
+    if ($left !== $right) {
+        $errors[] = $label . ' mismatch: left=' . json_encode($left) . ' right=' . json_encode($right);
+    }
+}
+
+/**
+ * @param array<int,array<string,mixed>> $calendarRows
+ * @param array<int,array<string,mixed>> $fppEvents
+ * @param array<string,mixed> $currentManifest
+ * @param array{calendar:array<string,int>,fpp:array<string,int>} $tombstonesBySource
+ */
+function executeRun(
+    SchedulerEngine $engine,
+    NormalizationContext $context,
+    array $calendarRows,
+    array $fppEvents,
+    array $currentManifest,
+    array $tombstonesBySource,
+    string $syncMode,
+    int $calendarSnapshotEpoch = 1700000000,
+    int $fppSnapshotEpoch = 1700000000
+): SchedulerRunResult {
+    return $engine->run(
+        $currentManifest,
+        $calendarRows,
+        $fppEvents,
+        [],
+        [],
+        [],
+        $tombstonesBySource,
+        $context,
+        $calendarSnapshotEpoch,
+        $fppSnapshotEpoch,
+        $syncMode,
+        'resolution-regression'
+    );
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function getTargetManifestEvents(SchedulerRunResult $runResult): array
+{
+    $targetManifest = $runResult->reconciliationResult()->targetManifest();
+    return is_array($targetManifest['events'] ?? null) ? $targetManifest['events'] : [];
+}
+
+/**
+ * @param array<string,mixed> $events
+ * @return array<int,array<string,mixed>>
+ */
+function manifestEventsToSourceFppEvents(array $events, NormalizationContext $context): array
+{
+    $adapter = new FppScheduleAdapter();
+    $singleEvents = [];
+
+    foreach ($events as $event) {
+        if (!is_array($event)) {
+            continue;
+        }
+        $identity = is_array($event['identity'] ?? null) ? $event['identity'] : [];
+        $subEvents = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
+        foreach ($subEvents as $sub) {
+            if (!is_array($sub)) {
+                continue;
+            }
+            $payload = is_array($sub['payload'] ?? null) ? $sub['payload'] : [];
+            $behavior = is_array($sub['behavior'] ?? null) ? $sub['behavior'] : [];
+            $payload = array_merge($payload, [
+                'enabled' => $behavior['enabled'] ?? ($payload['enabled'] ?? true),
+                'repeat' => $behavior['repeat'] ?? ($payload['repeat'] ?? 'none'),
+                'stopType' => $behavior['stopType'] ?? ($payload['stopType'] ?? 'graceful'),
+            ]);
+
+            $singleEvents[] = [
+                'id' => $event['id'] ?? ($event['identityHash'] ?? null),
+                'identityHash' => $event['identityHash'] ?? null,
+                'identity' => $identity,
+                'ownership' => is_array($event['ownership'] ?? null) ? $event['ownership'] : [],
+                'correlation' => is_array($event['correlation'] ?? null) ? $event['correlation'] : [],
+                'subEvents' => [
+                    array_merge($sub, ['payload' => $payload]),
+                ],
+                'source' => 'manifest',
+            ];
+        }
+    }
+
+    usort($singleEvents, static function (array $a, array $b): int {
+        $aSub = (is_array($a['subEvents'] ?? null) && isset($a['subEvents'][0]) && is_array($a['subEvents'][0])) ? $a['subEvents'][0] : [];
+        $bSub = (is_array($b['subEvents'] ?? null) && isset($b['subEvents'][0]) && is_array($b['subEvents'][0])) ? $b['subEvents'][0] : [];
+        $aOrder = normalizeInt($aSub['executionOrder'] ?? null);
+        $bOrder = normalizeInt($bSub['executionOrder'] ?? null);
+        if ($aOrder !== $bOrder) {
+            return $aOrder <=> $bOrder;
+        }
+        $aId = is_string($a['identityHash'] ?? null) ? $a['identityHash'] : '';
+        $bId = is_string($b['identityHash'] ?? null) ? $b['identityHash'] : '';
+        return strcmp($aId, $bId);
+    });
+
+    $scheduleEntries = [];
+    foreach ($singleEvents as $single) {
+        $scheduleEntries[] = $adapter->toScheduleEntry($single);
+    }
+
+    $tmp = '/tmp/cs-resolution-roundtrip-' . getmypid() . '-' . uniqid('', true) . '.json';
+    file_put_contents($tmp, json_encode($scheduleEntries, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    $sourceEvents = $adapter->loadManifestEvents($context, $tmp);
+    @unlink($tmp);
+
+    return $sourceEvents;
+}
+
+/**
+ * @return array{ok:bool,message:string}
+ */
+function roundTripCheck(SchedulerRunResult $runResult, NormalizationContext $context): array
+{
+    $targetManifest = $runResult->reconciliationResult()->targetManifest();
+    $events = is_array($targetManifest['events'] ?? null) ? $targetManifest['events'] : [];
+    if ($events === []) {
+        return ['ok' => true, 'message' => 'no events'];
+    }
+
+    $backEvents = manifestEventsToSourceFppEvents($events, $context);
+
+    $expected = signaturesFromTargetManifestEvents($events);
+    $actual = signaturesFromSourceEvents($backEvents);
+    sort($expected, SORT_STRING);
+    sort($actual, SORT_STRING);
+
+    if ($expected !== $actual) {
+        return [
+            'ok' => false,
+            'message' => 'expected=' . json_encode($expected) . ' actual=' . json_encode($actual),
+        ];
+    }
+
+    return ['ok' => true, 'message' => 'ok'];
+}
+
+/**
+ * @param array<string,mixed> $event
+ * @return array<int,string>
+ */
+function signaturesFromTargetManifestEvents(array $events): array
+{
+    $out = [];
+    foreach ($events as $event) {
+        if (!is_array($event)) {
+            continue;
+        }
+        $identity = is_array($event['identity'] ?? null) ? $event['identity'] : [];
+        $target = is_string($identity['target'] ?? null) ? $identity['target'] : 'unknown';
+        $subEvents = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
+        foreach ($subEvents as $sub) {
+            if (!is_array($sub)) {
+                continue;
+            }
+            $timing = is_array($sub['timing'] ?? null) ? $sub['timing'] : [];
+            $behavior = is_array($sub['behavior'] ?? null) ? $sub['behavior'] : [];
+            $stopType = is_string($behavior['stopType'] ?? null) ? $behavior['stopType'] : 'graceful';
+            $eo = normalizeInt($sub['executionOrder'] ?? null);
+            $out[] = sig(
+                $target,
+                readDateValue($timing, 'start_date'),
+                readDateValue($timing, 'end_date'),
+                readTimeValue($timing, 'start_time'),
+                readTimeValue($timing, 'end_time'),
+                $stopType
+            ) . '|eo:' . $eo;
+        }
+    }
+    return $out;
+}
+
+/**
+ * @param array<int,array<string,mixed>> $events
+ * @return array<int,string>
+ */
+function signaturesFromSourceEvents(array $events): array
+{
+    $out = [];
+    foreach ($events as $event) {
+        if (!is_array($event)) {
+            continue;
+        }
+        $target = is_string($event['target'] ?? null) ? $event['target'] : 'unknown';
+        $subEvents = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
+        foreach ($subEvents as $sub) {
+            if (!is_array($sub)) {
+                continue;
+            }
+            $timing = is_array($sub['timing'] ?? null) ? $sub['timing'] : [];
+            $behavior = is_array($sub['behavior'] ?? null) ? $sub['behavior'] : [];
+            $stopType = is_string($behavior['stopType'] ?? null) ? $behavior['stopType'] : 'graceful';
+            $eo = normalizeInt($sub['executionOrder'] ?? null);
+            $out[] = sig(
+                $target,
+                readDateValue($timing, 'start_date'),
+                readDateValue($timing, 'end_date'),
+                readTimeValue($timing, 'start_time'),
+                readTimeValue($timing, 'end_time'),
+                $stopType
+            ) . '|eo:' . $eo;
+        }
+    }
+    return $out;
+}
+
+/**
+ * @param array<string,mixed> $timing
+ */
+function readDateValue(array $timing, string $key): string
+{
+    $row = is_array($timing[$key] ?? null) ? $timing[$key] : [];
+    $hard = is_string($row['hard'] ?? null) ? trim($row['hard']) : '';
+    if ($hard !== '') {
+        return $hard;
+    }
+    $sym = is_string($row['symbolic'] ?? null) ? trim($row['symbolic']) : '';
+    return $sym !== '' ? $sym : 'null';
+}
+
+/**
+ * @param array<string,mixed> $timing
+ */
+function readTimeValue(array $timing, string $key): string
+{
+    $row = is_array($timing[$key] ?? null) ? $timing[$key] : [];
+    $hard = is_string($row['hard'] ?? null) ? trim($row['hard']) : '';
+    if ($hard !== '') {
+        return $hard;
+    }
+    $sym = is_string($row['symbolic'] ?? null) ? trim($row['symbolic']) : '';
+    return $sym !== '' ? $sym : 'null';
+}
+
+function normalizeInt(mixed $value): int
+{
+    if (is_int($value)) {
+        return max(0, $value);
+    }
+    if (is_string($value) && is_numeric($value)) {
+        return max(0, (int)$value);
+    }
+    return 0;
+}
+
+function sig(
+    string $target,
+    string $startDate,
+    string $endDate,
+    string $startTime,
+    string $endTime,
+    string $stopType
+): string {
+    return implode('|', [
+        $target,
+        $startDate,
+        $endDate,
+        $startTime,
+        $endTime,
+        $stopType,
+    ]);
+}
+
+/**
+ * @param array<string,mixed> $extra
+ * @return array<string,mixed>
+ */
+function makeBaseRow(
+    string $uid,
+    string $target,
+    string $startDate,
+    string $endDateInclusive,
+    string $startTime,
+    string $endTime,
+    array $extra = []
+): array {
+    $tz = (string)($extra['timezone'] ?? 'UTC');
+    $freq = strtoupper((string)($extra['freq'] ?? 'DAILY'));
+    $byday = $extra['byday'] ?? null;
+    $stopType = (string)($extra['stopType'] ?? 'graceful');
+    $type = (string)($extra['type'] ?? 'playlist');
+    $enabled = array_key_exists('enabled', $extra) ? (bool)$extra['enabled'] : true;
+    $settingsExtra = is_array($extra['settings'] ?? null) ? $extra['settings'] : [];
+    $updatedAtEpoch = is_int($extra['updatedAtEpoch'] ?? null) ? (int)$extra['updatedAtEpoch'] : 1700000001;
+
+    $startDt = new DateTimeImmutable($startDate . 'T' . $startTime . '+00:00');
+    $firstEndDate = $startDt->modify('+1 day')->format('Y-m-d');
+    $endDt = new DateTimeImmutable($firstEndDate . 'T' . $endTime . '+00:00');
+
+    $until = str_replace('-', '', $endDateInclusive) . 'T235959Z';
+    $rrule = [
+        'freq' => $freq,
+        'until' => $until,
+    ];
+    if (is_array($byday) && $byday !== []) {
+        $rrule['byday'] = array_values($byday);
+    }
+
+    $settings = array_merge(
+        [
+            'type' => $type,
+            'enabled' => $enabled ? 'true' : 'false',
+            'stopType' => $stopType,
+        ],
+        $settingsExtra
+    );
+
+    return [
+        'uid' => $uid,
+        'provider' => 'google',
+        'start' => ['dateTime' => $startDt->format(DateTimeInterface::ATOM)],
+        'end' => ['dateTime' => $endDt->format(DateTimeInterface::ATOM)],
+        'rrule' => $rrule,
+        'timezone' => $tz,
+        'isAllDay' => false,
+        'payload' => [
+            'summary' => $target,
+            'metadata' => [
+                'settings' => $settings,
+            ],
+        ],
+        'updatedAtEpoch' => $updatedAtEpoch,
+    ];
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function makeCancellationRow(string $parentUid, string $date, string $time): array
+{
+    $dt = new DateTimeImmutable($date . 'T' . $time . '+00:00');
+    return [
+        'uid' => $parentUid . '-cancel-' . $date,
+        'parentUid' => $parentUid,
+        'provider' => 'google',
+        'status' => 'cancelled',
+        'originalStartTime' => ['dateTime' => $dt->format(DateTimeInterface::ATOM)],
+        'updatedAtEpoch' => 1700000002,
+    ];
+}
+
+/**
+ * @param array<string,mixed> $extra
+ * @return array<string,mixed>
+ */
+function makeOverrideRow(
+    string $parentUid,
+    string $date,
+    string $target,
+    string $startTime,
+    string $endTime,
+    array $extra = []
+): array {
+    $stopType = (string)($extra['stopType'] ?? 'graceful');
+    $enabled = array_key_exists('enabled', $extra) ? (bool)$extra['enabled'] : true;
+    $type = (string)($extra['type'] ?? 'playlist');
+    $settingsExtra = is_array($extra['settings'] ?? null) ? $extra['settings'] : [];
+    $start = new DateTimeImmutable($date . 'T' . $startTime . '+00:00');
+    $end = new DateTimeImmutable($date . 'T' . $endTime . '+00:00');
+    $updatedAtEpoch = is_int($extra['updatedAtEpoch'] ?? null) ? (int)$extra['updatedAtEpoch'] : 1700000003;
+
+    $settings = array_merge(
+        [
+            'type' => $type,
+            'enabled' => $enabled ? 'true' : 'false',
+            'stopType' => $stopType,
+        ],
+        $settingsExtra
+    );
+
+    return [
+        'uid' => $parentUid . '-ovr-' . $date . '-' . preg_replace('/[^0-9]/', '', $startTime),
+        'parentUid' => $parentUid,
+        'provider' => 'google',
+        'originalStartTime' => ['dateTime' => $start->format(DateTimeInterface::ATOM)],
+        'start' => ['dateTime' => $start->format(DateTimeInterface::ATOM)],
+        'end' => ['dateTime' => $end->format(DateTimeInterface::ATOM)],
+        'payload' => [
+            'summary' => $target,
+            'metadata' => [
+                'settings' => $settings,
+            ],
+        ],
+        'enabled' => $enabled,
+        'stopType' => $stopType,
+        'updatedAtEpoch' => $updatedAtEpoch,
+    ];
+}

@@ -1,869 +1,1193 @@
 <?php
-declare(strict_types=1);
-
 /**
- * GoogleCalendarScheduler — UI Controller + View
+ * Calendar Scheduler — Primary Plugin UI
  *
- * RESPONSIBILITIES:
- * - Render plugin UI (HTML + JS)
- * - Handle POSTed UI actions (save, plan-only sync)
- * - Expose AJAX endpoints for:
- *   - plan status (PURE)
- *   - diff preview (PURE)
- *   - apply (WRITE via SchedulerApply only, dry-run guarded)
- *   - inventory (read-only)
- *   - export (read-only)
- *   - cleanup preview (read-only)
- *   - cleanup apply (explicit WRITE)
- *
- * HARD RULES:
- * - This file MAY render HTML
- * - This file MUST NOT directly modify schedule.json
- * - All scheduler writes MUST flow through Apply-layer services
- *
- * ARCHITECTURAL NOTE:
- * Falcon Player plugins intentionally combine controller + view
- * logic in content.php. This file is the ONLY place where that
- * coupling is allowed.
+ * File: content.php
+ * Purpose: Render the Calendar Scheduler web interface for OAuth connection,
+ * sync preview, pending actions, and user-driven apply operations.
  */
-
-// ---------------------------------------------------------------------
-// Bootstrap (authoritative dependency map)
-// ---------------------------------------------------------------------
-require_once __DIR__ . '/src/bootstrap.php';
-
-// ---------------------------------------------------------------------
-// Core helpers (UI-only)
-/// ---------------------------------------------------------------------
-require_once __DIR__ . '/src/Core/FppSemantics.php';
-require_once __DIR__ . '/src/Core/DiffPreviewer.php';
-require_once __DIR__ . '/src/Core/ScheduleEntryExportAdapter.php';
-require_once __DIR__ . '/src/Core/IcsWriter.php';
-require_once __DIR__ . '/src/Core/HolidayResolver.php';
-require_once __DIR__ . '/src/Core/SunTimeEstimator.php';
-
-// ---------------------------------------------------------------------
-// Planner services (PURE — no writes)
-// ---------------------------------------------------------------------
-require_once __DIR__ . '/src/Planner/ExportService.php';
-require_once __DIR__ . '/src/Planner/InventoryService.php';
-
-// ---------------------------------------------------------------------
-// Apply services (WRITE boundary — guarded, never auto-run)
-// ---------------------------------------------------------------------
-require_once __DIR__ . '/src/Apply/SchedulerCleanupPlanner.php';
-require_once __DIR__ . '/src/Apply/SchedulerCleanupApplier.php';
-
-$cfg = Config::load();
-
-/*
- * --------------------------------------------------------------------
- * POST handling (Save / Sync)
- * --------------------------------------------------------------------
- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    try {
-        if ($_POST['action'] === 'save') {
-            // Empty URL is allowed (clears configuration)
-            $cfg['calendar']['ics_url'] = trim($_POST['ics_url'] ?? '');
-            $cfg['runtime']['dry_run']  = !empty($_POST['dry_run']);
-
-            Config::save($cfg);
-            clearstatcache();
-            $cfg = Config::load();
-        }
-
-        // Sync = plan-only, never writes (UI removed in Phase 19.3)
-        // Intentionally discard result; UI status polling handles feedback
-        if ($_POST['action'] === 'sync') {
-            SchedulerPlanner::plan($cfg);
-        }
-    } catch (Throwable $e) {
-        GcsLogger::instance()->error('GoogleCalendarScheduler error', [
-            'error' => $e->getMessage(),
-        ]);
-    }
-}
-
-/*
- * AJAX endpoints
- *
- * Contract:
- * - Each endpoint MUST:
- *   - be side-effect free unless explicitly documented
- *   - emit exactly one response
- *   - exit immediately after handling
- */
-
-function gcsJsonHeader(): void {
-    header('Content-Type: application/json; charset=utf-8');
-    header('Cache-Control: no-store');
-}
-
-// Normalize endpoint (prevents HTML fallthrough + array injection)
-$endpoint = '';
-if (isset($_GET['endpoint']) && is_string($_GET['endpoint'])) {
-    $endpoint = $_GET['endpoint'];
-}
-if ($endpoint !== '') {
-    try {
-
-        // --------------------------------------------------------------
-        // Plan status (plan-only): returns counts
-        // --------------------------------------------------------------
-        if ($endpoint=== 'plan_status') {
-            gcsJsonHeader();
-
-            $plan = SchedulerPlanner::plan($cfg);
-            $norm = DiffPreviewer::normalizeResultForUi(['diff' => $plan]);
-
-            echo json_encode([
-                'ok' => true,
-                'counts' => [
-                    'creates' => count($norm['creates']),
-                    'updates' => count($norm['updates']),
-                    'deletes' => count($norm['deletes']),
-                ],
-            ]);
-            exit;
-        }
-
-        // --------------------------------------------------------------
-        // Diff (plan-only): returns creates/updates/deletes + snapshots
-        // --------------------------------------------------------------
-        if ($endpoint=== 'diff') {
-            gcsJsonHeader();
-
-            $plan = SchedulerPlanner::plan($cfg);
-
-            echo json_encode([
-                'ok'   => true,
-                'diff' => [
-                    'creates'        => (isset($plan['creates']) && is_array($plan['creates'])) ? $plan['creates'] : [],
-                    'updates'        => (isset($plan['updates']) && is_array($plan['updates'])) ? $plan['updates'] : [],
-                    'deletes'        => (isset($plan['deletes']) && is_array($plan['deletes'])) ? $plan['deletes'] : [],
-                    'desiredEntries' => (isset($plan['desiredEntries']) && is_array($plan['desiredEntries'])) ? $plan['desiredEntries'] : [],
-                    'existingRaw'    => (isset($plan['existingRaw']) && is_array($plan['existingRaw'])) ? $plan['existingRaw'] : [],
-                ],
-            ]);
-            exit;
-        }
-
-        // --------------------------------------------------------------
-        // Apply (WRITE path): blocked if dry-run is enabled
-        // --------------------------------------------------------------
-        if ($endpoint=== 'apply') {
-
-            // Enforce persisted runtime dry-run
-            $runtimeDryRun = !empty($cfg['runtime']['dry_run']);
-
-            // Also honor explicit dry-run request flags (defensive)
-            $dry = $_GET['dryRun'] ?? $_POST['dryRun'] ?? $_GET['dry_run'] ?? $_POST['dry_run'] ?? null;
-            $requestDryRun = ($dry === '1' || $dry === 1 || $dry === true || $dry === 'true' || $dry === 'on');
-
-            $isDryRun = ($runtimeDryRun || $requestDryRun);
-
-            if ($isDryRun) {
-                // Exact same behavior as diff (plan-only, NO WRITES)
-                gcsJsonHeader();
-
-                $plan = SchedulerPlanner::plan($cfg);
-
-                echo json_encode([
-                    'ok'   => true,
-                    'mode' => 'dry-run',
-                    'diff' => [
-                        'creates'        => (isset($plan['creates']) && is_array($plan['creates'])) ? $plan['creates'] : [],
-                        'updates'        => (isset($plan['updates']) && is_array($plan['updates'])) ? $plan['updates'] : [],
-                        'deletes'        => (isset($plan['deletes']) && is_array($plan['deletes'])) ? $plan['deletes'] : [],
-                        'desiredEntries' => (isset($plan['desiredEntries']) && is_array($plan['desiredEntries'])) ? $plan['desiredEntries'] : [],
-                        'existingRaw'    => (isset($plan['existingRaw']) && is_array($plan['existingRaw'])) ? $plan['existingRaw'] : [],
-                    ],
-                ]);
-                exit;
-            }
-
-            // Normal apply (writes allowed)
-            // We return both the plan (for UI parity) and the apply result.
-            $plan = SchedulerPlanner::plan($cfg);
-
-            $creates = (isset($plan['creates']) && is_array($plan['creates'])) ? count($plan['creates']) : 0;
-            $updates = (isset($plan['updates']) && is_array($plan['updates'])) ? count($plan['updates']) : 0;
-            $deletes = (isset($plan['deletes']) && is_array($plan['deletes'])) ? count($plan['deletes']) : 0;
-
-            if (($creates + $updates + $deletes) === 0) {
-                gcsJsonHeader();
-                echo json_encode([
-                    'ok'   => true,
-                    'noop' => true,
-                    'result' => [
-                        'plan'  => $plan,
-                        'apply' => ['ok' => true, 'noop' => true],
-                    ],
-                ]);
-                exit;
-            }
-
-            $applyResult = SchedulerApply::applyFromConfig($cfg);
-
-            header('Content-Type: application/json; charset=utf-8');
-            echo json_encode([
-                'ok' => true,
-                'result' => [
-                    'plan'  => $plan,
-                    'apply' => $applyResult,
-                ],
-            ]);
-            exit;
-        }
-
-        // --------------------------------------------------------------
-        // Export unmanaged scheduler entries (DEBUG — JSON)
-        // --------------------------------------------------------------
-        if ($endpoint === 'export_unmanaged_debug') {
-            gcsJsonHeader();
-
-            $entries = InventoryService::getUnmanagedEntries();
-
-            if (empty($entries)) {
-                echo json_encode([
-                    'ok'      => true,
-                    'empty'   => true,
-                    'message' => 'No unmanaged scheduler entries found (InventoryService returned empty).',
-                ]);
-                exit;
-            }
-
-            $result = ExportService::export($entries);
-
-            if (!is_array($result)) {
-                echo json_encode([
-                    'ok'    => false,
-                    'error' => 'Export failed: invalid export result.',
-                ]);
-                exit;
-            }
-
-            // Remove large ICS payload from debug output
-            if (isset($result['ics'])) {
-                $result['ics'] = '(omitted)';
-            }
-
-            echo json_encode($result, JSON_PRETTY_PRINT);
-            exit;
-        }
-
-        // --------------------------------------------------------------
-        // Export unmanaged scheduler entries to ICS
-        // --------------------------------------------------------------
-        if ($endpoint === 'export_unmanaged_ics') {
-
-            $entries = InventoryService::getUnmanagedEntries();
-
-            if (empty($entries)) {
-                header('Content-Type: application/json; charset=utf-8');
-                header('Cache-Control: no-store');
-                echo json_encode([
-                    'ok'      => true,
-                    'empty'   => true,
-                    'message' => 'No unmanaged scheduler entries found (InventoryService returned empty).',
-                ]);
-                exit;
-            }
-
-            $result = ExportService::export($entries);
-
-            if (empty($result['ics'])) {
-                header('Content-Type: application/json; charset=utf-8');
-                header('Cache-Control: no-store');
-                echo json_encode([
-                    'ok'    => false,
-                    'error' => 'ICS export failed (no ICS payload returned).',
-                ]);
-                exit;
-            }
-
-            header('Content-Type: text/calendar; charset=utf-8');
-            header('Content-Disposition: attachment; filename="gcs-unmanaged-export.ics"');
-            header('Cache-Control: no-store');
-
-            echo $result['ics'];
-            exit;
-        }
-
-        // --------------------------------------------------------------
-        // Scheduler inventory (read-only counts)
-        // --------------------------------------------------------------
-        if ($endpoint=== 'scheduler_inventory') {
-            gcsJsonHeader();
-
-            try {
-                $inv = InventoryService::getInventory();
-
-                echo json_encode([
-                    'ok' => true,
-                    'inventory' => $inv,
-                ]);
-                exit;
-            } catch (Throwable $e) {
-                echo json_encode([
-                    'ok' => false,
-                    'error' => $e->getMessage(),
-                ]);
-                exit;
-            }
-        }
-
-        // --------------------------------------------------------------
-        // Cleanup preview (read-only)
-        // --------------------------------------------------------------
-        if ($endpoint=== 'cleanup_preview') {
-            gcsJsonHeader();
-
-            $plan = SchedulerCleanupPlanner::plan();
-
-            echo json_encode([
-                'ok' => !empty($plan['ok']),
-                'plan' => $plan,
-            ]);
-            exit;
-        }
-
-        // --------------------------------------------------------------
-        // Cleanup apply (guarded write)
-        // --------------------------------------------------------------
-        if ($endpoint=== 'cleanup_apply') {
-            gcsJsonHeader();
-
-            $res = SchedulerCleanupApplier::apply();
-
-            echo json_encode($res);
-            exit;
-        }
-
-    } catch (Throwable $e) {
-        gcsJsonHeader();
-        echo json_encode([
-            'ok'    => false,
-            'error' => $e->getMessage(),
-        ]);
-        exit;
-    }
-}
-
-$icsUrl = trim($cfg['calendar']['ics_url'] ?? '');
-$dryRun = !empty($cfg['runtime']['dry_run']);
-
-function looksLikeIcs(string $url): bool {
-    return (bool)preg_match('#^https?://.+\.ics$#i', $url);
-}
-
-$isEmpty    = ($icsUrl === '');
-$isIcsValid = (!$isEmpty && looksLikeIcs($icsUrl));
-$canSave    = ($isEmpty || $isIcsValid);
-
 ?>
-
-<div class="settings">
-
-<div id="gcs-status-bar" class="gcs-status gcs-status--info">
-    <span class="gcs-status-dot"></span>
-    <span class="gcs-status-text">
-        <?php
-        if ($isEmpty) {
-            echo 'Enter a Google Calendar ICS URL to get started.';
-        } elseif (!$isIcsValid) {
-            echo 'Please enter a valid Google Calendar ICS (.ics) URL.';
-        } else {
-            echo 'Ready — monitoring calendar for changes.';
-        }
-        ?>
-    </span>
-</div>
-
-<form method="post">
-    <input type="hidden" name="action" value="save">
-
-    <div class="setting">
-        <label><strong>Google Calendar ICS URL</strong></label><br>
-        <input
-            type="text"
-            name="ics_url"
-            size="100"
-            id="gcs-ics-input"
-            value="<?php echo htmlspecialchars($icsUrl, ENT_QUOTES); ?>"
-        >
-    </div>
-
-    <div class="gcs-save-row">
-        <button
-            type="submit"
-            class="buttons"
-            id="gcs-save-btn"
-            <?php if (!$canSave) echo 'disabled'; ?>
-        >
-            Save Settings
-        </button>
-
-        <a
-            href="https://calendar.google.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="gcs-open-calendar-link"
-        >
-            Open Google Calendar ↗
-        </a>
-    </div>
-
-    <div class="gcs-dev-toggle">
-        <label>
-            <input type="checkbox" id="gcs-dry-run" name="dry_run" <?php if ($dryRun) echo 'checked'; ?>>
-            Dry Run
-        </label>
-    </div>
-</form>
-
-<div class="gcs-diff-preview">
-
-    <button type="button" class="buttons gcs-hidden" id="gcs-preview-btn">
-        Preview Changes
-    </button>
-
-    <div id="gcs-diff-summary" class="gcs-hidden" style="margin-top:12px;"></div>
-
-    <div id="gcs-preview-actions" class="gcs-hidden" style="margin-top:12px;">
-        <button type="button" class="buttons" id="gcs-close-preview-btn">Cancel</button>
-        <button type="button" class="buttons" id="gcs-apply-btn" disabled>Apply Changes</button>
-    </div>
-    <div id="gcs-post-apply-actions" class="gcs-hidden" style="margin-top:12px;">
-        <button
-            type="button"
-            class="buttons gcs-nav-btn"
-            onclick="window.location.href='/scheduler.php';"
-        >
-            Open Schedule
-        </button>
-    </div>
-</div>
-
-<div id="gcs-unmanaged-section" class="gcs-hidden">
-
-    <hr style="margin:20px 0;">
-
-    <div id="gcs-unmanaged-status"
-         class="gcs-status gcs-status--info">
-        <span class="gcs-status-dot"></span>
-        <span class="gcs-status-text">
-            <!-- Filled dynamically -->
-        </span>
-    </div>
-
-    <div style="margin-top:12px;">
-        <button
-            type="button"
-            class="buttons"
-            id="gcs-export-unmanaged-btn"
-        >
-            Export Unmanaged Schedules
-        </button>
-    </div>
-
-</div>
-
 <style>
-/* Anchor container */
-.settings {
-    position: relative;
-    padding-bottom: 36px; /* space for dev toggle */
-}
+  .cs-page {
+    margin-top: 10px;
+  }
 
-.gcs-save-row {
+  .cs-panel-title {
+    margin-bottom: 6px;
+  }
+
+  .cs-muted {
+    color: #6c757d;
+  }
+
+  .cs-top-status,
+  .cs-top-status strong,
+  .cs-top-status span {
+    color: #111 !important;
+  }
+
+  .cs-top-status {
+    position: sticky;
+    top: var(--cs-sticky-top, 8px);
+    z-index: 10;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    width: 100%;
+    box-sizing: border-box;
+    transition: padding 0.15s ease, font-size 0.15s ease, opacity 0.15s ease, width 0.15s ease;
+  }
+
+  .cs-top-status.cs-top-status-compact {
+    padding: 4px 10px;
+    font-size: 12px;
+    opacity: 0.95;
+    width: min(560px, calc(100vw - 24px));
+  }
+
+  .cs-status-loading {
+    background-color: #b7b7b7 !important;
+    border-color: #9c9c9c !important;
+  }
+
+  #csShell .table td,
+  #csShell .table th {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  #csApplyBtn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .cs-json {
+    margin: 8px 0 0;
+    max-height: 220px;
+    overflow: auto;
+    font-size: 12px;
+  }
+
+  .cs-hidden {
+    display: none !important;
+  }
+
+  .cs-panel-header {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .cs-connection-close-wrap {
+    margin-left: auto;
+  }
+
+  .cs-connection-close-btn {
+    padding: 2px 10px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .cs-connection-summary {
+    margin-top: -2px;
+    margin-bottom: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cs-connection-modify-wrap {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+
+  .cs-help-list {
+    margin-bottom: 8px;
+    padding-left: 18px;
+  }
+
+  .cs-help-check-ok {
+    color: #1b7f3a;
+    font-weight: 600;
+  }
+
+  .cs-help-check-bad {
+    color: #b02a37;
+    font-weight: 600;
+  }
+
+  .cs-device-box {
+    border: 1px solid #cfd3d7;
+    border-radius: 4px;
+    background: #f7f7f7;
+    padding: 10px 12px;
+    margin-top: 10px;
+  }
+
+  .cs-device-code {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .cs-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1040;
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-top: 8px;
-}
+    justify-content: center;
+    padding: 16px;
+  }
 
-.gcs-open-calendar-link {
-    color: #000;
-    font-weight: normal;
-    text-decoration: none;
-    font-size: 0.95em;
-}
+  .cs-modal {
+    width: min(560px, 100%);
+    background: #fff;
+    border-radius: 6px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+  }
 
-.gcs-open-calendar-link:hover {
-    text-decoration: underline;
-}
+  .cs-modal-header,
+  .cs-modal-footer {
+    padding: 10px 14px;
+    border-bottom: 1px solid #dee2e6;
+  }
 
-.gcs-hidden { display:none; }
-.gcs-summary-row { display:flex; gap:24px; margin-top:6px; }
-.gcs-summary-item { white-space:nowrap; }
+  .cs-modal-footer {
+    border-bottom: 0;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
 
-.gcs-status {
-    display:flex;
-    align-items:center;
-    gap:8px;
-    padding:6px 10px;
-    margin:8px 0 12px 0;
-    border-radius:6px;
-    font-weight:600;
-}
-.gcs-status-dot { width:10px; height:10px; border-radius:50%; background:currentColor; }
-.gcs-status--info    { background:#eef4ff; color:#1d4ed8; }
-.gcs-status--success { background:#e6f6ea; color:#1e7f43; }
-.gcs-status--warning { background:#fff4e5; color:#9a5b00; }
-.gcs-status--error   { background:#fdecea; color:#b42318; }
-
-.gcs-dev-toggle {
-    position: absolute;
-    bottom: 8px;
-    right: 8px;
-    font-size:0.85em;
-    opacity:0.85;
-}
+  .cs-modal-body {
+    padding: 12px 14px;
+  }
 </style>
 
-<script>
-(function(){
-'use strict';
-
-var ENDPOINT =
-  'plugin.php?_menu=content&plugin=GoogleCalendarScheduler&page=content.php&nopage=1';
-
-var previewBtn = document.getElementById('gcs-preview-btn');
-var diffSummary = document.getElementById('gcs-diff-summary');
-var previewActions = document.getElementById('gcs-preview-actions');
-var applyBtn = document.getElementById('gcs-apply-btn');
-var closePreviewBtn = document.getElementById('gcs-close-preview-btn');
-var dryRunCheckbox = document.getElementById('gcs-dry-run');
-var saveBtn = document.getElementById('gcs-save-btn');
-var icsInput = document.getElementById('gcs-ics-input');
-
-function looksLikeIcs(url) {
-    return /^https?:\/\/.+\.ics$/i.test(url);
-}
-
-icsInput.addEventListener('input', function () {
-    var val = icsInput.value.trim();
-    saveBtn.disabled = !(val === '' || looksLikeIcs(val));
-});
-
-function syncApplyButtonWithDryRun() {
-    if (!applyBtn) return;
-
-    if (dryRunCheckbox && dryRunCheckbox.checked) {
-        applyBtn.disabled = true;
-        applyBtn.style.opacity = '0.5';
-        applyBtn.style.cursor = 'not-allowed';
-    } else {
-        applyBtn.disabled = false;
-        applyBtn.style.opacity = '';
-        applyBtn.style.cursor = '';
-    }
-}
-
-// Initial state on page load
-syncApplyButtonWithDryRun();
-
-// React immediately + persist Dry Run without reloading the page
-if (dryRunCheckbox) {
-    dryRunCheckbox.addEventListener('change', function () {
-        // 1) Update UI immediately
-        syncApplyButtonWithDryRun();
-
-        // If preview UI is visible, update status message in sync with Apply enable/disable
-        var previewVisible =
-            previewActions &&
-            !previewActions.classList.contains('gcs-hidden');
-
-        if (previewVisible) {
-            if (this.checked) {
-                gcsSetStatus(
-                    'warning',
-                    'Dry run enabled — changes will not be written to the schedule.'
-                );
-            } else {
-                // Go back to the canonical pending/sync message (with counts)
-                runPlanStatus();
-            }
-        }
-
-        // 2) Persist to config (no page reload)
-        // We reuse the existing POST "action=save" path.
-        var fd = new FormData();
-        fd.append('action', 'save');
-
-        // Preserve current ICS URL so we don’t accidentally wipe it
-        fd.append('ics_url', (icsInput && icsInput.value) ? icsInput.value : '');
-
-        // IMPORTANT: send 1/0 so PHP !empty() works (note: '0' is empty in PHP)
-        fd.append('dry_run', this.checked ? '1' : '0');
-
-        fetch(window.location.href, {
-            method: 'POST',
-            body: fd,
-            credentials: 'same-origin'
-        }).catch(function () {
-            // Non-fatal: UI already updated; persistence just failed.
-            // Optional: surface a warning if you want, but keep it quiet for v1 polish.
-        });
-    });
-}
-
-function gcsSetStatus(level, message) {
-    var bar = document.getElementById('gcs-status-bar');
-    var text = bar.querySelector('.gcs-status-text');
-
-    bar.classList.remove(
-        'gcs-status--info',
-        'gcs-status--success',
-        'gcs-status--warning',
-        'gcs-status--error'
-    );
-
-    bar.classList.add('gcs-status--' + level);
-    text.textContent = message;
-}
-
-function gcsSetUnmanagedStatus(level, message) {
-    var bar = document.getElementById('gcs-unmanaged-status');
-    if (!bar) return;
-
-    var text = bar.querySelector('.gcs-status-text');
-
-    bar.classList.remove(
-        'gcs-status--info',
-        'gcs-status--success',
-        'gcs-status--warning',
-        'gcs-status--error'
-    );
-
-    bar.classList.add('gcs-status--' + level);
-    text.textContent = message;
-}
-
-function hidePreviewUi() {
-    diffSummary.classList.add('gcs-hidden');
-    diffSummary.innerHTML = '';
-    previewActions.classList.add('gcs-hidden');
-    applyBtn.disabled = true;
-    closePreviewBtn.disabled = false;
-}
-
-function showPreviewButton() { previewBtn.classList.remove('gcs-hidden'); }
-function hidePreviewButton() { previewBtn.classList.add('gcs-hidden'); }
-
-function runPlanStatus() {
-    var val = icsInput.value.trim();
-
-    if (val === '') {
-        gcsSetStatus('info', 'Enter a Google Calendar ICS URL to begin.');
-        hidePreviewButton();
-        hidePreviewUi();
-        return;
-    }
-
-    if (!looksLikeIcs(val)) {
-        gcsSetStatus('warning', 'Please enter a valid Google Calendar ICS (.ics) URL.');
-        hidePreviewButton();
-        hidePreviewUi();
-        return;
-    }
-
-    return fetch(ENDPOINT + '&endpoint=plan_status')
-        .then(r => r.json())
-        .then(d => {
-            if (!d || !d.ok) return;
-
-            var t = d.counts.creates + d.counts.updates + d.counts.deletes;
-
-            if (t === 0) {
-                gcsSetStatus('success', 'Scheduler is in sync with Google Calendar.');
-                hidePreviewButton();
-                hidePreviewUi();
-            } else {
-                gcsSetStatus('warning', t + ' pending scheduler change(s) detected.');
-                showPreviewButton();
-                hidePreviewUi();
-            }
-        })
-        .catch(() => {
-            gcsSetStatus('error', 'Error communicating with Google Calendar.');
-            hidePreviewButton();
-            hidePreviewUi();
-        });
-}
-
-runPlanStatus();
-
-// --------------------------------------------------
-// Refresh status when returning focus to the page
-// --------------------------------------------------
-
-document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) {
-        runPlanStatus();
-    }
-});
-
-window.addEventListener('focus', function () {
-    runPlanStatus();
-});
-
-// ------------------------------------------------------------------
-// Unmanaged scheduler section
-// ------------------------------------------------------------------
-
-var unmanagedSection = document.getElementById('gcs-unmanaged-section');
-var unmanagedStatus  = document.getElementById('gcs-unmanaged-status');
-var unmanagedText    = unmanagedStatus.querySelector('.gcs-status-text');
-var exportBtn        = document.getElementById('gcs-export-unmanaged-btn');
-
-fetch(ENDPOINT + '&endpoint=scheduler_inventory')
-    .then(r => r.json())
-    .then(d => {
-        if (!d || !d.ok || !d.inventory) return;
-
-        var inv = d.inventory;
-        if (typeof inv.unmanaged !== 'number' || inv.unmanaged <= 0) {
-            unmanagedSection.classList.add('gcs-hidden');
-            return;
-        }
-
-        var msg = 'You have ' + inv.unmanaged + ' unmanaged scheduler entr' +
-                  (inv.unmanaged === 1 ? 'y' : 'ies') + '.';
-
-        if (inv.unmanaged_disabled > 0) {
-            msg += ' (' + inv.unmanaged_disabled + ' disabled)';
-        }
-
-        msg += ' These are not controlled by Google Calendar.';
-
-        unmanagedText.textContent = msg;
-        unmanagedSection.classList.remove('gcs-hidden');
-    })
-    .catch(() => {
-        // Inventory is informational only — ignore failures
-    });
-
-previewBtn.addEventListener('click', function () {
-
-    var postApply = document.getElementById('gcs-post-apply-actions');
-    if (postApply) {
-        postApply.classList.add('gcs-hidden');
-    }
-
-    hidePreviewButton();
-
-    fetch(ENDPOINT + '&endpoint=diff')
-        .then(r => r.json())
-        .then(d => {
-            if (!d || !d.ok) {
-                hidePreviewUi();
-                gcsSetStatus('error', 'Error communicating with Google Calendar.');
-                return;
-            }
-
-            var creates = d.diff.creates.length;
-            var updates = d.diff.updates.length;
-            var deletes = d.diff.deletes.length;
-
-            diffSummary.classList.remove('gcs-hidden');
-            diffSummary.innerHTML = `
-                <div class="gcs-summary-row">
-                    <div class="gcs-summary-item">➕ Creates: <strong>${creates}</strong></div>
-                    <div class="gcs-summary-item">✏️ Updates: <strong>${updates}</strong></div>
-                    <div class="gcs-summary-item">🗑️ Deletes: <strong>${deletes}</strong></div>
-                </div>
-            `;
-
-            previewActions.classList.remove('gcs-hidden');
-
-            // Dry Run handling — only relevant AFTER preview
-            var dryRunCb = document.getElementById('gcs-dry-run');
-            var isDryRun = !!(dryRunCb && dryRunCb.checked);
-
-            if (isDryRun) {
-                applyBtn.disabled = true;
-                gcsSetStatus(
-                    'warning',
-                    'Dry run enabled — changes will not be written to the schedule.'
-                );
-            } else {
-                applyBtn.disabled = false;
-            }
-        });
-});
-
-closePreviewBtn.addEventListener('click', function () {
-    hidePreviewUi();
-    runPlanStatus();
-});
-
-applyBtn.addEventListener('click', function () {
-
-    applyBtn.disabled = true;
-    closePreviewBtn.disabled = true;
-    gcsSetStatus('info', 'Applying scheduler changes…');
-
-    var dryRunCb = document.getElementById('gcs-dry-run');
-    var isDryRun = dryRunCb && dryRunCb.checked;
-
-    var ep = isDryRun ? 'diff' : 'apply';
-    var url = ENDPOINT + '&endpoint=' + ep;
-
-    if (isDryRun) {
-        url += '&dryRun=1';
-    }
-
-    fetch(url)
-        .then(r => r.json())
-        .then(d => {
-            if (!d || !d.ok) {
-                gcsSetStatus('error', 'Error communicating with Google Calendar.');
-                applyBtn.disabled = false;
-                closePreviewBtn.disabled = false;
-                return;
-            }
-
-            // Apply completed successfully — transition UI state
-
-            // Hide apply controls
-            applyBtn.classList.add('gcs-hidden');
-            closePreviewBtn.classList.add('gcs-hidden');
-
-            // Show post-apply actions (Open Schedule)
-            var postApply = document.getElementById('gcs-post-apply-actions');
-            if (postApply) {
-                postApply.classList.remove('gcs-hidden');
-            }
-
-            // Refresh status after write
-            runPlanStatus();
-        });
-});
-
-if (exportBtn) {
-    exportBtn.addEventListener('click', function () {
-
-        gcsSetUnmanagedStatus(
-            'info',
-            'Preparing export of unmanaged scheduler entries…'
-        );
-
-        var url = ENDPOINT + '&endpoint=export_unmanaged_ics';
-        window.location.href = url;
-
-        setTimeout(function () {
-            gcsSetUnmanagedStatus(
-                'success',
-                'Export ready. Your unmanaged schedules have been downloaded.'
-            );
-        }, 800);
-    });
-}
-
-})();
-</script>
-
+<div class="cs-page" id="csShell">
+  <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap cs-top-status" role="alert" id="csTopStatusBar">
+    <div>
+      Status: <strong id="csPreviewState">Loading...</strong> |
+      Last refresh: <span id="csPreviewTime">Pending</span>
+    </div>
+  </div>
+
+  <div id="csMainBody" class="cs-hidden">
+  <div class="row g-2">
+    <div class="col-12">
+      <div class="backdrop mb-3">
+        <div class="cs-panel-header">
+          <h4 class="cs-panel-title">1) Connection Setup</h4>
+          <div class="cs-connection-close-wrap" id="csConnectionCloseWrap">
+            <button class="buttons btn-black cs-connection-close-btn" id="csConnectionCloseBtn" type="button" aria-label="Close Connection Setup">Close</button>
+          </div>
+        </div>
+        <p class="cs-muted cs-connection-summary cs-hidden" id="csConnectionSummary"></p>
+        <div id="csConnectionPanelBody">
+        <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
+
+        <div class="mb-2">
+          <span class="badge text-bg-primary" id="csProviderGoogleBadge">Google</span>
+          <span class="badge text-bg-secondary" id="csProviderOutlookBadge">Outlook (Coming Soon)</span>
+        </div>
+
+        <div id="csConnectionHelp" class="cs-device-box mb-2 cs-hidden">
+          <div><strong>Google OAuth Setup</strong></div>
+          <ol class="cs-help-list mt-1 mb-2">
+            <li>In Google Cloud Console, enable <strong>Google Calendar API</strong>.</li>
+            <li>Create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
+            <li>Download the client JSON and upload it below.</li>
+            <li>Click <strong>Connect Provider</strong>, open <code>google.com/device</code>, and enter the code shown.</li>
+          </ol>
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col-12 col-md-8">
+              <label for="csDeviceClientFile" class="form-label mb-1">Upload client secret JSON:</label>
+              <input id="csDeviceClientFile" type="file" class="form-control" accept="application/json,.json">
+            </div>
+            <div class="col-12 col-md-4 d-flex justify-content-md-end">
+              <button class="buttons btn-black" id="csUploadDeviceClientBtn" type="button">Upload Client JSON</button>
+            </div>
+          </div>
+          <div class="mb-1"><strong>Current Setup Checks</strong></div>
+          <ul id="csHelpChecks" class="mb-1"></ul>
+          <div class="mb-1"><strong>Current Setup Hints</strong></div>
+          <ul id="csHelpHints" class="mb-0"></ul>
+        </div>
+
+        <div class="mb-2 cs-hidden" id="csConnectedAccountGroup">
+          <strong>Connected Account:</strong> <span id="csConnectedAccountValue">Loading...</span>
+        </div>
+
+        <div class="form-group mb-2 cs-hidden" id="csCalendarSelectGroup">
+          <label for="csCalendarSelect">Sync Calendar</label>
+          <select id="csCalendarSelect" class="form-control" disabled>
+            <option>Loading calendars...</option>
+          </select>
+        </div>
+
+        <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
+          <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
+        </div>
+        </div>
+        <div class="cs-connection-modify-wrap cs-hidden" id="csConnectionModifyWrap">
+          <button class="buttons btn-black" id="csConnectionModifyBtn" type="button" aria-label="Modify Connection Setup">Modify</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div id="csDeviceAuthModalWrap" class="cs-modal-backdrop cs-hidden" role="dialog" aria-modal="true" aria-labelledby="csDeviceAuthModalTitle">
+    <div class="cs-modal">
+      <div class="cs-modal-header">
+        <strong id="csDeviceAuthModalTitle">Finish Google Sign-In</strong>
+      </div>
+      <div class="cs-modal-body">
+        <div class="mb-1">1) Open: <a id="csDeviceAuthLink" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">google.com/device</a></div>
+        <div class="mb-1">2) Enter code:
+          <span id="csDeviceAuthCode" class="cs-device-code">-</span>
+          <button id="csCopyDeviceCodeBtn" type="button" class="buttons btn-black btn-sm">Copy</button>
+        </div>
+        <div class="cs-muted">Waiting for Google authorization completion...</div>
+      </div>
+      <div class="cs-modal-footer">
+        <a id="csDeviceAuthOpenBtn" class="buttons btn-black" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">Open Google Device Page</a>
+        <button id="csDeviceAuthCancelBtn" type="button" class="buttons btn-black">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="backdrop mb-3" id="csPendingPanel">
+    <h4 class="cs-panel-title">2) Pending Actions</h4>
+    <p class="cs-muted">View of all pending create/update/delete changes. Choose sync mode.</p>
+    <div id="csSyncModeWrap" class="form-group mb-2 cs-hidden">
+      <label for="csSyncModeSelect">Sync Mode</label>
+      <select id="csSyncModeSelect" class="form-control">
+        <option value="both" selected>Two-way Merge (Both)</option>
+        <option value="calendar">Calendar -> FPP</option>
+        <option value="fpp">FPP -> Calendar</option>
+      </select>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover">
+        <thead id="csActionsHead">
+          <tr>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Event</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody id="csActionsRows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="backdrop mb-3" id="csApplyPanel">
+    <h4 class="cs-panel-title">3) Apply Changes</h4>
+    <p class="cs-muted" id="csApplySubtitle">Apply writes changes shown under Pending Actions.</p>
+    <div class="d-flex justify-content-end">
+      <button class="buttons btn-success" id="csApplyBtn" type="button" disabled>Apply Changes</button>
+    </div>
+  </div>
+
+  <details>
+    <summary><strong>Diagnostics</strong></summary>
+    <pre class="form-control cs-json" id="csDiagnosticJson">{
+  "mode": "design-shell",
+  "notes": [
+    "Backend wiring not connected yet.",
+    "Preview is conceptually automatic on load.",
+    "Dry-run remains internal for backend testing."
+  ]
+}</pre>
+  </details>
+  </div>
 </div>
+
+<script>
+  (function () {
+    // -----------------------------------------------------------------------
+    // Shared state + element utilities
+    // -----------------------------------------------------------------------
+    var qs = new URLSearchParams(window.location.search || "");
+    var pluginName = qs.get("plugin") || "CalendarScheduler";
+    var API_URL = "plugin.php?plugin=" + encodeURIComponent(pluginName) + "&page=ui-api.php&nopage=1";
+    var providerConnected = false;
+    var deviceAuthPollTimer = null;
+    var deviceAuthDeadlineEpoch = 0;
+    var syncMode = "both";
+    var connectionCollapsed = false;
+    var connectionCollapsedLoaded = false;
+    var applyConfirmArmed = false;
+    var applyConfirmTimer = null;
+    var applyInFlight = false;
+    var lastPendingCount = 0;
+
+    function byId(id) {
+      return document.getElementById(id);
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // -----------------------------------------------------------------------
+    // Global UI state helpers
+    // -----------------------------------------------------------------------
+    function setButtonsDisabled(disabled) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect"].forEach(function (id) {
+        var node = byId(id);
+        if (node) {
+          if (!disabled && node.dataset.locked === "1") {
+            node.disabled = true;
+          } else {
+            node.disabled = disabled;
+          }
+        }
+      });
+    }
+
+    function setApplyEnabled(enabled) {
+      var applyBtn = byId("csApplyBtn");
+      if (!applyBtn) {
+        return;
+      }
+      applyBtn.disabled = !enabled || applyInFlight;
+      if (!enabled || applyInFlight) {
+        resetApplyConfirm();
+      }
+    }
+
+    function clearApplyConfirmTimer() {
+      if (applyConfirmTimer !== null) {
+        window.clearTimeout(applyConfirmTimer);
+        applyConfirmTimer = null;
+      }
+    }
+
+    function resetApplyConfirm() {
+      var applyBtn = byId("csApplyBtn");
+      clearApplyConfirmTimer();
+      applyConfirmArmed = false;
+      if (applyBtn) {
+        applyBtn.textContent = "Apply Changes";
+        applyBtn.classList.remove("btn-danger");
+        applyBtn.classList.add("btn-success");
+      }
+    }
+
+    function armApplyConfirm() {
+      var applyBtn = byId("csApplyBtn");
+      if (!applyBtn || applyBtn.disabled) {
+        return;
+      }
+      clearApplyConfirmTimer();
+      applyConfirmArmed = true;
+      applyBtn.textContent = "CONFIRM";
+      applyBtn.classList.remove("btn-success");
+      applyBtn.classList.add("btn-danger");
+      applyConfirmTimer = window.setTimeout(function () {
+        resetApplyConfirm();
+      }, 5000);
+    }
+
+    function setTopBarClass(className) {
+      var bar = byId("csTopStatusBar");
+      if (!bar) {
+        return;
+      }
+
+      ["alert-info", "alert-success", "alert-warning", "alert-danger", "cs-status-loading"].forEach(function (name) {
+        bar.classList.remove(name);
+      });
+      bar.classList.add(className);
+    }
+
+    function updateApplySubtitle() {
+      var node = byId("csApplySubtitle");
+      if (!node) {
+        return;
+      }
+      if (syncMode === "calendar") {
+        node.textContent = "Apply writes changes shown under Pending Actions to FPP.";
+        return;
+      }
+      if (syncMode === "fpp") {
+        node.textContent = "Apply writes changes shown under Pending Actions to calendar.";
+        return;
+      }
+      node.textContent = "Apply writes changes shown under Pending Actions.";
+    }
+
+    function setConnectionCollapsed(collapsed) {
+      var body = byId("csConnectionPanelBody");
+      var summary = byId("csConnectionSummary");
+      var closeWrap = byId("csConnectionCloseWrap");
+      var modifyWrap = byId("csConnectionModifyWrap");
+      if (!body || !summary || !closeWrap || !modifyWrap) {
+        return;
+      }
+      connectionCollapsed = !!collapsed;
+      body.classList.toggle("cs-hidden", connectionCollapsed);
+      summary.classList.toggle("cs-hidden", !connectionCollapsed);
+      closeWrap.classList.toggle("cs-hidden", connectionCollapsed);
+      modifyWrap.classList.toggle("cs-hidden", !connectionCollapsed);
+    }
+
+    function updateTopStatusCompact() {
+      var bar = byId("csTopStatusBar");
+      if (!bar) {
+        return;
+      }
+      bar.classList.toggle("cs-top-status-compact", window.scrollY > 120);
+    }
+
+    function updateTopStatusAnchor() {
+      // Mirror FPP anchored controls: if global header is fixed, pin below it.
+      var header = document.querySelector(".header");
+      var top = 8;
+      if (header) {
+        var style = window.getComputedStyle(header);
+        if (style && style.position === "fixed") {
+          top = Math.max(8, Math.round(header.getBoundingClientRect().height) + 8);
+        }
+      }
+      document.documentElement.style.setProperty("--cs-sticky-top", String(top) + "px");
+    }
+
+    function setLoadingState() {
+      byId("csPreviewState").textContent = "Loading";
+      byId("csPreviewTime").textContent = "Updating...";
+      setTopBarClass("cs-status-loading");
+    }
+
+    function setDeviceAuthVisible(visible, code, url) {
+      var wrap = byId("csDeviceAuthModalWrap");
+      var codeNode = byId("csDeviceAuthCode");
+      var link = byId("csDeviceAuthLink");
+      var openBtn = byId("csDeviceAuthOpenBtn");
+      var copyBtn = byId("csCopyDeviceCodeBtn");
+      if (!wrap || !codeNode || !link || !openBtn || !copyBtn) {
+        return;
+      }
+      if (visible) {
+        var authCode = code || "-";
+        codeNode.textContent = authCode;
+        copyBtn.disabled = authCode === "-";
+        var dest = url || "https://www.google.com/device";
+        link.href = dest;
+        openBtn.href = dest;
+        wrap.classList.remove("cs-hidden");
+      } else {
+        wrap.classList.add("cs-hidden");
+        codeNode.textContent = "-";
+        copyBtn.disabled = true;
+        link.href = "https://www.google.com/device";
+        openBtn.href = "https://www.google.com/device";
+      }
+    }
+
+    function setError(message) {
+      if (!message) {
+        return;
+      }
+      byId("csPreviewState").textContent = "Error";
+      setTopBarClass("alert-danger");
+      byId("csPreviewTime").textContent = message;
+    }
+
+    function setSetupStatus(message) {
+      byId("csPreviewState").textContent = "Setup Required";
+      byId("csPreviewTime").textContent = message || "Connect a provider to begin calendar sync.";
+      setTopBarClass("alert-warning");
+    }
+
+    function checkRow(label, ok) {
+      return "<li>" + escapeHtml(label) + ": "
+        + "<span class=\"" + (ok ? "cs-help-check-ok" : "cs-help-check-bad") + "\">"
+        + (ok ? "OK" : "Missing")
+        + "</span></li>";
+    }
+
+    function renderConnectionHelp(setup, connected) {
+      var box = byId("csConnectionHelp");
+      var checksNode = byId("csHelpChecks");
+      var hintsNode = byId("csHelpHints");
+      if (!box || !checksNode || !hintsNode) {
+        return;
+      }
+
+      if (connected) {
+        box.classList.add("cs-hidden");
+        checksNode.innerHTML = "";
+        hintsNode.innerHTML = "";
+        return;
+      }
+
+      box.classList.remove("cs-hidden");
+      setup = setup || {};
+
+      checksNode.innerHTML = [
+        checkRow("Device client file present", !!setup.clientFilePresent),
+        checkRow("Config present", !!setup.configPresent),
+        checkRow("Config valid", !!setup.configValid),
+        checkRow("Token directory writable", !!setup.tokenPathWritable),
+        checkRow("Device flow ready", !!setup.deviceFlowReady)
+      ].join("");
+
+      var hints = Array.isArray(setup.hints) ? setup.hints : [];
+      if (hints.length === 0) {
+        hintsNode.innerHTML = "<li class=\"cs-help-check-ok\">No setup issues detected.</li>";
+      } else {
+        hintsNode.innerHTML = hints.map(function (hint) {
+          return "<li>" + escapeHtml(hint) + "</li>";
+        }).join("");
+      }
+    }
+
+    function allSetupChecksOk(setup) {
+      setup = setup || {};
+      return !!setup.clientFilePresent
+        && !!setup.configPresent
+        && !!setup.configValid
+        && !!setup.tokenPathWritable
+        && !!setup.deviceFlowReady;
+    }
+
+    // -----------------------------------------------------------------------
+    // API + rendering helpers
+    // -----------------------------------------------------------------------
+    function renderDiagnostics(payload) {
+      var out = byId("csDiagnosticJson");
+      if (!out) {
+        return;
+      }
+      out.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function fetchJson(payload) {
+      return fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+      }).then(function (res) {
+        return res.json().then(function (json) {
+          if (!res.ok || !json.ok) {
+            var msg = json && json.error ? json.error : ("Request failed (" + res.status + ")");
+            throw new Error(msg);
+          }
+          return json;
+        });
+      });
+    }
+
+    // Render pending actions table and return count of non-noop rows.
+    function renderActions(actions) {
+      var tbody = byId("csActionsRows");
+      var thead = byId("csActionsHead");
+      if (!tbody) {
+        return 0;
+      }
+
+      var visibleActions = Array.isArray(actions) ? actions.filter(function (a) {
+        return a && a.type && a.type !== "noop";
+      }) : [];
+
+      if (visibleActions.length === 0) {
+        if (thead) {
+          thead.classList.add("cs-hidden");
+        }
+        tbody.innerHTML = "<tr><td colspan=\"4\" class=\"cs-muted\"><strong>No pending changes.</strong></td></tr>";
+        return 0;
+      }
+
+      if (thead) {
+        thead.classList.remove("cs-hidden");
+      }
+
+      function friendlyReason(raw, actionType, target) {
+        var r = String(raw || "").trim();
+        var action = String(actionType || "").toLowerCase();
+        var side = String(target || "").toLowerCase() === "fpp" ? "FPP" : "calendar";
+        var sideNoun = side === "FPP" ? "entry" : "event";
+        if (!r) {
+          return "-";
+        }
+
+        if (r.indexOf("already converged") !== -1 || r.indexOf("already matches") !== -1) {
+          return "No differences detected.";
+        }
+
+        if (action === "create") {
+          if (r.indexOf("calendar absent") !== -1) {
+            return "Add this event in calendar to match the FPP entry.";
+          }
+          if (r.indexOf("fpp absent") !== -1) {
+            return "Add this entry in FPP to match the calendar event.";
+          }
+          if (r.indexOf("present side wins") !== -1) {
+            return "Add missing " + sideNoun + " on " + side + " to keep both sides in sync.";
+          }
+          return "Create this " + sideNoun + " on " + side + " to keep schedules aligned.";
+        }
+
+        if (action === "delete") {
+          if (r.indexOf("calendar tombstone") !== -1 || r.indexOf("calendar newer") !== -1) {
+            return "Delete the FPP entry to match the calendar event removal.";
+          }
+          if (r.indexOf("fpp tombstone") !== -1 || r.indexOf("fpp newer") !== -1) {
+            return "Delete the calendar event to match the FPP entry removal.";
+          }
+          return "Delete this " + sideNoun + " from " + side + " to keep both sides aligned.";
+        }
+
+        if (action === "update") {
+          if (r.indexOf("force format refresh update") !== -1) {
+            return "Refresh calendar event formatting.";
+          }
+          if (r.indexOf("order changed") !== -1) {
+            if (r.indexOf("calendar newer") !== -1) {
+              return "Update FPP entry order to match newer calendar ordering.";
+            }
+            if (r.indexOf("fpp newer") !== -1) {
+              return "Update calendar event order to match newer FPP ordering.";
+            }
+            return "Update ordering so both sides execute entries in the same sequence.";
+          }
+          if (r.indexOf("calendar newer") !== -1) {
+            return "Update FPP entry to match newer calendar event changes.";
+          }
+          if (r.indexOf("fpp newer") !== -1) {
+            return "Update calendar event to match newer FPP entry changes.";
+          }
+          if (r.indexOf("tie (") !== -1 && r.indexOf("fpp wins") !== -1) {
+            return "Both changed at the same time; updating using FPP entry values.";
+          }
+          if (r.indexOf("tie (") !== -1 && r.indexOf("calendar wins") !== -1) {
+            return "Both changed at the same time; updating using calendar event values.";
+          }
+          return "Update this " + sideNoun + " on " + side + " to keep both schedules synchronized.";
+        }
+
+        return r;
+      }
+
+      var html = visibleActions.map(function (a) {
+        var badgeClass = "text-bg-secondary";
+        if (a.type === "create") {
+          badgeClass = "text-bg-success";
+        } else if (a.type === "update") {
+          badgeClass = "text-bg-dark";
+        } else if (a.type === "delete" || a.type === "block") {
+          badgeClass = "text-bg-danger";
+        }
+        var manifestIdentity = a.manifestEvent && a.manifestEvent.identity ? a.manifestEvent.identity : null;
+        var eventName = (manifestIdentity && manifestIdentity.target)
+          ? manifestIdentity.target
+          : ((a.event && a.event.target) ? a.event.target : "-");
+        var reason = friendlyReason(a.reason || "-", a.type || "", a.target || "");
+        return "<tr>"
+          + "<td><span class=\"badge " + badgeClass + "\">" + escapeHtml(String(a.type || "").toUpperCase()) + "</span></td>"
+          + "<td>" + escapeHtml(a.target || "-") + "</td>"
+          + "<td>" + escapeHtml(eventName) + "</td>"
+          + "<td>" + escapeHtml(reason) + "</td>"
+          + "</tr>";
+      }).join("");
+
+      tbody.innerHTML = html;
+      return visibleActions.length;
+    }
+
+    function renderPreview(preview) {
+      var stamp = preview.generatedAtUtc ? new Date(preview.generatedAtUtc).toLocaleString() : "Unknown";
+      byId("csPreviewTime").textContent = stamp;
+      byId("csPreviewState").textContent = preview.noop ? "In Sync" : "Needs Review";
+
+      var c = preview.counts || {};
+
+      if (preview.noop) {
+        setTopBarClass("alert-success");
+      } else {
+        setTopBarClass("alert-warning");
+      }
+
+      var pendingCount = renderActions(preview.actions || []);
+      lastPendingCount = pendingCount;
+      setApplyEnabled(pendingCount > 0);
+    }
+
+    function updateConnectionSummary(google, selectedLabel) {
+      var node = byId("csConnectionSummary");
+      if (!node) {
+        return;
+      }
+      var connected = !!(google && google.connected);
+      if (!connected) {
+        node.textContent = "Not connected.";
+        return;
+      }
+
+      var label = String(selectedLabel || "").trim();
+      if (label === "") {
+        label = "No calendar selected";
+      }
+      node.textContent = "Connected to Google calendar: " + label;
+    }
+
+    // Pull provider state and update setup/connection controls.
+    function loadStatus() {
+      return fetchJson({ action: "status" }).then(function (res) {
+        var google = res.google || {};
+        syncMode = (typeof res.syncMode === "string" && res.syncMode) ? res.syncMode : "both";
+        providerConnected = !!google.connected;
+        if (!connectionCollapsedLoaded) {
+          var uiPrefs = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
+          setConnectionCollapsed(!!uiPrefs.connectionCollapsed);
+          connectionCollapsedLoaded = true;
+        }
+        if (providerConnected) {
+          setDeviceAuthVisible(false);
+          clearDeviceAuthPoll();
+        } else {
+          setDeviceAuthVisible(false);
+        }
+        renderConnectionHelp(google.setup || {}, providerConnected);
+        var subtitle = byId("csConnectionSubtitle");
+        if (subtitle) {
+          subtitle.textContent = providerConnected
+            ? "Connect to a calendar using OAuth."
+            : "Connect to a calendar using OAuth. Select calendar provider.";
+        }
+        var account = google.account || "Not connected yet";
+        var accountValue = byId("csConnectedAccountValue");
+        if (accountValue) {
+          accountValue.textContent = account;
+        }
+
+        var select = byId("csCalendarSelect");
+        var connectedAccountGroup = byId("csConnectedAccountGroup");
+        var calendarSelectGroup = byId("csCalendarSelectGroup");
+        var calendars = Array.isArray(google.calendars) ? google.calendars : [];
+        if (calendars.length === 0) {
+          select.innerHTML = "<option>Connect account to load calendars</option>";
+          select.disabled = true;
+          updateConnectionSummary(google, "");
+        } else {
+          var selectedLabel = "";
+          select.innerHTML = calendars.map(function (c) {
+            var selected = c.id === google.selectedCalendarId ? " selected" : "";
+            var label = c.primary ? (c.summary + " (Primary)") : c.summary;
+            if (c.id === google.selectedCalendarId) {
+              selectedLabel = label;
+            }
+            return "<option value=\"" + escapeHtml(c.id) + "\"" + selected + ">" + escapeHtml(label) + "</option>";
+          }).join("");
+          if (!selectedLabel && select.options.length > 0) {
+            selectedLabel = select.options[select.selectedIndex >= 0 ? select.selectedIndex : 0].text || "";
+          }
+          updateConnectionSummary(google, selectedLabel);
+          select.disabled = false;
+        }
+        if (connectedAccountGroup) {
+          connectedAccountGroup.classList.toggle("cs-hidden", !providerConnected);
+        }
+        if (calendarSelectGroup) {
+          calendarSelectGroup.classList.toggle("cs-hidden", !providerConnected);
+        }
+
+        var connectBtn = byId("csConnectBtn");
+        var uploadBtn = byId("csUploadDeviceClientBtn");
+        var syncModeWrap = byId("csSyncModeWrap");
+        var syncModeSelect = byId("csSyncModeSelect");
+        var googleBadge = byId("csProviderGoogleBadge");
+        var outlookBadge = byId("csProviderOutlookBadge");
+        var pendingPanel = byId("csPendingPanel");
+        var applyPanel = byId("csApplyPanel");
+        connectBtn.dataset.locked = "0";
+        connectBtn.textContent = providerConnected ? "Disconnect Provider" : "Connect Provider";
+        connectBtn.classList.toggle("btn-success", !providerConnected);
+        connectBtn.classList.toggle("btn-black", providerConnected);
+        uploadBtn.dataset.locked = providerConnected ? "1" : "0";
+        uploadBtn.disabled = providerConnected;
+        if (syncModeSelect) {
+          syncModeSelect.value = syncMode;
+          syncModeSelect.dataset.locked = providerConnected ? "0" : "1";
+          syncModeSelect.disabled = !providerConnected;
+        }
+        updateApplySubtitle();
+        if (syncModeWrap) {
+          syncModeWrap.classList.toggle("cs-hidden", !providerConnected);
+        }
+        if (pendingPanel) {
+          pendingPanel.classList.toggle("cs-hidden", !providerConnected);
+        }
+        if (applyPanel) {
+          applyPanel.classList.toggle("cs-hidden", !providerConnected);
+        }
+        if (googleBadge) {
+          googleBadge.classList.remove("cs-hidden");
+        }
+        if (outlookBadge) {
+          outlookBadge.classList.toggle("cs-hidden", providerConnected);
+        }
+
+        var setup = google.setup || {};
+        var connectReady = allSetupChecksOk(setup);
+        if (!providerConnected && !connectReady) {
+          connectBtn.dataset.locked = "1";
+          connectBtn.disabled = true;
+          var hints = Array.isArray(setup.hints) ? setup.hints : [];
+          var msg = hints.length > 0 ? hints.join(" | ") : "Provider setup is incomplete.";
+          setSetupStatus(msg);
+        } else if (!providerConnected) {
+          setSetupStatus("Not connected. Click Connect Provider to start Google device sign-in.");
+        }
+        renderDiagnostics(res);
+      });
+    }
+
+    // Execute reconciliation preview and render pending changes.
+    function runPreview() {
+      return fetchJson({ action: "preview", sync_mode: syncMode }).then(function (res) {
+        renderPreview(res.preview || {});
+        renderDiagnostics(res);
+      });
+    }
+
+    function runApply() {
+      return fetchJson({ action: "apply", sync_mode: syncMode }).then(function (res) {
+        renderPreview(res.preview || {});
+        renderDiagnostics(res);
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // Device OAuth modal/polling flow
+    // -----------------------------------------------------------------------
+    function clearDeviceAuthPoll() {
+      if (deviceAuthPollTimer !== null) {
+        window.clearTimeout(deviceAuthPollTimer);
+        deviceAuthPollTimer = null;
+      }
+      deviceAuthDeadlineEpoch = 0;
+    }
+
+    function pollDeviceAuth(deviceCode, intervalSeconds) {
+      if (Date.now() >= deviceAuthDeadlineEpoch) {
+        clearDeviceAuthPoll();
+        setDeviceAuthVisible(false);
+        setError("Device authorization timed out. Click Connect Provider to try again.");
+        return;
+      }
+
+      fetchJson({ action: "auth_device_poll", device_code: deviceCode })
+        .then(function (res) {
+          var poll = res.poll || {};
+          if (poll.status === "connected") {
+            clearDeviceAuthPoll();
+            setDeviceAuthVisible(false);
+            refreshAll();
+            return;
+          }
+
+          if (poll.status === "failed") {
+            clearDeviceAuthPoll();
+            setDeviceAuthVisible(false);
+            setError("Device authorization failed (" + (poll.error || "unknown") + ").");
+            return;
+          }
+
+          var nextInterval = intervalSeconds;
+          if (poll.error === "slow_down") {
+            nextInterval = Math.max(intervalSeconds + 2, intervalSeconds);
+          }
+          deviceAuthPollTimer = window.setTimeout(function () {
+            pollDeviceAuth(deviceCode, nextInterval);
+          }, nextInterval * 1000);
+        })
+        .catch(function (err) {
+          clearDeviceAuthPoll();
+          setDeviceAuthVisible(false);
+          setError("Device authorization polling error: " + err.message + ".");
+        });
+    }
+
+    function startDeviceAuthFlow() {
+      setLoadingState();
+      fetchJson({ action: "auth_device_start" })
+        .then(function (res) {
+          var device = res.device || {};
+          var deviceCode = device.device_code || "";
+          var userCode = device.user_code || "";
+          var verificationUrl = device.verification_url_complete || device.verification_url || "https://www.google.com/device";
+          var interval = Math.max(parseInt(device.interval || 5, 10), 3);
+          var expiresIn = Math.max(parseInt(device.expires_in || 900, 10), 60);
+
+          if (!deviceCode || !userCode) {
+            setError("Device authorization response was incomplete.");
+            return;
+          }
+
+          clearDeviceAuthPoll();
+          deviceAuthDeadlineEpoch = Date.now() + (expiresIn * 1000);
+          setDeviceAuthVisible(true, userCode, verificationUrl);
+
+          deviceAuthPollTimer = window.setTimeout(function () {
+            pollDeviceAuth(deviceCode, interval);
+          }, interval * 1000);
+        })
+        .catch(function (err) {
+          setDeviceAuthVisible(false);
+          setError("Automatic device authorization could not start: " + err.message + ".");
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Orchestration: refresh, bind events, initialize page
+    // -----------------------------------------------------------------------
+    var refreshInFlight = false;
+    var initialRenderDone = false;
+    function refreshAll() {
+      if (refreshInFlight) {
+        return Promise.resolve();
+      }
+      refreshInFlight = true;
+      setButtonsDisabled(true);
+      setLoadingState();
+      return loadStatus()
+        .then(function () {
+          if (!providerConnected) {
+            renderActions([]);
+            lastPendingCount = 0;
+            setApplyEnabled(false);
+            return Promise.resolve();
+          }
+          return runPreview();
+        })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () {
+          if (!initialRenderDone) {
+            var body = byId("csMainBody");
+            if (body) {
+              body.classList.remove("cs-hidden");
+            }
+            initialRenderDone = true;
+          }
+          refreshInFlight = false;
+          setButtonsDisabled(false);
+        });
+    }
+
+    byId("csConnectBtn").addEventListener("click", function () {
+      if (providerConnected) {
+        if (!window.confirm("Disconnect provider and remove the local Google token from this FPP instance?")) {
+          return;
+        }
+        setButtonsDisabled(true);
+        setLoadingState();
+        fetchJson({ action: "auth_disconnect" })
+          .then(function () {
+            setDeviceAuthVisible(false);
+            clearDeviceAuthPoll();
+            return refreshAll();
+          })
+          .catch(function (err) { setError(err.message); })
+          .finally(function () { setButtonsDisabled(false); });
+        return;
+      }
+
+      startDeviceAuthFlow();
+    });
+
+    byId("csConnectionCloseBtn").addEventListener("click", function () {
+      setConnectionCollapsed(!connectionCollapsed);
+      fetchJson({
+        action: "set_ui_pref",
+        key: "connection_collapsed",
+        value: connectionCollapsed
+      }).catch(function () {
+        // Keep local state even if pref persistence fails.
+      });
+    });
+
+    byId("csConnectionModifyBtn").addEventListener("click", function () {
+      setConnectionCollapsed(!connectionCollapsed);
+      fetchJson({
+        action: "set_ui_pref",
+        key: "connection_collapsed",
+        value: connectionCollapsed
+      }).catch(function () {
+        // Keep local state even if pref persistence fails.
+      });
+    });
+
+    byId("csUploadDeviceClientBtn").addEventListener("click", function () {
+      var input = byId("csDeviceClientFile");
+      var file = input && input.files ? input.files[0] : null;
+      if (!file) {
+        setSetupStatus("Select a JSON file first, then click Upload Client JSON.");
+        return;
+      }
+      if (file.size > 1024 * 1024) {
+        setError("Client JSON is too large. Expected OAuth client JSON file.");
+        return;
+      }
+      setButtonsDisabled(true);
+      setLoadingState();
+      var reader = new FileReader();
+      reader.onload = function () {
+        var text = typeof reader.result === "string" ? reader.result : "";
+        fetchJson({
+          action: "auth_upload_device_client",
+          filename: file.name || "client_secret_device.json",
+          json: text
+        })
+          .then(function () {
+            if (input) {
+              input.value = "";
+            }
+            return refreshAll();
+          })
+          .catch(function (err) { setError(err.message); })
+          .finally(function () { setButtonsDisabled(false); });
+      };
+      reader.onerror = function () {
+        setButtonsDisabled(false);
+        setError("Failed to read selected file.");
+      };
+      reader.readAsText(file);
+    });
+
+    byId("csDeviceAuthCancelBtn").addEventListener("click", function () {
+      clearDeviceAuthPoll();
+      setDeviceAuthVisible(false);
+      setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
+    });
+
+    byId("csCopyDeviceCodeBtn").addEventListener("click", function () {
+      var codeNode = byId("csDeviceAuthCode");
+      var value = codeNode ? (codeNode.textContent || "").trim() : "";
+      if (!value || value === "-") {
+        return;
+      }
+
+      var done = function () {
+        setSetupStatus("Device code copied to clipboard.");
+      };
+      var fail = function () {
+        setError("Clipboard copy failed. Check browser clipboard permissions.");
+      };
+
+      // Fallback for insecure HTTP contexts where navigator.clipboard is blocked.
+      var legacyCopy = function (text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        ta.style.top = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        var ok = false;
+        try {
+          ok = document.execCommand("copy");
+        } catch (e) {
+          ok = false;
+        }
+        document.body.removeChild(ta);
+        return ok;
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).then(done).catch(function () {
+          if (legacyCopy(value)) {
+            done();
+          } else {
+            fail();
+          }
+        });
+        return;
+      }
+
+      if (legacyCopy(value)) {
+        done();
+      } else {
+        fail();
+      }
+    });
+
+    byId("csCalendarSelect").addEventListener("change", function () {
+      var calendarId = this.value || "";
+      if (!calendarId) {
+        return;
+      }
+      setButtonsDisabled(true);
+      fetchJson({ action: "set_calendar", calendar_id: calendarId })
+        .then(function () { return refreshAll(); })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
+    });
+
+    byId("csSyncModeSelect").addEventListener("change", function () {
+      var value = this.value || "both";
+      setButtonsDisabled(true);
+      fetchJson({ action: "set_sync_mode", sync_mode: value })
+        .then(function (res) {
+          if (res && typeof res.syncMode === "string" && res.syncMode) {
+            syncMode = res.syncMode;
+            byId("csSyncModeSelect").value = syncMode;
+          }
+          updateApplySubtitle();
+          return refreshAll();
+        })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
+    });
+
+    byId("csApplyBtn").addEventListener("click", function () {
+      if (!applyConfirmArmed) {
+        armApplyConfirm();
+        return;
+      }
+      resetApplyConfirm();
+      applyInFlight = true;
+      setApplyEnabled(false);
+      setButtonsDisabled(true);
+      setLoadingState();
+      runApply()
+        .catch(function (err) { setError(err.message); })
+        .finally(function () {
+          applyInFlight = false;
+          setButtonsDisabled(false);
+          setApplyEnabled(lastPendingCount > 0);
+        });
+    });
+
+    window.addEventListener("focus", function () {
+      refreshAll();
+    });
+    window.addEventListener("scroll", function () {
+      updateTopStatusAnchor();
+      updateTopStatusCompact();
+    }, { passive: true });
+    window.addEventListener("resize", updateTopStatusAnchor);
+
+    updateTopStatusAnchor();
+    updateTopStatusCompact();
+    refreshAll();
+  }());
+</script>

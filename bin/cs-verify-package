@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Calendar Scheduler — Package Verifier
+#
+# File: bin/cs-verify-package
+# Purpose: Validate that a staged runtime package does not contain files from
+# the dev-only exclusion list.
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET_DIR=""
+EXCLUDE_FILE="${ROOT_DIR}/packaging/runtime-exclude.txt"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  bin/cs-verify-package --dir <staged-package-dir> [--exclude-file <path>]
+
+Options:
+  --dir           Staged package directory to verify.
+  --exclude-file  Path to exclusion pattern list (default: packaging/runtime-exclude.txt).
+  -h, --help      Show this help text.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dir)
+      TARGET_DIR="${2:-}"
+      shift 2
+      ;;
+    --exclude-file)
+      EXCLUDE_FILE="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown argument: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "${TARGET_DIR}" ]]; then
+  echo "ERROR: --dir is required." >&2
+  usage
+  exit 2
+fi
+if [[ ! -d "${TARGET_DIR}" ]]; then
+  echo "ERROR: Staged package directory does not exist: ${TARGET_DIR}" >&2
+  exit 2
+fi
+if [[ ! -f "${EXCLUDE_FILE}" ]]; then
+  echo "ERROR: Exclude file does not exist: ${EXCLUDE_FILE}" >&2
+  exit 2
+fi
+
+ALL_PATHS_RAW="$(cd "${TARGET_DIR}" && find . -mindepth 1 -print | sed 's#^\./##')"
+
+declare -a VIOLATIONS=()
+while IFS= read -r pattern; do
+  [[ -z "${pattern}" || "${pattern}" =~ ^# ]] && continue
+  while IFS= read -r rel; do
+    [[ -z "${rel}" ]] && continue
+    if [[ "${rel}" == ${pattern} ]]; then
+      VIOLATIONS+=("${rel} (matched ${pattern})")
+    fi
+  done <<< "${ALL_PATHS_RAW}"
+done < "${EXCLUDE_FILE}"
+
+if [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
+  echo "FAIL: Package contains excluded paths:" >&2
+  printf '  - %s\n' "${VIOLATIONS[@]}" >&2
+  exit 1
+fi
+
+echo "PASS: Package verification succeeded. No excluded paths found."

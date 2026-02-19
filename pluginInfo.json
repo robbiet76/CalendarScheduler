@@ -1,9 +1,22 @@
 {
-  "name": "Google Calendar Scheduler",
-  "shortName": "GoogleCalendarScheduler",
-  "description": "Test",
-  "author": "Test",
+  "repoName": "CalendarScheduler",
+  "name": "Calendar Scheduler",
+  "shortName": "CalendarScheduler",
+  "description": "Sync and reconcile FPP schedule entries with calendar providers.",
+  "author": "Rob Terry",
+  "homeURL": "https://github.com/robbiet76/CalendarScheduler",
+  "srcURL": "https://github.com/robbiet76/CalendarScheduler.git",
+  "bugURL": "https://github.com/robbiet76/CalendarScheduler/issues",
+  "allowUpdates": 1,
   "version": "0.0.1",
   "pluginType": "media",
-  "requires": []
+  "requires": [],
+  "versions": [
+    {
+      "minFPPVersion": "9.0",
+      "maxFPPVersion": "0",
+      "branch": "implementation-v2",
+      "sha": ""
+    }
+  ]
 }

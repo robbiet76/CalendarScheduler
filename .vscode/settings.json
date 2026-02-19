@@ -1,0 +1,5 @@
+{
+    "chatgpt.openOnStartup": true,
+    "C_Cpp.errorSquiggles": "disabled",
+    "intelephense.diagnostics.undefinedTypes": false
+}

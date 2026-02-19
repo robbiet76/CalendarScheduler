@@ -1,0 +1,362 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Calendar Scheduler — CLI Entrypoint
+ *
+ * File: bin/calendar-scheduler
+ * Purpose: Provide CLI commands for preview/apply reconciliation and OAuth
+ * bootstrap helpers used by operational and troubleshooting flows.
+ */
+
+// -----------------------------------------------------------------------------
+// CLI entrypoint for CalendarScheduler (V2)
+// -----------------------------------------------------------------------------
+
+use CalendarScheduler\Apply\ApplyRunner;
+use CalendarScheduler\Apply\ManifestWriter;
+use CalendarScheduler\Adapter\FppScheduleAdapter;
+use CalendarScheduler\Apply\ApplyOptions;
+use CalendarScheduler\Apply\ApplyTargets;
+use CalendarScheduler\Apply\FppScheduleWriter;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
+
+// -----------------------------------------------------------------------------
+// Bootstrap
+// -----------------------------------------------------------------------------
+
+require_once __DIR__ . '/../bootstrap.php';
+
+$argv = $_SERVER['argv'] ?? [];
+$command = $argv[1] ?? null;
+
+// Dedicated shortcut command for OAuth bootstrap maintenance.
+if ($command === 'google:auth') {
+    $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+
+    $config = new \CalendarScheduler\Adapter\Calendar\Google\GoogleConfig($configPath);
+    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($config);
+    $printUrl = in_array('--print-url', $argv, true);
+    $bootstrap->runCli($printUrl);
+    exit(0);
+}
+
+// -----------------------------------------------------------------------------
+// Defaults
+// -----------------------------------------------------------------------------
+
+$DEFAULT_SCHEDULE_PATH =
+    '/home/fpp/media/config/schedule.json';
+
+$DEFAULT_MANIFEST_PATH =
+    '/home/fpp/media/config/calendar-scheduler/manifest.json';
+
+// -----------------------------------------------------------------------------
+// Argument parsing
+// -----------------------------------------------------------------------------
+
+$opts = getopt('', [
+    'dry-run',
+    'schedule:',
+    'manifest:',
+    'format:',
+    'sync-mode:',
+    'sync_mode:',
+    'quiet',
+    'refresh-calendar',
+    'apply',
+    'plan',
+    'auth',
+]);
+
+$dryRun = array_key_exists('dry-run', $opts);
+$quiet  = array_key_exists('quiet', $opts);
+$apply = array_key_exists('apply', $opts);
+$plan = array_key_exists('plan', $opts);
+
+$auth = array_key_exists('auth', $opts);
+
+// Back-compat auth flag path.
+if ($auth) {
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+    $googleConfig = new GoogleConfig($googleConfigPath);
+    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($googleConfig);
+
+    $printUrl = in_array('--print-url', $argv, true);
+    $bootstrap->runCli($printUrl);
+    exit(0);
+}
+
+$schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
+$manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
+$format       = $opts['format']   ?? 'text';
+$syncMode     = resolveSyncMode($opts);
+$opts['sync-mode'] = $syncMode;
+
+if (!in_array($format, ['text', 'json'], true)) {
+    fwrite(STDERR, "ERROR: --format must be 'text' or 'json'\n");
+    exit(64);
+}
+
+// -----------------------------------------------------------------------------
+// Dependency construction
+// -----------------------------------------------------------------------------
+
+// -------------------------------------------------------------------------
+// Export FPP environment via web context (authoritative, always fresh)
+// -------------------------------------------------------------------------
+
+
+$envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+
+$readEnvEpoch = static function (string $path): int {
+    if (!file_exists($path)) {
+        return 0;
+    }
+    $data = json_decode(file_get_contents($path), true);
+    if (!is_array($data)) {
+        return 0;
+    }
+    $epoch = $data['generatedAtEpoch'] ?? 0;
+    return is_int($epoch) ? $epoch : (int) $epoch;
+};
+
+$beforeEpoch = $readEnvEpoch($envPath);
+
+$envUrl = getenv('GCS_FPP_ENV_URL');
+if ($envUrl !== false && trim($envUrl) !== '') {
+    $envUrl = trim($envUrl);
+} else {
+    $envUrl = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-env-export.php&nopage=1';
+}
+
+$cmd = 'curl --silent --show-error --fail --max-time 5 '
+    . '--output /dev/null '
+    . escapeshellarg($envUrl);
+exec($cmd, $out, $rc);
+
+if ($rc !== 0) {
+    throw new RuntimeException('Failed to invoke FPP environment exporter via web');
+}
+
+if (!file_exists($envPath)) {
+    throw new RuntimeException('fpp-env.json was not written by web exporter');
+}
+
+$env = json_decode(file_get_contents($envPath), true);
+if (!is_array($env)) {
+    throw new RuntimeException('fpp-env.json is not valid JSON');
+}
+
+if (($env['ok'] ?? false) !== true) {
+    $errors = $env['errors'] ?? [];
+    $msg = is_array($errors) ? implode('; ', $errors) : (string) $errors;
+    throw new RuntimeException('fpp-env.json export failed: ' . $msg);
+}
+
+$afterEpoch = $env['generatedAtEpoch'] ?? 0;
+$afterEpoch = is_int($afterEpoch) ? $afterEpoch : (int) $afterEpoch;
+
+if ($afterEpoch <= $beforeEpoch) {
+    throw new RuntimeException('fpp-env.json was not refreshed (generatedAtEpoch did not advance)');
+}
+
+try {
+    // Build full preview/reconciliation result from current FPP + calendar state.
+    $engine = new \CalendarScheduler\Engine\SchedulerEngine();
+
+    $runResult = $engine->runFromCli(
+        argv: $argv,
+        opts: $opts
+    );
+} catch (\Throwable $e) {
+    fwrite(STDERR, "ERROR: {$e->getMessage()}\n");
+
+    if (getenv('GCS_DEBUG_TRACE') === '1') {
+        fwrite(STDERR, "EXCEPTION: " . get_class($e) . "\n");
+        fwrite(STDERR, "AT: " . $e->getFile() . ":" . $e->getLine() . "\n");
+        fwrite(STDERR, "TRACE:\n" . $e->getTraceAsString() . "\n");
+    }
+
+    $code = ($e instanceof \InvalidArgumentException || $e instanceof \RuntimeException) ? 1 : 2;
+    exit($code);
+}
+
+// -----------------------------------------------------------------------------
+// Output
+// -----------------------------------------------------------------------------
+
+$countsByTarget = $runResult->countsByTarget();
+
+$countCreateFpp = $countsByTarget['fpp']['create'];
+$countUpdateFpp = $countsByTarget['fpp']['update'];
+$countDeleteFpp = $countsByTarget['fpp']['delete'];
+
+$countCreateCalendar = $countsByTarget['calendar']['create'];
+$countUpdateCalendar = $countsByTarget['calendar']['update'];
+$countDeleteCalendar = $countsByTarget['calendar']['delete'];
+
+$totals = $runResult->totalCounts();
+
+$countCreate = $totals['create'];
+$countUpdate = $totals['update'];
+$countDelete = $totals['delete'];
+
+if ($apply) {
+    // Apply mode executes reconciliation actions after planning.
+    // Writable targets are expressed via ApplyTargets.
+    if ($syncMode === 'calendar') {
+        $targets = ApplyTargets::fppOnly();
+    } elseif ($syncMode === 'fpp') {
+        $targets = [ApplyTargets::TARGET_CALENDAR];
+    } else {
+        $targets = ApplyTargets::all();
+    }
+
+    if ($plan) {
+        $options = ApplyOptions::plan();
+    } elseif ($dryRun) {
+        $options = ApplyOptions::dryRun($targets);
+    } else {
+        // Apply for real (still honors target allow-list).
+        $options = ApplyOptions::apply(
+            $targets,
+            true // fail if calendar actions are blocked
+        );
+    }
+
+    if ($syncMode !== 'both') {
+        foreach ($runResult->actions() as $action) {
+            if ($action->type === 'noop' || $action->type === 'block') {
+                continue;
+            }
+            if (!in_array($action->target, $targets, true)) {
+                throw new RuntimeException(
+                    "Apply safety stop: action target '{$action->target}' is not allowed for sync mode '{$syncMode}'."
+                );
+            }
+        }
+    }
+
+    $googleExecutor = null;
+
+    // Calendar writes are optional and only required if calendar actions exist.
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+    if (is_dir($googleConfigPath) || is_file($googleConfigPath)) {
+        $googleConfig = new GoogleConfig($googleConfigPath);
+        $googleClient = new GoogleApiClient($googleConfig);
+        $googleMapper = new GoogleEventMapper();
+
+        $googleExecutor = new GoogleApplyExecutor(
+            $googleClient,
+            $googleMapper
+        );
+    }
+
+    $applier = new ApplyRunner(
+        new ManifestWriter($manifestPath),
+        new FppScheduleAdapter($schedulePath),
+        new FppScheduleWriter(
+            $schedulePath,
+            '/home/fpp/media/config/calendar-scheduler/fpp'
+        ),
+        $googleExecutor
+    );
+
+    $applier->apply($runResult->reconciliationResult(), $options);
+}
+
+if ($format === 'json') {
+    if ($dryRun) {
+        echo json_encode([
+            'noop'    => $runResult->isNoop(),
+            'fpp' => [
+                'created' => $countCreateFpp,
+                'updated' => $countUpdateFpp,
+                'deleted' => $countDeleteFpp,
+            ],
+            'calendar' => [
+                'created' => $countCreateCalendar,
+                'updated' => $countUpdateCalendar,
+                'deleted' => $countDeleteCalendar,
+            ],
+            'dry_run' => $dryRun,
+        ], JSON_PRETTY_PRINT) . "\n";
+        exit(0);
+    }
+
+    echo json_encode([
+        'noop'    => $runResult->isNoop(),
+        'created' => $countCreate,
+        'updated' => $countUpdate,
+        'deleted' => $countDelete,
+        'dry_run' => $dryRun,
+    ], JSON_PRETTY_PRINT) . "\n";
+    exit(0);
+}
+
+// text output
+if ($quiet) {
+    exit(0);
+}
+
+/**
+ * @param array<string,mixed> $opts
+ */
+function resolveSyncMode(array $opts): string
+{
+    $explicitMode = $opts['sync-mode'] ?? $opts['sync_mode'] ?? null;
+    if (is_string($explicitMode) && trim($explicitMode) !== '') {
+        return normalizeSyncMode($explicitMode);
+    }
+
+    $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+    if (is_file($configPath)) {
+        $raw = @file_get_contents($configPath);
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && is_string($decoded['sync_mode'] ?? null)) {
+                return normalizeSyncMode((string)$decoded['sync_mode']);
+            }
+        }
+    }
+
+    return 'both';
+}
+
+function normalizeSyncMode(string $syncMode): string
+{
+    $syncMode = strtolower(trim($syncMode));
+    if ($syncMode === 'calendar' || $syncMode === 'fpp' || $syncMode === 'both') {
+        return $syncMode;
+    }
+    return 'both';
+}
+
+if ($dryRun) {
+    echo "Dry run complete.\n";
+    echo "FPP would create: {$countCreateFpp}\n";
+    echo "FPP would update: {$countUpdateFpp}\n";
+    echo "FPP would delete: {$countDeleteFpp}\n";
+    echo "Calendar would create: {$countCreateCalendar}\n";
+    echo "Calendar would update: {$countUpdateCalendar}\n";
+    echo "Calendar would delete: {$countDeleteCalendar}\n";
+    exit(0);
+}
+
+if ($runResult->isNoop()) {
+    echo "Scheduler run complete.\n";
+    echo "No changes required.\n";
+    exit(0);
+}
+
+echo "Scheduler run complete.\n";
+echo "Created: {$countCreate}\n";
+echo "Updated: {$countUpdate}\n";
+echo "Deleted: {$countDelete}\n";
+exit(0);
