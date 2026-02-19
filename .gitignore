@@ -19,3 +19,6 @@ runtime/*
 
 # FPP compiled binaries
 /bin/gcs-export
+
+# Local FPP source checkout used only for reference during development
+fpp/

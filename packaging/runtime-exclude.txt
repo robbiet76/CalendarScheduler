@@ -1,0 +1,12 @@
+# Development and reference-only content that must never ship
+.git/*
+.vscode/*
+docs/*
+fpp/*
+packaging/*
+spec/*
+www/*
+bin/cs-api-smoke
+bin/cs-full-regression
+bin/cs-regression
+bin/cs-resolution-regression

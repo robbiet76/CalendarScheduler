@@ -21,12 +21,14 @@ Provide an operator-safe release procedure for Calendar Scheduler that includes 
    - operator
 
 ## Deploy
-1. Push release commit to `origin/implementation-v2`.
-2. On FPP host, update plugin repo:
+1. Build lightweight release artifact from runtime payload:
+   - `bin/cs-package --out-dir /tmp/cs-release`
+2. Push release commit to `origin/implementation-v2`.
+3. On FPP host, install/update from packaged artifact (preferred) or pull branch for development validation:
    - `cd /home/fpp/media/plugins/GoogleCalendarScheduler`
    - `git pull --ff-only origin implementation-v2`
-3. Refresh plugin page in browser and confirm UI loads without console/runtime errors.
-4. Run initial UI checks:
+4. Refresh plugin page in browser and confirm UI loads without console/runtime errors.
+5. Run initial UI checks:
    - Connection Setup renders correctly.
    - Pending Actions renders or cleanly hides when disconnected.
    - Apply button state follows pending-action availability.

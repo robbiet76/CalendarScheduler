@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Calendar Scheduler — Release Packager
+#
+# File: bin/cs-package
+# Purpose: Build a lightweight end-user zip artifact from an explicit runtime
+# include list and verify it contains no dev-only content.
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INCLUDE_FILE="${ROOT_DIR}/packaging/runtime-include.txt"
+OUT_DIR="/tmp/cs-release"
+PACKAGE_NAME="CalendarScheduler"
+VERSION=""
+KEEP_STAGE=0
+
+usage() {
+  cat <<'EOF'
+Usage:
+  bin/cs-package [--out-dir <path>] [--name <package-name>] [--version <semver>] [--keep-stage]
+
+Options:
+  --out-dir     Output directory for zip artifact (default: /tmp/cs-release)
+  --name        Package root/zip name prefix (default: CalendarScheduler)
+  --version     Version label (default: pluginInfo.json version)
+  --keep-stage  Keep staged package directory for inspection
+  -h, --help    Show this help text
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out-dir)
+      OUT_DIR="${2:-}"
+      shift 2
+      ;;
+    --name)
+      PACKAGE_NAME="${2:-}"
+      shift 2
+      ;;
+    --version)
+      VERSION="${2:-}"
+      shift 2
+      ;;
+    --keep-stage)
+      KEEP_STAGE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown argument: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [[ ! -f "${INCLUDE_FILE}" ]]; then
+  echo "ERROR: Missing include file: ${INCLUDE_FILE}" >&2
+  exit 2
+fi
+
+if [[ -z "${VERSION}" ]]; then
+  VERSION="$(php -r '
+$f = $argv[1];
+$j = @json_decode((string)@file_get_contents($f), true);
+if (!is_array($j) || !isset($j["version"]) || !is_string($j["version"]) || trim($j["version"]) === "") {
+  echo "0.0.0";
+  exit(0);
+}
+echo trim($j["version"]);
+' "${ROOT_DIR}/pluginInfo.json")"
+fi
+
+mkdir -p "${OUT_DIR}"
+STAGE_ROOT="${OUT_DIR}/.stage"
+STAGE_DIR="${STAGE_ROOT}/${PACKAGE_NAME}"
+ARTIFACT="${OUT_DIR}/${PACKAGE_NAME}-${VERSION}.zip"
+
+rm -rf "${STAGE_ROOT}"
+mkdir -p "${STAGE_DIR}"
+
+while IFS= read -r entry; do
+  [[ -z "${entry}" || "${entry}" =~ ^# ]] && continue
+  src="${ROOT_DIR}/${entry}"
+  dst="${STAGE_DIR}/${entry}"
+  if [[ ! -e "${src}" ]]; then
+    echo "ERROR: include path missing: ${entry}" >&2
+    exit 2
+  fi
+  mkdir -p "$(dirname "${dst}")"
+  if [[ -d "${src}" ]]; then
+    mkdir -p "${dst}"
+    rsync -a "${src}/" "${dst}/"
+  else
+    cp -p "${src}" "${dst}"
+  fi
+done < "${INCLUDE_FILE}"
+
+"${ROOT_DIR}/bin/cs-verify-package" --dir "${STAGE_DIR}"
+
+rm -f "${ARTIFACT}"
+(cd "${STAGE_ROOT}" && zip -qr "${ARTIFACT}" "${PACKAGE_NAME}")
+
+echo "Built package: ${ARTIFACT}"
+if [[ "${KEEP_STAGE}" -eq 1 ]]; then
+  echo "Staged files retained at: ${STAGE_DIR}"
+else
+  rm -rf "${STAGE_ROOT}"
+fi
