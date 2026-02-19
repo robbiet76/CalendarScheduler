@@ -213,7 +213,6 @@
         </div>
 
         <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
-          <button class="buttons btn-black" id="csDisconnectBtn" type="button" disabled>Disconnect Provider</button>
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
         </div>
         </div>
@@ -324,7 +323,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csDisconnectBtn", "csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -772,16 +771,15 @@
         }
 
         var connectBtn = byId("csConnectBtn");
-        var disconnectBtn = byId("csDisconnectBtn");
         var uploadBtn = byId("csUploadDeviceClientBtn");
         var syncModeWrap = byId("csSyncModeWrap");
         var syncModeSelect = byId("csSyncModeSelect");
         var googleBadge = byId("csProviderGoogleBadge");
         var outlookBadge = byId("csProviderOutlookBadge");
         connectBtn.dataset.locked = "0";
-        connectBtn.textContent = "Connect Provider";
-        disconnectBtn.dataset.locked = providerConnected ? "0" : "1";
-        disconnectBtn.disabled = !providerConnected;
+        connectBtn.textContent = providerConnected ? "Disconnect Provider" : "Connect Provider";
+        connectBtn.classList.toggle("btn-success", !providerConnected);
+        connectBtn.classList.toggle("btn-black", providerConnected);
         uploadBtn.dataset.locked = providerConnected ? "1" : "0";
         uploadBtn.disabled = providerConnected;
         if (syncModeSelect) {
@@ -948,6 +946,23 @@
     }
 
     byId("csConnectBtn").addEventListener("click", function () {
+      if (providerConnected) {
+        if (!window.confirm("Disconnect provider and remove the local Google token from this FPP instance?")) {
+          return;
+        }
+        setButtonsDisabled(true);
+        setLoadingState();
+        fetchJson({ action: "auth_disconnect" })
+          .then(function () {
+            setDeviceAuthVisible(false);
+            clearDeviceAuthPoll();
+            return refreshAll();
+          })
+          .catch(function (err) { setError(err.message); })
+          .finally(function () { setButtonsDisabled(false); });
+        return;
+      }
+
       startDeviceAuthFlow();
     });
 
@@ -960,25 +975,6 @@
       }).catch(function () {
         // Keep local state even if pref persistence fails.
       });
-    });
-
-    byId("csDisconnectBtn").addEventListener("click", function () {
-      if (!providerConnected) {
-        return;
-      }
-      if (!window.confirm("Disconnect provider and remove the local Google token from this FPP instance?")) {
-        return;
-      }
-      setButtonsDisabled(true);
-      setLoadingState();
-      fetchJson({ action: "auth_disconnect" })
-        .then(function () {
-          setDeviceAuthVisible(false);
-          clearDeviceAuthPoll();
-          return refreshAll();
-        })
-        .catch(function (err) { setError(err.message); })
-        .finally(function () { setButtonsDisabled(false); });
     });
 
     byId("csUploadDeviceClientBtn").addEventListener("click", function () {
