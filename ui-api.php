@@ -120,22 +120,45 @@ function cs_normalize_event(?array $event): array
         $timing = is_array($firstSub['timing'] ?? null) ? $firstSub['timing'] : [];
     }
 
-    $startDate = null;
-    if (is_array($timing['start_date'] ?? null)) {
-        $startDate = $timing['start_date']['hard'] ?? $timing['start_date']['symbolic'] ?? null;
-    }
-
-    $startTime = null;
-    if (is_array($timing['start_time'] ?? null)) {
-        $startTime = $timing['start_time']['hard'] ?? $timing['start_time']['symbolic'] ?? null;
+    $startDate = cs_read_timing_value($timing['start_date'] ?? null, ['hard', 'symbolic', 'value']);
+    $endDate = cs_read_timing_value($timing['end_date'] ?? null, ['hard', 'symbolic', 'value']);
+    $startTime = cs_read_timing_value($timing['start_time'] ?? null, ['hard', 'symbolic', 'value']);
+    $endTime = cs_read_timing_value($timing['end_time'] ?? null, ['hard', 'symbolic', 'value']);
+    $days = null;
+    if (is_array($timing['days'] ?? null)) {
+        $days = $timing['days']['value'] ?? null;
     }
 
     return [
         'target' => $identity['target'] ?? $event['target'] ?? null,
         'type' => $identity['type'] ?? $event['type'] ?? null,
         'startDate' => $startDate,
+        'endDate' => $endDate,
         'startTime' => $startTime,
+        'endTime' => $endTime,
+        'days' => is_array($days) ? array_values($days) : null,
     ];
+}
+
+/**
+ * @param mixed $node
+ * @param array<int,string> $keys
+ */
+function cs_read_timing_value(mixed $node, array $keys): ?string
+{
+    if (is_string($node) && trim($node) !== '') {
+        return trim($node);
+    }
+    if (!is_array($node)) {
+        return null;
+    }
+    foreach ($keys as $key) {
+        $v = $node[$key] ?? null;
+        if (is_string($v) && trim($v) !== '') {
+            return trim($v);
+        }
+    }
+    return null;
 }
 
 /**
