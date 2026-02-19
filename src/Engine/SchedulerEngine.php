@@ -24,6 +24,7 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator;
 use CalendarScheduler\Platform\FppEventTimestampStore;
 use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Platform\SunTimeDisplayEstimator;
 
 /**
  * SchedulerEngine
@@ -50,6 +51,11 @@ final class SchedulerEngine
     private array $lastTombstonesBySource = ['calendar' => [], 'fpp' => []];
     /** @var array{calendar:array<string,int>,fpp:array<string,int>} */
     private array $loadedTombstonesBySource = ['calendar' => [], 'fpp' => []];
+    private ?float $orderingLatitude = null;
+    private ?float $orderingLongitude = null;
+    private string $orderingTimezone = 'UTC';
+    /** @var array<string,int|null> */
+    private array $symbolicDisplaySecondsCache = [];
 
     private IntentNormalizer $normalizer;
     private ManifestPlanner $manifestPlanner;
@@ -124,6 +130,12 @@ final class SchedulerEngine
                 }
             }
         }
+
+        // Symbolic ordering heuristics use the same environment context as FPP.
+        $this->orderingLatitude = $this->optionalFloat($fppEnvRaw['latitude'] ?? null);
+        $this->orderingLongitude = $this->optionalFloat($fppEnvRaw['longitude'] ?? null);
+        $this->orderingTimezone = $contextTimezone->getName();
+        $this->symbolicDisplaySecondsCache = [];
 
         $context = new NormalizationContext(
             $contextTimezone,
@@ -273,6 +285,7 @@ final class SchedulerEngine
     ): SchedulerRunResult {
         $syncMode = $this->normalizeSyncMode($syncMode);
         $calendarScope = trim($calendarScope) !== '' ? trim($calendarScope) : 'default';
+        $this->orderingTimezone = $context->timezone->getName();
         $computedCalendarUpdatedAtById = $calendarUpdatedAtById;
         $computedFppUpdatedAtById = $fppUpdatedAtById;
 
@@ -1398,7 +1411,7 @@ final class SchedulerEngine
 
     private function intentDailyWindowSpanSeconds(PlannerIntent $intent): int
     {
-        if ($intent->allDay || $this->intentUsesSymbolicDailyTime($intent)) {
+        if ($intent->allDay) {
             return 86400;
         }
 
@@ -1422,24 +1435,20 @@ final class SchedulerEngine
         if ($firstStart === null || $secondStart === null) {
             return 0;
         }
-        if ($firstStart['kind'] !== $secondStart['kind']) {
-            return 0;
-        }
-        if ($firstStart['value'] === $secondStart['value']) {
+        if ($firstStart === $secondStart) {
             return 0;
         }
 
         // Later start should be above.
-        return $firstStart['value'] > $secondStart['value'] ? -1 : 1;
+        return $firstStart > $secondStart ? -1 : 1;
     }
 
     /**
      * @param array<int,PlannerIntent> $bundle
-     * @return array{kind:string,value:int}|null
+     * @return int|null
      */
-    private function bundleEffectiveDailyStart(array $bundle): ?array
+    private function bundleEffectiveDailyStart(array $bundle): ?int
     {
-        $kind = null;
         $value = null;
 
         foreach ($bundle as $intent) {
@@ -1448,35 +1457,22 @@ final class SchedulerEngine
                 return null;
             }
 
-            if ($kind === null) {
-                $kind = $candidate['kind'];
-                $value = $candidate['value'];
-                continue;
-            }
-
-            if ($kind !== $candidate['kind']) {
-                return null;
-            }
-
-            if ($candidate['value'] > $value) {
-                $value = $candidate['value'];
+            if ($value === null || $candidate > $value) {
+                $value = $candidate;
             }
         }
 
-        if ($kind === null || $value === null) {
+        if ($value === null) {
             return null;
         }
 
-        return [
-            'kind' => $kind,
-            'value' => $value,
-        ];
+        return $value;
     }
 
     /**
-     * @return array{kind:string,value:int}|null
+     * @return int|null
      */
-    private function intentDailyStartCandidate(PlannerIntent $intent): ?array
+    private function intentDailyStartCandidate(PlannerIntent $intent): ?int
     {
         $settings = $this->extractSchedulerSettingsFromPayload($intent->payload);
         $startSetting = isset($settings['start']) && is_string($settings['start'])
@@ -1484,49 +1480,13 @@ final class SchedulerEngine
             : '';
 
         if ($startSetting !== '') {
-            $normalized = FPPSemantics::normalizeSymbolicTimeToken($startSetting);
-            if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
-                $rank = $this->symbolicStartRank($normalized);
-                $offset = isset($settings['start_offset']) && is_numeric($settings['start_offset'])
-                    ? (int)$settings['start_offset']
-                    : 0;
-
-                return [
-                    'kind' => 'symbolic',
-                    'value' => ($rank * 100000) + $offset,
-                ];
-            }
-
-            if (preg_match('/^(\d{2}):(\d{2})(?::(\d{2}))?$/', $startSetting, $m) === 1) {
-                $h = (int)$m[1];
-                $min = (int)$m[2];
-                $sec = isset($m[3]) ? (int)$m[3] : 0;
-                return [
-                    'kind' => 'hard',
-                    'value' => ($h * 3600) + ($min * 60) + $sec,
-                ];
+            $startSeconds = $this->resolveDailyTimeSeconds($intent, $startSetting, 'start');
+            if ($startSeconds !== null) {
+                return $startSeconds;
             }
         }
 
-        if ($this->intentUsesSymbolicDailyTime($intent)) {
-            return null;
-        }
-
-        return [
-            'kind' => 'hard',
-            'value' => $this->secondsSinceMidnight($intent->start),
-        ];
-    }
-
-    private function symbolicStartRank(string $token): int
-    {
-        return match ($token) {
-            'Dawn' => 1,
-            'SunRise' => 2,
-            'SunSet' => 3,
-            'Dusk' => 4,
-            default => 0,
-        };
+        return $this->secondsSinceMidnight($intent->start);
     }
 
     /**
@@ -1697,11 +1657,6 @@ final class SchedulerEngine
             return false;
         }
 
-        // Symbolic timing cannot be conclusively disproven; assume overlap.
-        if ($this->intentUsesSymbolicDailyTime($first) || $this->intentUsesSymbolicDailyTime($second)) {
-            return true;
-        }
-
         $firstSegments = $this->intentDailyWindowSegments($first);
         $secondSegments = $this->intentDailyWindowSegments($second);
 
@@ -1822,7 +1777,7 @@ final class SchedulerEngine
     {
         $segments = [];
         foreach ($bundle as $intent) {
-            if ($intent->allDay || $this->intentUsesSymbolicDailyTime($intent)) {
+            if ($intent->allDay) {
                 return [[0, 86400]];
             }
             foreach ($this->intentDailyWindowSegments($intent) as $segment) {
@@ -1842,8 +1797,30 @@ final class SchedulerEngine
             return [[0, 86400]];
         }
 
-        $start = $this->secondsSinceMidnight($intent->start);
-        $end = $this->secondsSinceMidnight($intent->end);
+        $settings = $this->extractSchedulerSettingsFromPayload($intent->payload);
+        $startSetting = isset($settings['start']) && is_string($settings['start'])
+            ? trim((string)$settings['start'])
+            : '';
+        $endSetting = isset($settings['end']) && is_string($settings['end'])
+            ? trim((string)$settings['end'])
+            : '';
+
+        if ($startSetting !== '' || $endSetting !== '') {
+            $start = $startSetting !== ''
+                ? $this->resolveDailyTimeSeconds($intent, $startSetting, 'start')
+                : $this->secondsSinceMidnight($intent->start);
+            $end = $endSetting !== ''
+                ? $this->resolveDailyTimeSeconds($intent, $endSetting, 'end')
+                : $this->secondsSinceMidnight($intent->end);
+
+            if ($start === null || $end === null) {
+                // Unknown symbolic tokens must remain conservative for overlap logic.
+                return [[0, 86400]];
+            }
+        } else {
+            $start = $this->secondsSinceMidnight($intent->start);
+            $end = $this->secondsSinceMidnight($intent->end);
+        }
 
         if ($start === $end) {
             // Ambiguous/zero-width windows are treated conservatively as full-day.
@@ -1866,6 +1843,123 @@ final class SchedulerEngine
         return ((int)$value->format('H')) * 3600
             + ((int)$value->format('i')) * 60
             + (int)$value->format('s');
+    }
+
+    /**
+     * Resolve a scheduler time setting into seconds since local midnight.
+     */
+    private function resolveDailyTimeSeconds(PlannerIntent $intent, string $setting, string $boundary): ?int
+    {
+        $trimmed = trim($setting);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $normalized = FPPSemantics::normalizeSymbolicTimeToken($trimmed);
+        if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
+            $settings = $this->extractSchedulerSettingsFromPayload($intent->payload);
+            $offsetKey = strtolower($boundary) === 'end' ? 'end_offset' : 'start_offset';
+            $offsetAltKey = strtolower($boundary) === 'end' ? 'endoffset' : 'startoffset';
+            $offsetValue = $settings[$offsetKey] ?? $settings[$offsetAltKey] ?? 0;
+            $offsetMinutes = is_numeric($offsetValue) ? (int)$offsetValue : 0;
+            return $this->resolveSymbolicDisplaySeconds($intent, $normalized, $offsetMinutes);
+        }
+
+        return $this->parseHardTimeSeconds($trimmed);
+    }
+
+    private function resolveSymbolicDisplaySeconds(
+        PlannerIntent $intent,
+        string $symbolic,
+        int $offsetMinutes
+    ): ?int {
+        $tzName = is_string($intent->timezone ?? null) && trim((string)$intent->timezone) !== ''
+            ? trim((string)$intent->timezone)
+            : $this->orderingTimezone;
+
+        try {
+            $tz = new \DateTimeZone($tzName);
+        } catch (\Throwable) {
+            $tzName = 'UTC';
+            $tz = new \DateTimeZone('UTC');
+        }
+
+        $anchorDate = $intent->scope->getStart()
+            ->setTimezone($tz)
+            ->format('Y-m-d');
+
+        $cacheKey = implode('|', [
+            $anchorDate,
+            $symbolic,
+            (string)$offsetMinutes,
+            $tzName,
+            $this->orderingLatitude !== null ? (string)$this->orderingLatitude : '~',
+            $this->orderingLongitude !== null ? (string)$this->orderingLongitude : '~',
+        ]);
+        if (array_key_exists($cacheKey, $this->symbolicDisplaySecondsCache)) {
+            return $this->symbolicDisplaySecondsCache[$cacheKey];
+        }
+
+        $seconds = null;
+        if ($this->orderingLatitude !== null && $this->orderingLongitude !== null) {
+            $estimated = SunTimeDisplayEstimator::estimate(
+                $anchorDate,
+                $symbolic,
+                $this->orderingLatitude,
+                $this->orderingLongitude,
+                $tzName,
+                $offsetMinutes,
+                30
+            );
+            if (is_string($estimated) && $estimated !== '') {
+                $seconds = $this->parseHardTimeSeconds($estimated);
+            }
+        }
+
+        if ($seconds === null) {
+            $seconds = $this->fallbackSymbolicDisplaySeconds($symbolic, $offsetMinutes);
+        }
+
+        $this->symbolicDisplaySecondsCache[$cacheKey] = $seconds;
+        return $seconds;
+    }
+
+    private function fallbackSymbolicDisplaySeconds(string $symbolic, int $offsetMinutes): ?int
+    {
+        $baseSeconds = match ($symbolic) {
+            'Dawn' => (6 * 3600),
+            'SunRise' => (7 * 3600),
+            'SunSet' => (18 * 3600),
+            'Dusk' => (18 * 3600) + (30 * 60),
+            default => null,
+        };
+        if (!is_int($baseSeconds)) {
+            return null;
+        }
+
+        $seconds = $baseSeconds + ($offsetMinutes * 60);
+        $mod = $seconds % 86400;
+        if ($mod < 0) {
+            $mod += 86400;
+        }
+
+        return $mod;
+    }
+
+    private function parseHardTimeSeconds(string $value): ?int
+    {
+        if (preg_match('/^(\d{2}):(\d{2})(?::(\d{2}))?$/', $value, $m) !== 1) {
+            return null;
+        }
+
+        $h = (int)$m[1];
+        $min = (int)$m[2];
+        $sec = isset($m[3]) ? (int)$m[3] : 0;
+        if ($h < 0 || $h > 23 || $min < 0 || $min > 59 || $sec < 0 || $sec > 59) {
+            return null;
+        }
+
+        return ($h * 3600) + ($min * 60) + $sec;
     }
 
     /**
@@ -2133,6 +2227,18 @@ final class SchedulerEngine
         }
 
         return $default;
+    }
+
+    private function optionalFloat(mixed $value): ?float
+    {
+        if (is_float($value) || is_int($value)) {
+            return (float)$value;
+        }
+        if (is_string($value) && trim($value) !== '' && is_numeric($value)) {
+            return (float)$value;
+        }
+
+        return null;
     }
 
     private function normalizeSyncMode(mixed $syncMode): string
