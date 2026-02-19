@@ -74,14 +74,14 @@ Phase 5 gate:
 - [x] Upgrade test matrix passes for at least one old config snapshot and one fresh install.
 
 ## Phase 6: User Documentation and Supportability
-- [ ] Publish quick start (OAuth setup + first sync).
-- [ ] Publish troubleshooting guide mapped to diagnostics keys.
-- [ ] Publish sync mode behavior guide (`Calendar -> FPP`, `FPP -> Calendar`, `Both`).
-- [ ] Publish known limitations and expected behavior notes.
+- [x] Publish quick start (OAuth setup + first sync).
+- [x] Publish troubleshooting guide mapped to diagnostics keys.
+- [x] Publish sync mode behavior guide (`Calendar -> FPP`, `FPP -> Calendar`, `Both`).
+- [x] Publish known limitations and expected behavior notes.
 
 Phase 6 gate:
-- [ ] A new user can complete setup and first apply using docs only.
-- [ ] Common troubleshooting paths are documented and reproducible.
+- [x] A new user can complete setup and first apply using docs only.
+- [x] Common troubleshooting paths are documented and reproducible.
 
 ## Production Exit Criteria
 - [ ] All phase gates passed.
