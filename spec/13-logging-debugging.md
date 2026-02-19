@@ -6,173 +6,97 @@
 
 ## Purpose
 
-The Logging, Debugging & Diagnostics layer exists to ensure the system is:
+Logging and diagnostics exist to make reconciliation/apply behavior:
+- Observable
+- Reproducible
+- Supportable in production
 
-- **Observable**
-- **Auditable**
-- **Diagnosable**
-- **Safe to evolve**
+Silent failure is a defect.
 
-This system is explicitly designed to handle complex scheduling semantics.
-Silent failure, implicit behavior, and hidden state are unacceptable.
+## Runtime Diagnostic Surfaces
 
-Logging and diagnostics are **first-class system requirements**, not optional tooling.
+Current production diagnostic surfaces are:
 
----
+1. API response payloads from `ui-api.php`
+2. `diagnostics` action payload (operational snapshot)
+3. Correlated runtime error records in logs
+4. Regression runner artifacts in `/tmp` (`bin/cs-*`)
 
-## Core Principles
+## Diagnostics Payload Contract
 
-### 1. Logging Is Not Debugging
+`diagnostics` action returns a stable object with:
+- `syncMode`
+- `selectedCalendarId`
+- `counts`
+- `pendingSummary`
+- `lastError`
+- `previewGeneratedAtUtc`
 
-- **Logging** is always on (at varying levels)
-- **Debugging** is opt-in and scoped
-- **Diagnostics** are structured, queryable outputs
+This payload is for current operational state, not historical audit replay.
 
-Each serves a distinct purpose and must not be conflated.
+## Error Correlation Contract
 
----
+For runtime failures in:
+- `apply`
+- `auth_*`
 
-### 2. Determinism Over Guessing
+the response details SHOULD include:
+- `correlationId`
 
-Logs must explain **what happened**, not speculate **why**.
+and logs MUST include matching correlated entries.
+
+Current correlated file:
+- `/home/fpp/media/logs/CalendarScheduler.log`
+
+Log entry shape (minimum):
+- timestamp
+- action
+- `correlation_id`
+- error summary
+
+## Logging Responsibility Boundaries
+
+Layer ownership:
+- UI/API controller: request lifecycle, validation failures, correlated runtime errors
+- Engine/planner/diff/apply layers: domain decisions and mutation summaries
+- Provider adapters: provider/API-specific diagnostics and error context
+
+Cross-layer log mutation is forbidden.
+
+## Preview vs Apply Observability
+
+Preview:
+- Must expose full pending-action and count visibility
+- Must not mutate scheduler/provider state
+
+Apply:
+- Must fail fast on invariant violations
+- Must preserve error correlation and traceability
+
+## Regression/Debug Artifacts
+
+The supported reproducibility path is runner-driven:
+- `bin/cs-resolution-regression`
+- `bin/cs-api-smoke`
+- `bin/cs-full-regression`
+
+Artifacts are emitted to `/tmp` under runner-defined directories and serve as primary validation evidence.
+
+## Security and Data Handling
+
+Diagnostics/logs MUST NOT expose OAuth secrets or token contents.
+
+Allowed in logs/diagnostics:
+- IDs, action names, counts, correlation IDs, normalized errors
 
 Forbidden:
-- “Probably”
-- “Assumed”
-- “Fallback applied” without context
+- raw credential payloads
+- token secret material
 
-Required:
-- Explicit decision points
-- Inputs → outputs
-- Rule references when applicable
+## Summary
 
----
-
-### 3. Layer-Scoped Responsibility
-
-Each major layer is responsible for its own logging:
-
-| Layer | Responsibility |
-|-----|---------------|
-| Calendar I/O | Provider data ingress / egress |
-| Resolution | Semantic decisions, normalization |
-| Manifest | Identity creation, state transitions |
-| Planner | Ordering, event/subEvent generation |
-| Diff | Comparison outcomes |
-| Apply | Write actions and safeguards |
-| UI / Controller | User-triggered lifecycle |
-
-Cross-layer logging is **forbidden**.
-
----
-
-## Log Levels
-
-The system defines **five canonical log levels**:
-
-| Level | Description |
-|-----|------------|
-| `ERROR` | Invariant violations, fatal failures |
-| `WARN` | Recoverable issues, degraded behavior |
-| `INFO` | High-level lifecycle events |
-| `DEBUG` | Detailed execution traces |
-| `TRACE` | Fine-grained step-by-step data |
-
-Rules:
-- `ERROR` and `WARN` are always emitted
-- `INFO` is always emitted
-- `DEBUG` and `TRACE` require explicit enablement
-
----
-
-## Debug Flags & Runtime Control
-
-Debugging must be **centrally controlled**.
-
-### Required Debug Controls
-
-Debug flags must be configurable via:
-
-- Bootstrap configuration
-- Environment variables
-- (Optional) UI toggle for non-destructive modes
-
-Example conceptual flags:
-
-```
-DEBUG_GLOBAL
-DEBUG_CALENDAR_IO
-DEBUG_RESOLUTION
-DEBUG_MANIFEST
-DEBUG_PLANNER
-DEBUG_DIFF
-DEBUG_APPLY
-```
-
-Rules:
-- Flags are **additive**, never implicit
-- No component may self-enable debugging
-- Debug state must be discoverable at runtime
-
----
-
-## Structured Logging
-
-All logs must be **structured**.
-
-Minimum required fields:
-
-```json
-{
-  "timestamp": "ISO-8601",
-  "level": "INFO | WARN | ERROR | DEBUG | TRACE",
-  "component": "Planner | Manifest | Diff | Apply | ...",
-  "operation": "short_machine_readable_name",
-  "message": "human-readable summary",
-  "context": { }
-}
-```
-
-Rules:
-- Context must be serializable
-- Context must never include secrets
-- Context should prefer identifiers over full payloads
-
----
-
-## Diagnostic Artifacts
-
-Some operations must emit **diagnostic artifacts**, not just logs.
-
-### Required Diagnostic Outputs
-
-| Scenario | Artifact |
-|--------|---------|
-| Planner ordering | Ordered event/subEvent listing |
-| Diff preview | Full diff breakdown |
-| Identity errors | Identity snapshot |
-| Apply (dry-run) | No-write execution trace |
-
----
-
-## Preview vs Apply Diagnostics
-
-Preview mode must surface **more information**, never less.
-
-| Mode | Behavior |
-|----|---------|
-| Preview | Full diagnostics, relaxed failures |
-| Apply | Fail fast, minimal noise |
-
----
-
-## Error Visibility Contract
-
-All invariant violations must:
-
-1. Be logged at `ERROR`
-2. Include component + operation
-3. Include enough context to reproduce
-4. Surface to the caller (UI or API)
-
-Silent failure is considered a **system defect**.
+Production supportability is guaranteed through:
+- stable diagnostics payload keys
+- stable error envelopes
+- correlation IDs for high-impact runtime failures
+- reproducible runner artifacts for regression evidence

@@ -109,6 +109,129 @@ function cs_hint_for_exception(\Throwable $e, string $action = ''): ?string
     return null;
 }
 
+function cs_generate_correlation_id(): string
+{
+    try {
+        $suffix = substr(bin2hex(random_bytes(4)), 0, 8);
+    } catch (\Throwable) {
+        $suffix = substr(md5((string) microtime(true)), 0, 8);
+    }
+    return gmdate('YmdHis') . '-' . $suffix;
+}
+
+function cs_log_correlated_error(string $action, \Throwable $e, string $correlationId): void
+{
+    $line = sprintf(
+        '%s action=%s correlation_id=%s error=%s',
+        gmdate('c'),
+        $action,
+        $correlationId,
+        $e->getMessage()
+    );
+
+    error_log(sprintf(
+        '[CalendarScheduler] action=%s correlation_id=%s error=%s',
+        $action,
+        $correlationId,
+        $e->getMessage()
+    ));
+
+    // Keep an explicit plugin log trail even when PHP/webserver error_log routing differs by host.
+    @file_put_contents('/home/fpp/media/logs/CalendarScheduler.log', $line . PHP_EOL, FILE_APPEND);
+}
+
+/**
+ * @return array<string,array<string,int>>
+ */
+function cs_empty_counts(): array
+{
+    return [
+        'fpp' => ['created' => 0, 'updated' => 0, 'deleted' => 0],
+        'calendar' => ['created' => 0, 'updated' => 0, 'deleted' => 0],
+        'total' => ['created' => 0, 'updated' => 0, 'deleted' => 0],
+    ];
+}
+
+/**
+ * @param array<int,array<string,mixed>> $actions
+ * @return array<string,mixed>
+ */
+function cs_pending_summary(array $actions): array
+{
+    $summary = [
+        'totalPending' => 0,
+        'byType' => ['create' => 0, 'update' => 0, 'delete' => 0],
+        'byTarget' => ['fpp' => 0, 'calendar' => 0],
+        'sample' => [],
+    ];
+
+    foreach ($actions as $action) {
+        $type = is_string($action['type'] ?? null) ? strtolower((string) $action['type']) : '';
+        $target = is_string($action['target'] ?? null) ? strtolower((string) $action['target']) : '';
+        if (!in_array($type, ['create', 'update', 'delete'], true)) {
+            continue;
+        }
+
+        $summary['totalPending']++;
+        $summary['byType'][$type] = ($summary['byType'][$type] ?? 0) + 1;
+        if (isset($summary['byTarget'][$target])) {
+            $summary['byTarget'][$target] = ($summary['byTarget'][$target] ?? 0) + 1;
+        }
+
+        if (count($summary['sample']) < 5) {
+            $summary['sample'][] = [
+                'type' => $type,
+                'target' => $target,
+                'identityHash' => is_string($action['identityHash'] ?? null) ? $action['identityHash'] : null,
+                'reason' => is_string($action['reason'] ?? null) ? $action['reason'] : null,
+            ];
+        }
+    }
+
+    return $summary;
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function cs_diagnostics_payload(?string $requestedSyncMode = null): array
+{
+    $syncMode = cs_normalize_sync_mode($requestedSyncMode ?? cs_get_sync_mode());
+    $google = cs_google_status();
+    $lastError = is_string($google['error'] ?? null) && trim((string) $google['error']) !== ''
+        ? (string) $google['error']
+        : null;
+    $selectedCalendarId = is_string($google['selectedCalendarId'] ?? null)
+        ? (string) $google['selectedCalendarId']
+        : null;
+
+    $counts = cs_empty_counts();
+    $pendingSummary = cs_pending_summary([]);
+    $previewGeneratedAtUtc = null;
+
+    try {
+        $runResult = cs_run_preview_engine($syncMode);
+        $preview = cs_preview_payload($runResult, $syncMode);
+        $counts = is_array($preview['counts'] ?? null) ? $preview['counts'] : $counts;
+        $actions = is_array($preview['actions'] ?? null) ? $preview['actions'] : [];
+        $pendingSummary = cs_pending_summary($actions);
+        $previewGeneratedAtUtc = is_string($preview['generatedAtUtc'] ?? null) ? $preview['generatedAtUtc'] : null;
+    } catch (\Throwable $e) {
+        if ($lastError === null || trim($lastError) === '') {
+            $lastError = $e->getMessage();
+        }
+    }
+
+    return [
+        'syncMode' => $syncMode,
+        'selectedCalendarId' => $selectedCalendarId,
+        'counts' => $counts,
+        'pendingSummary' => $pendingSummary,
+        'lastError' => $lastError,
+        'previewGeneratedAtUtc' => $previewGeneratedAtUtc,
+    ];
+}
+
 function cs_export_fpp_env(): void
 {
     // Promote warnings to exceptions so export failures are explicit to callers.
@@ -1021,14 +1144,43 @@ try {
     }
 
     if ($action === 'status') {
+        $google = cs_google_status();
+        $syncMode = CS_SYNC_MODE_BOTH;
+        $connectionCollapsed = false;
+        try {
+            $syncMode = cs_get_sync_mode();
+        } catch (\Throwable $e) {
+            // Keep status available even when config/bootstrap is not writable yet.
+            $google['error'] = is_string($google['error'] ?? null) && trim((string) $google['error']) !== ''
+                ? $google['error']
+                : $e->getMessage();
+            $hints = is_array($google['setup']['hints'] ?? null) ? $google['setup']['hints'] : [];
+            $hints[] = 'Unable to read sync mode from config; using default mode: both.';
+            $google['setup']['hints'] = $hints;
+        }
+        try {
+            $connectionCollapsed = cs_get_ui_pref_bool('connection_collapsed', false);
+        } catch (\Throwable $e) {
+            $hints = is_array($google['setup']['hints'] ?? null) ? $google['setup']['hints'] : [];
+            $hints[] = 'Unable to read UI preferences from config; using defaults.';
+            $google['setup']['hints'] = $hints;
+        }
         cs_respond([
             'ok' => true,
             'provider' => 'google',
-            'google' => cs_google_status(),
-            'syncMode' => cs_get_sync_mode(),
+            'google' => $google,
+            'syncMode' => cs_normalize_sync_mode($syncMode),
             'ui' => [
-                'connectionCollapsed' => cs_get_ui_pref_bool('connection_collapsed', false),
+                'connectionCollapsed' => $connectionCollapsed,
             ],
+        ]);
+    }
+
+    if ($action === 'diagnostics') {
+        $syncMode = cs_normalize_sync_mode($input['sync_mode'] ?? cs_get_sync_mode());
+        cs_respond([
+            'ok' => true,
+            'diagnostics' => cs_diagnostics_payload($syncMode),
         ]);
     }
 
@@ -1198,16 +1350,30 @@ try {
     cs_respond_error(
         "Unknown action: {$action}",
         404,
-        'Use one of: status, preview, apply, auth_device_start, auth_device_poll, auth_disconnect.',
+        'Use one of: status, diagnostics, preview, apply, auth_device_start, auth_device_poll, auth_disconnect.',
         'unknown_action',
         ['action' => $action]
     );
 } catch (\Throwable $e) {
+    $actionName = is_string($action ?? null) ? $action : 'unknown';
+    $correlationId = null;
+    if (
+        $actionName === 'apply'
+        || str_starts_with($actionName, 'auth_')
+    ) {
+        $correlationId = cs_generate_correlation_id();
+        cs_log_correlated_error($actionName, $e, $correlationId);
+    }
+
+    $details = ['action' => $actionName];
+    if ($correlationId !== null) {
+        $details['correlationId'] = $correlationId;
+    }
     cs_respond_error(
         $e->getMessage(),
         500,
-        cs_hint_for_exception($e, is_string($action ?? null) ? $action : ''),
+        cs_hint_for_exception($e, $actionName),
         'runtime_error',
-        ['action' => is_string($action ?? null) ? $action : 'unknown']
+        $details
     );
 }

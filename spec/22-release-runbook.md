@@ -3,32 +3,55 @@
 ## Purpose
 Provide an operator-safe release procedure for Calendar Scheduler that includes preflight checks, deployment, rollback, and post-verify steps.
 
+## Supported Baseline
+- FPP image: v9.0 or newer.
+- PHP runtime: 8.0 or newer.
+- Plugin dependencies: none beyond built-in FPP/PHP modules already required by Calendar Scheduler.
+
 ## Preflight
 1. Confirm working tree is clean on release branch.
-2. Run local syntax gate:
+2. Confirm release target is `master` and branch protection requirements are satisfied (PR review/checks).
+3. Run local syntax gate:
    - `php -l ui-api.php`
    - `php -l content.php`
-3. Run regression suite:
+4. Run regression suite:
    - `bin/cs-resolution-regression --json`
    - `bin/cs-api-smoke --json`
    - Optional integrated run: `bin/cs-full-regression --json --api-include-apply-noop`
-4. Verify key API actions on FPP host return `ok=true`:
+5. Verify key API actions on FPP host return `ok=true`:
    - `status`, `preview`, `auth_device_start`, `auth_device_poll` (pending/connected path), `apply` (dry-safe fixture).
-5. Record release metadata:
+6. Record release metadata:
    - commit hash
    - branch
    - date/time (UTC)
    - operator
 
+### Phase 2 Gate Command Set
+Run in this order to avoid invalidating OAuth state before live validation.
+
+1. Local (repo root):
+   - `bin/cs-resolution-regression --json`
+2. FPP host (plugin repo):
+   - `bin/cs-full-regression --json --api-include-apply-noop`
+3. FPP host (plugin repo, API contract sweep including auth lifecycle):
+   - `bin/cs-api-smoke --json --include-auth-cycle --include-apply-noop`
+
+Notes:
+- `auth_disconnect` intentionally clears token state; run it after live E2E validation.
+- If `apply_noop` is gated because preview is not noop, run on a known dry-safe fixture first.
+
 ## Deploy
 1. Build lightweight release artifact from runtime payload:
    - `bin/cs-package --out-dir /tmp/cs-release`
-2. Push release commit to `origin/implementation-v2`.
-3. On FPP host, install/update from packaged artifact (preferred) or pull branch for development validation:
+2. Push release branch to origin and open PR to `master`.
+3. Obtain required GitHub approvals and merge PR to `master`.
+4. On FPP host, install/update from packaged artifact (preferred) or pull `master` for validation:
    - `cd /home/fpp/media/plugins/CalendarScheduler`
-   - `git pull --ff-only origin implementation-v2`
-4. Refresh plugin page in browser and confirm UI loads without console/runtime errors.
-5. Run initial UI checks:
+   - `sudo git fetch --prune origin`
+   - `sudo git checkout master`
+   - `sudo git reset --hard origin/master`
+5. Refresh plugin page in browser and confirm UI loads without console/runtime errors.
+6. Run initial UI checks:
    - Connection Setup renders correctly.
    - Pending Actions renders or cleanly hides when disconnected.
    - Apply button state follows pending-action availability.
@@ -51,7 +74,7 @@ Provide an operator-safe release procedure for Calendar Scheduler that includes 
 1. Determine previous known-good commit hash.
 2. On FPP host:
    - `cd /home/fpp/media/plugins/CalendarScheduler`
-   - `git checkout <known-good-commit>`
+   - `sudo git checkout <known-good-commit>`
 3. Reload plugin UI and rerun `status` + `preview` API checks.
 4. If rollback is clean, pin and document incident:
    - failed commit

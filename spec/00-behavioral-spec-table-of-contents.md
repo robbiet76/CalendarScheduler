@@ -160,7 +160,7 @@ Defines:
 ---
 
 ## 14. UI & Controller Contract  
-📄 **File:** `spec/14-ui-controller.md`
+📄 **File:** `spec/14-ui-controller-contract.md`
 
 Defines:
 - UI responsibilities

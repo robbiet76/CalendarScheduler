@@ -11,10 +11,35 @@ declare(strict_types=1);
  * validate production API contract and basic endpoint health.
  */
 
+if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
+    echo <<<'TXT'
+Usage:
+  bin/cs-api-smoke [options]
+
+Options:
+  --endpoint=<url>              UI API endpoint URL.
+                                Default: http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=ui-api.php&nopage=1
+  --sync-mode=<both|calendar|fpp>
+                                Sync mode for preview/apply checks (default: both)
+  --include-auth-start          Include auth_device_start contract check
+  --include-auth-poll           Include auth_device_poll check (requires auth start)
+  --include-auth-disconnect     Include auth_disconnect check
+  --include-auth-cycle          Shortcut for start + poll + disconnect
+  --include-apply-noop          Include apply noop check (fails if preview is not noop)
+  --json                        Emit JSON report
+  -h, --help                    Show this help text
+TXT;
+    echo PHP_EOL;
+    exit(0);
+}
+
 $opts = getopt('', [
     'endpoint::',
     'sync-mode::',
     'include-auth-start',
+    'include-auth-poll',
+    'include-auth-disconnect',
+    'include-auth-cycle',
     'include-apply-noop',
     'json',
 ]);
@@ -26,6 +51,14 @@ if ($endpoint === '') {
 
 $syncMode = normalizeSyncMode((string)($opts['sync-mode'] ?? 'both'));
 $includeAuthStart = array_key_exists('include-auth-start', $opts);
+$includeAuthPoll = array_key_exists('include-auth-poll', $opts);
+$includeAuthDisconnect = array_key_exists('include-auth-disconnect', $opts);
+$includeAuthCycle = array_key_exists('include-auth-cycle', $opts);
+if ($includeAuthCycle) {
+    $includeAuthStart = true;
+    $includeAuthPoll = true;
+    $includeAuthDisconnect = true;
+}
 $includeApplyNoop = array_key_exists('include-apply-noop', $opts);
 $jsonMode = array_key_exists('json', $opts);
 
@@ -93,6 +126,41 @@ if ($includeAuthStart) {
         && trim((string)($device['verification_url'] ?? '')) !== '';
     $checks[] = makeCheck('auth_device_start', $authOk, $authResp, ['device.device_code', 'device.user_code', 'device.verification_url']);
     $failed = $failed || !$authOk;
+
+    if ($includeAuthPoll) {
+        $deviceCode = is_string($device['device_code'] ?? null) ? trim((string)$device['device_code']) : '';
+        if ($deviceCode === '') {
+            $checks[] = [
+                'name' => 'auth_device_poll',
+                'ok' => false,
+                'httpCode' => $authResp['httpCode'],
+                'error' => 'missing device_code from auth_device_start',
+                'requiredFields' => ['poll.status'],
+            ];
+            $failed = true;
+        } else {
+            // Poll once to verify endpoint contract (normally authorization_pending before user approval).
+            $pollResp = postJson($endpoint, ['action' => 'auth_device_poll', 'device_code' => $deviceCode]);
+            $pollJson = is_array($pollResp['json'] ?? null) ? $pollResp['json'] : [];
+            $poll = is_array($pollJson['poll'] ?? null) ? $pollJson['poll'] : [];
+            $pollStatus = $poll['status'] ?? null;
+            $pollOk = $pollResp['httpCode'] === 200
+                && ($pollJson['ok'] ?? false) === true
+                && is_string($pollStatus)
+                && in_array($pollStatus, ['pending', 'connected'], true);
+            $checks[] = makeCheck('auth_device_poll', $pollOk, $pollResp, ['poll.status']);
+            $failed = $failed || !$pollOk;
+        }
+    }
+}
+
+if ($includeAuthDisconnect) {
+    $disconnectResp = postJson($endpoint, ['action' => 'auth_disconnect']);
+    $disconnectJson = is_array($disconnectResp['json'] ?? null) ? $disconnectResp['json'] : [];
+    $disconnectOk = $disconnectResp['httpCode'] === 200
+        && ($disconnectJson['ok'] ?? false) === true;
+    $checks[] = makeCheck('auth_disconnect', $disconnectOk, $disconnectResp, ['ok']);
+    $failed = $failed || !$disconnectOk;
 }
 
 $result = [
@@ -100,6 +168,8 @@ $result = [
     'endpoint' => $endpoint,
     'syncMode' => $syncMode,
     'includeAuthStart' => $includeAuthStart,
+    'includeAuthPoll' => $includeAuthPoll,
+    'includeAuthDisconnect' => $includeAuthDisconnect,
     'includeApplyNoop' => $includeApplyNoop,
     'checks' => $checks,
 ];
@@ -167,7 +237,6 @@ function postJson(string $endpoint, array $payload): array
     $raw = curl_exec($ch);
     $curlError = curl_error($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
 
     if (!is_string($raw)) {
         return [

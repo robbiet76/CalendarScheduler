@@ -6,193 +6,142 @@
 
 ## Purpose
 
-This section defines the **strict contract** between:
+This section defines the strict contract between:
+- UI (`content.php`)
+- Controller/API endpoint (`ui-api.php`)
+- Planner/diff/apply pipeline (`src/*`)
 
-- The **User Interface (UI)**
-- The **Controller**
-- The **Planner and downstream pipeline**
+It exists to enforce deterministic behavior, clear error propagation, and zero hidden scheduling logic in UI code.
 
-It exists to ensure:
-- Determinism
-- Predictability
-- Zero hidden logic
-- Zero accidental coupling
+## UI Responsibilities
 
-The UI is *not* part of the scheduling system.  
-The Controller is *not* part of the planning system.
+UI is presentation and user-intent capture only.
 
-**Note:** The UI models *relationships between systems* (e.g., Calendar ↔ FPP) rather than individual schedule entries. Users opt into calendar relationships and sync authority levels, not per-event actions.
+UI MUST:
+- Show provider connection/setup state
+- Allow client-secret upload and provider connect/disconnect
+- Allow selecting active calendar and sync mode
+- Trigger `status`, `diagnostics`, `preview`, and `apply`
+- Render pending actions and diagnostics payloads
+- Display backend errors without rewriting semantics
 
-The term ‘calendar’ is provider-agnostic. While Google Calendar is the initial provider, the contract supports future calendar sources without changing UI semantics.
+UI MUST NOT:
+- Compute reconciliation decisions
+- Mutate scheduler data directly
+- Synthesize identities or timestamps
+- Implement planner/diff/apply logic
 
----
+## Controller Responsibilities
 
-## High-Level Responsibilities
+`ui-api.php` is the orchestration boundary.
 
-### UI (User Interface)
+Controller MUST:
+- Accept request actions and validate inputs
+- Execute preview/apply through shared pipeline
+- Return stable response envelopes
+- Preserve fail-safe behavior and actionable hints
 
-The UI is responsible for **presentation and user intent capture only**.
+Controller MUST NOT:
+- Reorder planner output ad hoc
+- Hide invariant violations
+- Bypass apply safety rules
 
-It MUST:
-- Allow users to connect exactly one calendar at a time
-- Allow users to switch the active calendar relationship (e.g., different seasons, years, or providers), with exactly one active at any time
-- Allow users to select a sync authority mode (Create-only, Create & Update, Full control) for each calendar relationship
-- Trigger preview and apply actions for a given calendar relationship
-- Display planner output and diff summaries
-- Display errors exactly as returned
+## Action Contract
 
-The UI enforces a single active calendar relationship. Multiple calendars may be configured over time, but only one may be active and authoritative at any given moment.
+Current UI-facing actions are:
+- `status`
+- `diagnostics`
+- `set_calendar`
+- `set_sync_mode`
+- `set_ui_pref`
+- `preview`
+- `apply`
+- `auth_device_start`
+- `auth_device_poll`
+- `auth_upload_device_client`
+- `auth_disconnect`
+- `auth_exchange_code` (manual fallback path)
 
-It MUST NOT:
-- Infer intent
-- Modify planner output
-- Read or write scheduler data
-- Perform reconciliation logic
-- Perform identity logic
-- Parse or mutate schedule.json
-- Present or require per-event opt-in
-## Sync Authority Modes
+Unknown actions MUST return:
+- `ok=false`
+- `code=unknown_action`
+- `error`
+- `hint`
 
-The following sync authority modes are available for each calendar relationship:
-- Create-only
-- Create & Update
-- Full control (includes delete)
+## Sync Mode Contract
 
-These modes gate which Diff operations may be applied to FPP for a given calendar relationship. They do **not** affect planning or preview generation.
+Supported sync modes:
+- `both`
+- `calendar` (Calendar -> FPP)
+- `fpp` (FPP -> Calendar)
 
----
+Behavior:
+- `preview` and `diagnostics` always compute with selected mode
+- `apply` enforces directional safety:
+  - `calendar`: executable writes to FPP only
+  - `fpp`: executable writes to calendar only
+  - `both`: writes may target both sides
 
-### Controller
+## Preview vs Apply
 
-The Controller is the **orchestration boundary**.
+### Preview
+- Runs full pipeline with no persistent writes
+- Returns stable preview payload:
+  - `noop`
+  - `generatedAtUtc`
+  - `counts`
+  - `actions`
+  - `syncMode`
 
-It MUST:
-- Accept requests from the UI
-- Load configuration and runtime flags
-- Invoke the Planner deterministically
-- Route output to Preview or Apply paths
-- Surface errors without modification
+### Apply
+- Runs same planning path as preview
+- Applies executable actions via apply layer
+- Returns:
+  - `applied` count summary
+  - post-apply `preview`
 
-It MUST NOT:
-- Modify planner output
-- Repair invalid data
-- Skip invariant checks
-- Implement scheduling logic
-- Read schedule.json directly
+## Diagnostics Contract
 
----
+`diagnostics` action MUST return a stable object containing:
+- `syncMode`
+- `selectedCalendarId`
+- `counts`
+- `pendingSummary`
+- `lastError`
+- `previewGeneratedAtUtc`
 
-## Preview vs Apply Lifecycle
+Diagnostics is operational state, not long-term audit history.
 
-### Preview Mode
+## Error Handling Contract
 
-Preview mode:
-- Executes the full planning pipeline
-- Produces desired state and diff
-- Performs **no writes**
-- Is safe to run repeatedly
+Error envelope for failures:
+- `ok=false`
+- `error`
+- `code`
+- optional `hint`
+- optional `details`
 
-Preview MUST:
-- Use identical logic to Apply
-- Fail on the same invariants
-- Surface identity issues clearly
-- Output an *impact summary* suitable for user review (e.g., counts of creates, updates, deletes), without exposing raw scheduler entries.
+For `apply` and `auth_*` runtime failures, `details` SHOULD include:
+- `correlationId`
 
----
+Correlated errors MUST be traceable to logs.
 
-### Apply Mode
+## Dry-Run Expectations
 
-Apply mode:
-- Executes the same pipeline as Preview
-- Applies the diff to FPP
-- Is write-only with respect to FPP
+Preview path is safe to run repeatedly and is used as the no-write validation path.
 
-Apply MUST:
-- Be idempotent
-- Fail fast on invariant violations
-- Never re-plan or re-diff independently
-
----
-
-## Dry Run Semantics
-
-Dry run is a **controller-level flag**.
-
-Rules:
-- Dry run = Preview + Apply UI flow, but no persistence
-- Planner output must be identical
-- Diff output must be identical
-- Only the final write step is suppressed
-
-The UI must visually indicate dry-run mode.
-
----
-
-## Data Flow Contract
-
-```
-UI
-  ↓
-Controller
-  ↓
-Planner
-  ↓
-Diff
-  ↓
-Apply (optional)
-```
-
-Rules:
-- Data only flows downward
-- No component reads upstream state
-- No circular dependencies
-- No implicit state sharing
-
----
-
-## Error Handling
-
-Errors:
-- Must propagate upward unchanged
-- Must never be swallowed
-- Must never be “fixed” in the UI or Controller
-
-The UI:
-- Displays errors
-- Does not interpret them
-
-The Controller:
-- Routes errors
-- Does not transform them
-
----
+No UI-side dry-run flag should alter planning semantics independently of controller behavior.
 
 ## Forbidden Behaviors
 
-The UI MUST NOT:
-- Generate scheduler entries
-- Assign identities
-- Resolve times or dates
-- Apply guard logic
-- Expose Manifest Events, SubEvents, or internal identities as first-class UI objects
-
-The Controller MUST NOT:
-- Read schedule.json
-- Compare scheduler entries
-- Modify ordering
-- Synthesize identities
-
----
+UI/Controller MUST NOT:
+- Treat unmanaged scheduler rows as managed by implication
+- Rewrite planner output for convenience
+- Silently swallow provider/API errors
+- Introduce hidden state outside config/runtime files and explicit responses
 
 ## Summary
 
-The UI & Controller contract enforces:
-
-- Clean separation of concerns
-- Deterministic planning
-- Debuggable behavior
-- No hidden state
-
-All intelligence lives **below** this boundary.
-
-Violating this contract invalidates the system design.
+All scheduling intelligence remains below UI/controller boundaries.  
+UI collects intent and renders results.  
+Controller validates, orchestrates, and returns stable contracts.

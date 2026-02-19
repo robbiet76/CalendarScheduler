@@ -573,7 +573,18 @@
       if (!out) {
         return;
       }
-      out.textContent = JSON.stringify(payload, null, 2);
+      var body = (payload && payload.diagnostics) ? payload.diagnostics : payload;
+      out.textContent = JSON.stringify(body || {}, null, 2);
+    }
+
+    function refreshDiagnostics() {
+      return fetchJson({ action: "diagnostics", sync_mode: syncMode })
+        .then(function (res) {
+          renderDiagnostics(res);
+        })
+        .catch(function () {
+          // Diagnostics should not block primary UX flow.
+        });
     }
 
     function fetchJson(payload) {
@@ -854,7 +865,7 @@
         } else if (!providerConnected) {
           setSetupStatus("Not connected. Click Connect Provider to start Google device sign-in.");
         }
-        renderDiagnostics(res);
+        return refreshDiagnostics();
       });
     }
 
@@ -862,14 +873,14 @@
     function runPreview() {
       return fetchJson({ action: "preview", sync_mode: syncMode }).then(function (res) {
         renderPreview(res.preview || {});
-        renderDiagnostics(res);
+        return refreshDiagnostics();
       });
     }
 
     function runApply() {
       return fetchJson({ action: "apply", sync_mode: syncMode }).then(function (res) {
         renderPreview(res.preview || {});
-        renderDiagnostics(res);
+        return refreshDiagnostics();
       });
     }
 

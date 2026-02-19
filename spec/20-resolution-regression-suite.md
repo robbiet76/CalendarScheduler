@@ -189,14 +189,14 @@ Run all RR-01 through RR-29.
 Automated command:
 
 ```bash
-php bin/cs-full-regression --label=release-gate --skip-live
+bin/cs-full-regression --label=release-gate --skip-live
 ```
 
 ## Execution Workflow
 1. Prepare scenario in calendar/FPP.
 2. Run:
 ```bash
-php bin/cs-regression --label=<CASE_ID> --apply --expect-post-noop=true
+bin/cs-regression --label=<CASE_ID> --apply --expect-post-noop=true
 ```
 3. Capture and archive:
 - `/tmp/cs-regression/<timestamp>-<CASE_ID>/report.json`
