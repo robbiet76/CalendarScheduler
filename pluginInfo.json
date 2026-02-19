@@ -1,5 +1,5 @@
 {
-  "repoName": "GoogleCalendarScheduler",
+  "repoName": "CalendarScheduler",
   "name": "Calendar Scheduler",
   "shortName": "CalendarScheduler",
   "description": "Sync and reconcile FPP schedule entries with calendar providers.",

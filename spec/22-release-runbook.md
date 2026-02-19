@@ -25,7 +25,7 @@ Provide an operator-safe release procedure for Calendar Scheduler that includes 
    - `bin/cs-package --out-dir /tmp/cs-release`
 2. Push release commit to `origin/implementation-v2`.
 3. On FPP host, install/update from packaged artifact (preferred) or pull branch for development validation:
-   - `cd /home/fpp/media/plugins/GoogleCalendarScheduler`
+   - `cd /home/fpp/media/plugins/CalendarScheduler`
    - `git pull --ff-only origin implementation-v2`
 4. Refresh plugin page in browser and confirm UI loads without console/runtime errors.
 5. Run initial UI checks:
@@ -50,7 +50,7 @@ Provide an operator-safe release procedure for Calendar Scheduler that includes 
 ## Rollback
 1. Determine previous known-good commit hash.
 2. On FPP host:
-   - `cd /home/fpp/media/plugins/GoogleCalendarScheduler`
+   - `cd /home/fpp/media/plugins/CalendarScheduler`
    - `git checkout <known-good-commit>`
 3. Reload plugin UI and rerun `status` + `preview` API checks.
 4. If rollback is clean, pin and document incident:
