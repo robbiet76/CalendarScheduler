@@ -26,6 +26,8 @@ Out of scope:
 - Override rows above base rows when overlap requires precedence.
 - Cross-bundle overlap resolved by canonical precedence rules from `spec/08-scheduler-ordering.md`.
 - Non-overlap fallback is chronological ordering by start date/time.
+- Command rows are grouped at the bottom and remain chronological within the command group.
+- Symbolic timing precedence uses estimated display-time windows (FPP env timezone/lat/lon), with deterministic fallback when estimates are unavailable.
 5. Convergence: after apply, next preview converges (`noop=true`) unless source changed.
 6. Round-trip safety: Calendar -> FPP -> Calendar (or reverse) preserves intent.
 
@@ -89,10 +91,10 @@ For each case, capture:
 - Expected: Distinct override subevent with alternate target.
 - Assert: no accidental collapse into base target.
 
-### RR-12 Command Payload Override
+### RR-12 Command Payload Override and Command Grouping
 - Pattern: Command row with override payload delta.
 - Expected: Override subevent preserved with payload keys.
-- Assert: command args/options round-trip.
+- Assert: command args/options round-trip and resulting command rows remain in the bottom command cluster.
 
 ### RR-13 Symbolic Date Boundary
 - Pattern: Holiday symbolic date in range boundary.
@@ -172,6 +174,7 @@ Run at least:
 - RR-07
 - RR-10
 - RR-11
+- RR-12
 - RR-18
 - RR-19
 - RR-23

@@ -25,6 +25,7 @@ This document defines what ordering must do, not a specific algorithm implementa
 3. Ordering is explainable using explicit precedence rules.
 4. Ordering preserves complete intent: overlapping entries remain represented.
 5. Calendar-side reorder attempts are not authoritative in current behavior.
+6. Command bundles are grouped at the bottom for readability because command execution is point-in-time and not row-precedence driven.
 
 ---
 
@@ -63,10 +64,11 @@ Chronology is the default, not the full rule system.
 
 ## Global Ordering Pipeline
 
-Ordering executes in two phases:
+Ordering executes in three phases:
 
 1. Baseline chronological placement
-2. Overlap-aware precedence resolution
+2. Overlap-aware precedence resolution (non-command bundles)
+3. Command bundle clustering at the bottom (chronological within command group)
 
 The result is a stable total order of all subevents with absolute `executionOrder` values.
 
@@ -85,19 +87,20 @@ Initial order is built from effective timing keys:
 Notes:
 
 - Symbolic timing/date tokens remain symbolic-first for identity semantics.
+- Symbolic time comparison for ordering uses estimated wall-clock seconds (from FPP timezone/lat/lon when available) with deterministic fallback defaults.
 - This phase does not settle overlap dominance; it only provides a deterministic baseline.
 
 ---
 
 ## Phase 2 — Overlap-Aware Precedence Resolution
 
-After baseline placement, precedence is resolved across overlapping bundles.
+After baseline placement, precedence is resolved across overlapping non-command bundles.
 
 ### Overlap Gate
 
-A precedence decision is only allowed when overlap exists or cannot be safely disproven.
+A precedence decision is only allowed when overlap exists.
 
-Treat as potentially overlapping when symbolic boundaries prevent definitive disproof.
+Symbolic boundaries are evaluated using estimated display times. If symbolic timing cannot be parsed/resolved, overlap falls back conservatively to full-day semantics.
 
 ### Precedence Rules (Priority Order)
 
@@ -119,6 +122,23 @@ Treat as potentially overlapping when symbolic boundaries prevent definitive dis
 ### Non-Overlap Rule
 
 If bundles do not overlap, keep chronological order.
+
+---
+
+## Phase 3 — Command Bundle Clustering
+
+Command bundles are grouped at the bottom of the global schedule.
+
+Rules:
+
+1. Non-command bundles are always ordered before command bundles.
+2. Command bundles remain chronologically ordered among themselves.
+3. Command vs non-command overlap precedence edges are not used.
+
+Rationale:
+
+- Commands are point-in-time triggers that fire at start time regardless of row position.
+- Grouping commands at the bottom improves schedule readability without changing command execution behavior.
 
 ---
 

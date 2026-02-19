@@ -24,6 +24,7 @@ Additional invariants:
 3. Symbolic timing/date tokens remain canonical-first for identity matching.
 4. Calendar may carry `executionOrder` metadata, but calendar edits are not treated as an authority to reorder FPP.
 5. Global order follows `spec/08-scheduler-ordering.md` (baseline chronology plus overlap-aware precedence).
+6. Command rows are grouped after non-command rows; command order is chronological inside the command group.
 
 ## Hash Contract
 1. `identityHash` includes only stable logical identity.
@@ -57,6 +58,7 @@ This metadata is used to preserve round-trip fidelity and continuity, but does n
 3. If metadata is missing, use deterministic fallback ordering and mark degraded fidelity.
 4. Do not infer or force calendar-side reorder as FPP reorder.
 5. Emit FPP rows in stable final execution order while preserving overlaps.
+6. Keep command rows clustered at the bottom while preserving chronological command order.
 
 ## Reconciliation Rules
 1. FPP order changes are state changes.
@@ -72,3 +74,4 @@ This metadata is used to preserve round-trip fidelity and continuity, but does n
 4. Reorder-only edits on FPP show pending updates and apply restores canonical order.
 5. Symbolic-time overlap handoff scenarios round-trip without losing entries.
 6. Post-apply second sync is `noop`.
+7. Command rows converge into bottom command cluster deterministically after apply.
