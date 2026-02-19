@@ -11,6 +11,28 @@ declare(strict_types=1);
  * validate production API contract and basic endpoint health.
  */
 
+if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
+    echo <<<'TXT'
+Usage:
+  bin/cs-api-smoke [options]
+
+Options:
+  --endpoint=<url>              UI API endpoint URL.
+                                Default: http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=ui-api.php&nopage=1
+  --sync-mode=<both|calendar|fpp>
+                                Sync mode for preview/apply checks (default: both)
+  --include-auth-start          Include auth_device_start contract check
+  --include-auth-poll           Include auth_device_poll check (requires auth start)
+  --include-auth-disconnect     Include auth_disconnect check
+  --include-auth-cycle          Shortcut for start + poll + disconnect
+  --include-apply-noop          Include apply noop check (fails if preview is not noop)
+  --json                        Emit JSON report
+  -h, --help                    Show this help text
+TXT;
+    echo PHP_EOL;
+    exit(0);
+}
+
 $opts = getopt('', [
     'endpoint::',
     'sync-mode::',

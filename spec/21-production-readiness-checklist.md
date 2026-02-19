@@ -84,7 +84,11 @@ Phase 6 gate:
 - [x] Common troubleshooting paths are documented and reproducible.
 
 ## Production Exit Criteria
-- [ ] All phase gates passed.
-- [ ] Final release branch tagged.
-- [ ] FPP-host validation run archived with command outputs and commit hashes.
-- [ ] Rollback procedure verified.
+- [x] All phase gates passed.
+- [x] Final release branch tagged.
+- [x] FPP-host validation run archived with command outputs and commit hashes.
+- [x] Rollback procedure verified.
+
+Exit evidence:
+- Tag: `v0.30.0-production-readiness-exit` (commit `01e74c9`)
+- Archive: `docs/release-evidence/2026-02-19-production-readiness-exit.md`
