@@ -79,10 +79,8 @@
   }
 
   .cs-connection-summary {
-    flex: 1 1 auto;
-    font-size: 13px;
-    color: #2b2f33;
-    margin-left: 8px;
+    margin-top: -2px;
+    margin-bottom: 8px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -169,9 +167,9 @@
       <div class="backdrop mb-3">
         <div class="cs-panel-header">
           <h4 class="cs-panel-title">1) Connection Setup</h4>
-          <div class="cs-connection-summary cs-hidden" id="csConnectionSummary"></div>
           <button class="buttons btn-black btn-sm" id="csConnectionToggleBtn" type="button">Collapse</button>
         </div>
+        <p class="cs-muted cs-connection-summary cs-hidden" id="csConnectionSummary"></p>
         <div id="csConnectionPanelBody">
         <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
