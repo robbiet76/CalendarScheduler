@@ -295,6 +295,8 @@
     var connectionCollapsedLoaded = false;
     var applyConfirmArmed = false;
     var applyConfirmTimer = null;
+    var applyInFlight = false;
+    var lastPendingCount = 0;
 
     function byId(id) {
       return document.getElementById(id);
@@ -330,8 +332,8 @@
       if (!applyBtn) {
         return;
       }
-      applyBtn.disabled = !enabled;
-      if (!enabled) {
+      applyBtn.disabled = !enabled || applyInFlight;
+      if (!enabled || applyInFlight) {
         resetApplyConfirm();
       }
     }
@@ -659,6 +661,7 @@
       }
 
       var pendingCount = renderActions(preview.actions || []);
+      lastPendingCount = pendingCount;
       setApplyEnabled(pendingCount > 0);
     }
 
@@ -869,6 +872,7 @@
         .then(function () {
           if (!providerConnected) {
             renderActions([]);
+            lastPendingCount = 0;
             setApplyEnabled(false);
             return Promise.resolve();
           }
@@ -1056,11 +1060,17 @@
         return;
       }
       resetApplyConfirm();
+      applyInFlight = true;
+      setApplyEnabled(false);
       setButtonsDisabled(true);
       setLoadingState();
       runApply()
         .catch(function (err) { setError(err.message); })
-        .finally(function () { setButtonsDisabled(false); });
+        .finally(function () {
+          applyInFlight = false;
+          setButtonsDisabled(false);
+          setApplyEnabled(lastPendingCount > 0);
+        });
     });
 
     window.addEventListener("focus", function () {
