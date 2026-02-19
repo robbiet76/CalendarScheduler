@@ -43,6 +43,8 @@ final class FppScheduleAdapter
         'stopType' => true,
         'playlist' => true,
         'command' => true,
+        'cs_manifestEventId' => true,
+        'cs_sourceEventUid' => true,
         // If FPP ever adds additional scheduler keys, add them here (adapter-only).
     ];
 
@@ -326,6 +328,23 @@ final class FppScheduleAdapter
         }
 
         // Canonical manifest-event shape (hashes computed upstream)
+        $correlation = [
+            'source' => 'fpp',
+            'raw'    => $entry,
+        ];
+        $manifestEventId = is_string($entry['cs_manifestEventId'] ?? null)
+            ? trim((string)$entry['cs_manifestEventId'])
+            : '';
+        if ($manifestEventId !== '') {
+            $correlation['manifestEventId'] = $manifestEventId;
+        }
+        $sourceEventUid = is_string($entry['cs_sourceEventUid'] ?? null)
+            ? trim((string)$entry['cs_sourceEventUid'])
+            : '';
+        if ($sourceEventUid !== '') {
+            $correlation['sourceEventUid'] = $sourceEventUid;
+        }
+
         return [
             'source' => 'fpp',
             'type' => $type,
@@ -346,10 +365,7 @@ final class FppScheduleAdapter
                 'controller' => 'fpp',
                 'locked'     => false,
             ],
-            'correlation' => [
-                'source' => 'fpp',
-                'raw'    => $entry,
-            ],
+            'correlation' => $correlation,
             // IMPORTANT: calendar-scheduler consumes updatedAtEpoch for authority.
             'updatedAtEpoch'  => $scheduleUpdatedAt,
             // Keep for any older call sites that still read this name.
@@ -400,6 +416,23 @@ final class FppScheduleAdapter
      */
     private function deriveManifestAggregateKey(array $event): string
     {
+        $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+        $manifestEventId = is_string($correlation['manifestEventId'] ?? null)
+            ? trim((string)$correlation['manifestEventId'])
+            : '';
+        if ($manifestEventId !== '') {
+            return 'manifest|' . $manifestEventId;
+        }
+
+        $sourceEventUid = is_string($correlation['sourceEventUid'] ?? null)
+            ? trim((string)$correlation['sourceEventUid'])
+            : '';
+        if ($sourceEventUid !== '') {
+            $type = (string)($event['type'] ?? '');
+            $target = (string)($event['target'] ?? '');
+            return 'source|' . $type . '|' . $target . '|' . $sourceEventUid;
+        }
+
         $type = (string)($event['type'] ?? '');
         $target = (string)($event['target'] ?? '');
         $sub = (is_array($event['subEvents'] ?? null) && isset($event['subEvents'][0]) && is_array($event['subEvents'][0]))
@@ -531,10 +564,10 @@ final class FppScheduleAdapter
         $symTime = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
 
         return implode('|', [
-            $hardDate !== '' ? $hardDate : '9999-99-99',
             $symDate !== '' ? $symDate : '~',
-            $hardTime !== '' ? $hardTime : '99:99:99',
+            $hardDate !== '' ? $hardDate : '9999-99-99',
             $symTime !== '' ? $symTime : '~',
+            $hardTime !== '' ? $hardTime : '99:99:99',
             sprintf('%+06d', (int)($startTime['offset'] ?? 0)),
             !empty($timing['all_day']) ? '1' : '0',
         ]);
@@ -747,6 +780,25 @@ final class FppScheduleAdapter
         $entry['endDate'] =
             ($endDate['symbolic'] ?? null)
                 ?: ($endDate['hard'] ?? null);
+
+        $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+        $manifestEventId = is_string($event['identityHash'] ?? null)
+            ? trim((string)$event['identityHash'])
+            : '';
+        if ($manifestEventId === '') {
+            $manifestEventId = is_string($event['id'] ?? null)
+                ? trim((string)$event['id'])
+                : '';
+        }
+        if ($manifestEventId !== '') {
+            $entry['cs_manifestEventId'] = $manifestEventId;
+        }
+        $sourceEventUid = is_string($correlation['sourceEventUid'] ?? null)
+            ? trim((string)$correlation['sourceEventUid'])
+            : '';
+        if ($sourceEventUid !== '') {
+            $entry['cs_sourceEventUid'] = $sourceEventUid;
+        }
 
         return $entry;
     }

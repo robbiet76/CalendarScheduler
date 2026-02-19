@@ -583,10 +583,10 @@ final class IntentNormalizer
         $offset = (int)($time['offset'] ?? 0);
 
         return implode('|', [
-            $dateHard !== '' ? $dateHard : '9999-99-99',
             $dateSymbolic !== '' ? $dateSymbolic : '~',
-            $timeHard !== '' ? $timeHard : '99:99:99',
+            $dateHard !== '' ? $dateHard : '9999-99-99',
             $timeSymbolic !== '' ? $timeSymbolic : '~',
+            $timeHard !== '' ? $timeHard : '99:99:99',
             sprintf('%+06d', $offset),
             !empty($timing['all_day']) ? '1' : '0',
         ]);
