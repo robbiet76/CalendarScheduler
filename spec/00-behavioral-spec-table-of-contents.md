@@ -236,5 +236,21 @@ Defines:
 
 ---
 
-### Next Section to Author
-➡️ **`spec/03-manifest.md`**
+## 21. Production Readiness Checklist  
+📄 **File:** `spec/21-production-readiness-checklist.md`
+
+Defines:
+- Locked, sequential production-readiness execution plan
+- Phase gates and stop/go criteria
+- Detour-and-resume workflow when fixes are discovered mid-phase
+- Final production exit criteria
+
+---
+
+## 22. Release Runbook  
+📄 **File:** `spec/22-release-runbook.md`
+
+Defines:
+- Operator-ready release procedure with preflight, deploy, post-verify, and rollback
+- Required API/regression gates before go-live
+- Artifact capture expectations for traceable releases

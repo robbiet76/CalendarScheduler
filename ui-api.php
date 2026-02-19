@@ -64,6 +64,51 @@ function cs_respond(array $payload, int $status = 200): void
     exit;
 }
 
+/**
+ * @param array<string,mixed> $details
+ */
+function cs_respond_error(
+    string $error,
+    int $status = 500,
+    ?string $hint = null,
+    string $code = 'api_error',
+    array $details = []
+): void {
+    $payload = [
+        'ok' => false,
+        'error' => $error,
+        'code' => $code,
+    ];
+    if (is_string($hint) && trim($hint) !== '') {
+        $payload['hint'] = $hint;
+    }
+    if ($details !== []) {
+        $payload['details'] = $details;
+    }
+    cs_respond($payload, $status);
+}
+
+function cs_hint_for_exception(\Throwable $e, string $action = ''): ?string
+{
+    $message = strtolower($e->getMessage());
+    if (str_contains($message, 'device auth start failed: invalid_client')) {
+        return 'Upload a valid TV and Limited Input OAuth client JSON, then try Connect Provider again.';
+    }
+    if (str_contains($message, 'device auth poll failed')) {
+        return 'Retry authorization on google.com/device using the latest code, then poll again.';
+    }
+    if (str_contains($message, 'token file') || str_contains($message, 'token directory')) {
+        return 'Ensure the Google config folder is writable and reconnect the provider.';
+    }
+    if (str_contains($message, 'google config') || str_contains($message, 'client file')) {
+        return 'Open Connection Setup checks, upload client secret JSON, and confirm all checks show OK.';
+    }
+    if ($action === 'preview' || $action === 'apply') {
+        return 'Open Diagnostics and verify provider connection, selected calendar, and setup checks.';
+    }
+    return null;
+}
+
 function cs_export_fpp_env(): void
 {
     // Promote warnings to exceptions so export failures are explicit to callers.
@@ -990,7 +1035,13 @@ try {
     if ($action === 'set_calendar') {
         $calendarId = $input['calendar_id'] ?? '';
         if (!is_string($calendarId) || trim($calendarId) === '') {
-            cs_respond(['ok' => false, 'error' => 'calendar_id is required'], 422);
+            cs_respond_error(
+                'calendar_id is required',
+                422,
+                'Select a calendar first, then retry.',
+                'validation_error',
+                ['field' => 'calendar_id']
+            );
         }
         cs_set_calendar_id(trim($calendarId));
         cs_respond(['ok' => true]);
@@ -999,7 +1050,13 @@ try {
     if ($action === 'set_sync_mode') {
         $syncMode = $input['sync_mode'] ?? '';
         if (!is_string($syncMode) || trim($syncMode) === '') {
-            cs_respond(['ok' => false, 'error' => 'sync_mode is required'], 422);
+            cs_respond_error(
+                'sync_mode is required',
+                422,
+                'Choose Calendar -> FPP, FPP -> Calendar, or Two-way Merge.',
+                'validation_error',
+                ['field' => 'sync_mode']
+            );
         }
         cs_set_sync_mode($syncMode);
         cs_respond([
@@ -1011,11 +1068,23 @@ try {
     if ($action === 'set_ui_pref') {
         $key = $input['key'] ?? '';
         if (!is_string($key) || trim($key) === '') {
-            cs_respond(['ok' => false, 'error' => 'key is required'], 422);
+            cs_respond_error(
+                'key is required',
+                422,
+                'Provide the UI preference key.',
+                'validation_error',
+                ['field' => 'key']
+            );
         }
         $key = trim($key);
         if ($key !== 'connection_collapsed') {
-            cs_respond(['ok' => false, 'error' => 'unsupported key'], 422);
+            cs_respond_error(
+                'unsupported key',
+                422,
+                'Only connection_collapsed is currently supported.',
+                'validation_error',
+                ['field' => 'key', 'allowed' => ['connection_collapsed']]
+            );
         }
         $rawValue = $input['value'] ?? false;
         $value = false;
@@ -1048,7 +1117,13 @@ try {
     if ($action === 'auth_device_poll') {
         $deviceCode = $input['device_code'] ?? '';
         if (!is_string($deviceCode) || trim($deviceCode) === '') {
-            cs_respond(['ok' => false, 'error' => 'device_code is required'], 422);
+            cs_respond_error(
+                'device_code is required',
+                422,
+                'Start device auth first, then provide the returned device_code.',
+                'validation_error',
+                ['field' => 'device_code']
+            );
         }
         $poll = cs_google_device_poll(trim($deviceCode));
         cs_respond([
@@ -1060,7 +1135,13 @@ try {
     if ($action === 'auth_exchange_code') {
         $code = $input['code'] ?? '';
         if (!is_string($code) || trim($code) === '') {
-            cs_respond(['ok' => false, 'error' => 'code is required'], 422);
+            cs_respond_error(
+                'code is required',
+                422,
+                'Paste the full callback URL or authorization code from Google.',
+                'validation_error',
+                ['field' => 'code']
+            );
         }
         cs_google_exchange_authorization_code(trim($code));
         cs_respond(['ok' => true]);
@@ -1078,7 +1159,13 @@ try {
             $filename = CS_GOOGLE_DEVICE_CLIENT_FILENAME;
         }
         if (!is_string($json) || trim($json) === '') {
-            cs_respond(['ok' => false, 'error' => 'json is required'], 422);
+            cs_respond_error(
+                'json is required',
+                422,
+                'Upload the OAuth client secret JSON file content.',
+                'validation_error',
+                ['field' => 'json']
+            );
         }
         $stored = cs_google_upload_device_client($filename, $json);
         cs_respond([
@@ -1108,10 +1195,19 @@ try {
         ]);
     }
 
-    cs_respond(['ok' => false, 'error' => "Unknown action: {$action}"], 404);
+    cs_respond_error(
+        "Unknown action: {$action}",
+        404,
+        'Use one of: status, preview, apply, auth_device_start, auth_device_poll, auth_disconnect.',
+        'unknown_action',
+        ['action' => $action]
+    );
 } catch (\Throwable $e) {
-    cs_respond([
-        'ok' => false,
-        'error' => $e->getMessage(),
-    ], 500);
+    cs_respond_error(
+        $e->getMessage(),
+        500,
+        cs_hint_for_exception($e, is_string($action ?? null) ? $action : ''),
+        'runtime_error',
+        ['action' => is_string($action ?? null) ? $action : 'unknown']
+    );
 }
