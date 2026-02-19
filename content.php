@@ -691,7 +691,10 @@
         } else if (a.type === "delete" || a.type === "block") {
           badgeClass = "text-bg-danger";
         }
-        var eventName = a.event && a.event.target ? a.event.target : "-";
+        var manifestIdentity = a.manifestEvent && a.manifestEvent.identity ? a.manifestEvent.identity : null;
+        var eventName = (manifestIdentity && manifestIdentity.target)
+          ? manifestIdentity.target
+          : ((a.event && a.event.target) ? a.event.target : "-");
         var reason = friendlyReason(a.reason || "-", a.type || "", a.target || "");
         return "<tr>"
           + "<td><span class=\"badge " + badgeClass + "\">" + escapeHtml(String(a.type || "").toUpperCase()) + "</span></td>"

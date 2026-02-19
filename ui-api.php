@@ -97,68 +97,28 @@ function cs_run_preview_engine(?string $syncMode = null): SchedulerRunResult
 }
 
 /**
- * @param array<string,mixed>|null $event
- * @return array<string,mixed>
+ * @param array<string,mixed> $manifest
+ * @return array<string,array<string,mixed>>
  */
-function cs_normalize_event(?array $event): array
+function cs_index_manifest_events(array $manifest): array
 {
-    if (!is_array($event)) {
-        return [];
-    }
-
-    $identity = is_array($event['identity'] ?? null) ? $event['identity'] : [];
-    $timing = [];
-    if (is_array($identity['timing'] ?? null)) {
-        $timing = $identity['timing'];
-    } elseif (is_array($event['timing'] ?? null)) {
-        // Some action payloads carry timing at top-level event.
-        $timing = $event['timing'];
-    } else {
-        // Fallback for segmented events represented through subEvents.
-        $subEvents = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
-        $firstSub = is_array($subEvents[0] ?? null) ? $subEvents[0] : [];
-        $timing = is_array($firstSub['timing'] ?? null) ? $firstSub['timing'] : [];
-    }
-
-    $startDate = cs_read_timing_value($timing['start_date'] ?? null, ['hard', 'symbolic', 'value']);
-    $endDate = cs_read_timing_value($timing['end_date'] ?? null, ['hard', 'symbolic', 'value']);
-    $startTime = cs_read_timing_value($timing['start_time'] ?? null, ['hard', 'symbolic', 'value']);
-    $endTime = cs_read_timing_value($timing['end_time'] ?? null, ['hard', 'symbolic', 'value']);
-    $days = null;
-    if (is_array($timing['days'] ?? null)) {
-        $days = $timing['days']['value'] ?? null;
-    }
-
-    return [
-        'target' => $identity['target'] ?? $event['target'] ?? null,
-        'type' => $identity['type'] ?? $event['type'] ?? null,
-        'startDate' => $startDate,
-        'endDate' => $endDate,
-        'startTime' => $startTime,
-        'endTime' => $endTime,
-        'days' => is_array($days) ? array_values($days) : null,
-    ];
-}
-
-/**
- * @param mixed $node
- * @param array<int,string> $keys
- */
-function cs_read_timing_value(mixed $node, array $keys): ?string
-{
-    if (is_string($node) && trim($node) !== '') {
-        return trim($node);
-    }
-    if (!is_array($node)) {
-        return null;
-    }
-    foreach ($keys as $key) {
-        $v = $node[$key] ?? null;
-        if (is_string($v) && trim($v) !== '') {
-            return trim($v);
+    $indexed = [];
+    $events = is_array($manifest['events'] ?? null) ? $manifest['events'] : [];
+    foreach ($events as $key => $event) {
+        if (is_array($event) && is_string($key) && $key !== '') {
+            $indexed[$key] = $event;
+            continue;
+        }
+        if (!is_array($event)) {
+            continue;
+        }
+        $id = $event['identityHash'] ?? $event['id'] ?? null;
+        if (is_string($id) && $id !== '') {
+            $indexed[$id] = $event;
         }
     }
-    return null;
+
+    return $indexed;
 }
 
 /**
@@ -167,14 +127,23 @@ function cs_read_timing_value(mixed $node, array $keys): ?string
 function cs_actions_for_ui(SchedulerRunResult $result): array
 {
     $out = [];
+    $currentManifestEvents = cs_index_manifest_events($result->currentManifest());
     foreach ($result->actions() as $action) {
+        $manifestEvent = $currentManifestEvents[$action->identityHash] ?? null;
+        $rawEvent = is_array($action->event) ? $action->event : [];
+        $rawIdentity = is_array($rawEvent['identity'] ?? null) ? $rawEvent['identity'] : [];
         $out[] = [
             'type' => $action->type,
             'target' => $action->target,
             'authority' => $action->authority,
             'identityHash' => $action->identityHash,
             'reason' => $action->reason,
-            'event' => cs_normalize_event($action->event),
+            // Keep minimal event summary for UI table fallback only.
+            'event' => [
+                'target' => $rawIdentity['target'] ?? $rawEvent['target'] ?? null,
+                'type' => $rawIdentity['type'] ?? $rawEvent['type'] ?? null,
+            ],
+            'manifestEvent' => is_array($manifestEvent) ? $manifestEvent : null,
         ];
     }
     return $out;
