@@ -73,16 +73,19 @@
 
   .cs-panel-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     gap: 8px;
   }
 
-  .cs-connection-toggle-close {
-    font-size: 20px;
-    line-height: 1;
-    min-width: 36px;
-    padding: 4px 10px;
+  .cs-connection-close-wrap {
+    margin-left: auto;
+  }
+
+  .cs-connection-close-btn {
+    padding: 2px 10px;
+    font-size: 12px;
+    line-height: 1.2;
   }
 
   .cs-connection-summary {
@@ -91,6 +94,12 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .cs-connection-modify-wrap {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
   }
 
   .cs-help-list {
@@ -174,7 +183,9 @@
       <div class="backdrop mb-3">
         <div class="cs-panel-header">
           <h4 class="cs-panel-title">1) Connection Setup</h4>
-          <button class="buttons btn-black" id="csConnectionToggleBtn" type="button" aria-label="Close Connection Setup">×</button>
+          <div class="cs-connection-close-wrap" id="csConnectionCloseWrap">
+            <button class="buttons btn-black cs-connection-close-btn" id="csConnectionCloseBtn" type="button" aria-label="Close Connection Setup">Close</button>
+          </div>
         </div>
         <p class="cs-muted cs-connection-summary cs-hidden" id="csConnectionSummary"></p>
         <div id="csConnectionPanelBody">
@@ -222,6 +233,9 @@
         <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
         </div>
+        </div>
+        <div class="cs-connection-modify-wrap cs-hidden" id="csConnectionModifyWrap">
+          <button class="buttons btn-black" id="csConnectionModifyBtn" type="button" aria-label="Modify Connection Setup">Modify</button>
         </div>
 
       </div>
@@ -416,23 +430,17 @@
 
     function setConnectionCollapsed(collapsed) {
       var body = byId("csConnectionPanelBody");
-      var btn = byId("csConnectionToggleBtn");
       var summary = byId("csConnectionSummary");
-      if (!body || !btn || !summary) {
+      var closeWrap = byId("csConnectionCloseWrap");
+      var modifyWrap = byId("csConnectionModifyWrap");
+      if (!body || !summary || !closeWrap || !modifyWrap) {
         return;
       }
       connectionCollapsed = !!collapsed;
       body.classList.toggle("cs-hidden", connectionCollapsed);
-      if (connectionCollapsed) {
-        btn.textContent = "Modify";
-        btn.classList.remove("cs-connection-toggle-close");
-        btn.setAttribute("aria-label", "Modify Connection Setup");
-      } else {
-        btn.textContent = "×";
-        btn.classList.add("cs-connection-toggle-close");
-        btn.setAttribute("aria-label", "Close Connection Setup");
-      }
       summary.classList.toggle("cs-hidden", !connectionCollapsed);
+      closeWrap.classList.toggle("cs-hidden", connectionCollapsed);
+      modifyWrap.classList.toggle("cs-hidden", !connectionCollapsed);
     }
 
     function updateTopStatusCompact() {
@@ -981,7 +989,18 @@
       startDeviceAuthFlow();
     });
 
-    byId("csConnectionToggleBtn").addEventListener("click", function () {
+    byId("csConnectionCloseBtn").addEventListener("click", function () {
+      setConnectionCollapsed(!connectionCollapsed);
+      fetchJson({
+        action: "set_ui_pref",
+        key: "connection_collapsed",
+        value: connectionCollapsed
+      }).catch(function () {
+        // Keep local state even if pref persistence fails.
+      });
+    });
+
+    byId("csConnectionModifyBtn").addEventListener("click", function () {
       setConnectionCollapsed(!connectionCollapsed);
       fetchJson({
         action: "set_ui_pref",
