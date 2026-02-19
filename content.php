@@ -262,7 +262,7 @@
     </div>
   </div>
 
-  <div class="backdrop mb-3">
+  <div class="backdrop mb-3" id="csPendingPanel">
     <h4 class="cs-panel-title">2) Pending Actions</h4>
     <p class="cs-muted">View of all pending create/update/delete changes. Choose sync mode.</p>
     <div id="csSyncModeWrap" class="form-group mb-2 cs-hidden">
@@ -288,7 +288,7 @@
     </div>
   </div>
 
-  <div class="backdrop mb-3">
+  <div class="backdrop mb-3" id="csApplyPanel">
     <h4 class="cs-panel-title">3) Apply Changes</h4>
     <p class="cs-muted" id="csApplySubtitle">Apply writes changes shown under Pending Actions.</p>
     <div class="d-flex justify-content-end">
@@ -811,6 +811,8 @@
         var syncModeSelect = byId("csSyncModeSelect");
         var googleBadge = byId("csProviderGoogleBadge");
         var outlookBadge = byId("csProviderOutlookBadge");
+        var pendingPanel = byId("csPendingPanel");
+        var applyPanel = byId("csApplyPanel");
         connectBtn.dataset.locked = "0";
         connectBtn.textContent = providerConnected ? "Disconnect Provider" : "Connect Provider";
         connectBtn.classList.toggle("btn-success", !providerConnected);
@@ -825,6 +827,12 @@
         updateApplySubtitle();
         if (syncModeWrap) {
           syncModeWrap.classList.toggle("cs-hidden", !providerConnected);
+        }
+        if (pendingPanel) {
+          pendingPanel.classList.toggle("cs-hidden", !providerConnected);
+        }
+        if (applyPanel) {
+          applyPanel.classList.toggle("cs-hidden", !providerConnected);
         }
         if (googleBadge) {
           googleBadge.classList.remove("cs-hidden");
