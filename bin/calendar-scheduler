@@ -129,27 +129,18 @@ $readEnvEpoch = static function (string $path): int {
 $beforeEpoch = $readEnvEpoch($envPath);
 
 $envUrl = getenv('GCS_FPP_ENV_URL');
-$envUrls = [];
 if ($envUrl !== false && trim($envUrl) !== '') {
-    $envUrls[] = trim($envUrl);
+    $envUrl = trim($envUrl);
 } else {
-    $envUrls[] = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-env-export.php&nopage=1';
-    $envUrls[] = 'http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=fpp-env-export.php&nopage=1';
+    $envUrl = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-env-export.php&nopage=1';
 }
 
-$invoked = false;
-foreach ($envUrls as $candidate) {
-    $cmd = 'curl --silent --show-error --fail --max-time 5 '
-        . '--output /dev/null '
-        . escapeshellarg($candidate);
-    exec($cmd, $out, $rc);
-    if ($rc === 0) {
-        $invoked = true;
-        break;
-    }
-}
+$cmd = 'curl --silent --show-error --fail --max-time 5 '
+    . '--output /dev/null '
+    . escapeshellarg($envUrl);
+exec($cmd, $out, $rc);
 
-if (!$invoked) {
+if ($rc !== 0) {
     throw new RuntimeException('Failed to invoke FPP environment exporter via web');
 }
 
