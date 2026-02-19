@@ -268,7 +268,7 @@
   </div>
 
   <details>
-    <summary><strong>Diagnostics (Design Mode)</strong></summary>
+    <summary><strong>Diagnostics</strong></summary>
     <pre class="form-control cs-json" id="csDiagnosticJson">{
   "mode": "design-shell",
   "notes": [
