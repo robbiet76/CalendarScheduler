@@ -235,7 +235,7 @@
 
   <div class="backdrop mb-3">
     <h4 class="cs-panel-title">2) Pending Actions</h4>
-    <p class="cs-muted">Primary view of all pending create/update/delete changes.</p>
+    <p class="cs-muted">View of all pending create/update/delete changes. Choose sync mode.</p>
     <div id="csSyncModeWrap" class="form-group mb-2 cs-hidden">
       <label for="csSyncModeSelect">Sync Mode</label>
       <select id="csSyncModeSelect" class="form-control">
@@ -261,7 +261,7 @@
 
   <div class="backdrop mb-3">
     <h4 class="cs-panel-title">3) Apply Changes</h4>
-    <p class="cs-muted">Apply uses the latest preview and writes updates to FPP and calendar.</p>
+    <p class="cs-muted" id="csApplySubtitle">Apply writes changes shown under Pending Actions.</p>
     <div class="d-flex justify-content-end">
       <button class="buttons btn-success" id="csApplyBtn" type="button" disabled>Apply Changes</button>
     </div>
@@ -381,6 +381,22 @@
         bar.classList.remove(name);
       });
       bar.classList.add(className);
+    }
+
+    function updateApplySubtitle() {
+      var node = byId("csApplySubtitle");
+      if (!node) {
+        return;
+      }
+      if (syncMode === "calendar") {
+        node.textContent = "Apply writes changes shown under Pending Actions to FPP.";
+        return;
+      }
+      if (syncMode === "fpp") {
+        node.textContent = "Apply writes changes shown under Pending Actions to calendar.";
+        return;
+      }
+      node.textContent = "Apply writes changes shown under Pending Actions.";
     }
 
     function setConnectionCollapsed(collapsed) {
@@ -735,6 +751,7 @@
           syncModeSelect.dataset.locked = providerConnected ? "0" : "1";
           syncModeSelect.disabled = !providerConnected;
         }
+        updateApplySubtitle();
         if (syncModeWrap) {
           syncModeWrap.classList.toggle("cs-hidden", !providerConnected);
         }
@@ -1048,6 +1065,7 @@
             syncMode = res.syncMode;
             byId("csSyncModeSelect").value = syncMode;
           }
+          updateApplySubtitle();
           return refreshAll();
         })
         .catch(function (err) { setError(err.message); })
