@@ -1230,19 +1230,7 @@ final class SchedulerEngine
         string $firstKey,
         string $secondKey
     ): int {
-        // Rule 1: specificity wins (narrower active footprint above broader).
-        $specificityCmp = $this->compareBundleSpecificity($first, $second);
-        if ($specificityCmp !== 0) {
-            return $this->applyStarvationGuard(
-                $specificityCmp,
-                $first,
-                $second,
-                $firstKey,
-                $secondKey
-            );
-        }
-
-        // Rule 2: later daily start wins.
+        // Rule 1: later daily start wins.
         $dailyStartCmp = $this->compareBundleEffectiveDailyStart($first, $second);
         if ($dailyStartCmp !== 0) {
             return $this->applyStarvationGuard(
@@ -1254,11 +1242,23 @@ final class SchedulerEngine
             );
         }
 
-        // Rule 3: same daily start -> later calendar start date wins.
+        // Rule 2: same daily start -> later calendar start date wins.
         $calendarStartCmp = $this->compareBundleCalendarStartDate($first, $second);
         if ($calendarStartCmp !== 0) {
             return $this->applyStarvationGuard(
                 $calendarStartCmp,
+                $first,
+                $second,
+                $firstKey,
+                $secondKey
+            );
+        }
+
+        // Rule 3: specificity wins (narrower active footprint above broader).
+        $specificityCmp = $this->compareBundleSpecificity($first, $second);
+        if ($specificityCmp !== 0) {
+            return $this->applyStarvationGuard(
+                $specificityCmp,
                 $first,
                 $second,
                 $firstKey,

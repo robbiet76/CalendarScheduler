@@ -162,6 +162,10 @@ For each case, capture:
 - Pattern: Two independent bundles with no overlap.
 - Expected: Chronological ordering remains intact.
 
+### RR-29 Later-Start Show Over Static Overlap
+- Pattern: Broad static layer overlaps a later-start show window on intersecting days.
+- Expected: Later-start show executes above overlapping static layer.
+
 ## Minimum Regression Gate (Per Patch)
 Run at least:
 - RR-02
@@ -174,9 +178,10 @@ Run at least:
 - RR-25
 - RR-26
 - RR-27
+- RR-29
 
 ## Full Regression Gate (Before Release)
-Run all RR-01 through RR-28.
+Run all RR-01 through RR-29.
 
 Automated command:
 

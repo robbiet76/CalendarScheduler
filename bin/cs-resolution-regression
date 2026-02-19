@@ -59,6 +59,7 @@ $allCases = [
     'RR-26',
     'RR-27',
     'RR-28',
+    'RR-29',
 ];
 
 if (array_key_exists('list', $opts)) {
@@ -939,6 +940,39 @@ function buildCaseFixture(string $caseId): array
                 },
             ];
         }
+
+        case 'RR-29': {
+            $rows = [
+                makeBaseRow(
+                    'rr29a',
+                    'RR29_Static_Target',
+                    '2026-11-20',
+                    '2026-12-31',
+                    '18:00:00',
+                    '23:00:00',
+                    ['freq' => 'WEEKLY', 'byday' => ['SU', 'MO', 'TU', 'WE', 'TH']]
+                ),
+                makeBaseRow(
+                    'rr29b',
+                    'RR29_Show_Target',
+                    '2026-11-20',
+                    '2026-12-31',
+                    '19:00:00',
+                    '21:00:00',
+                    ['freq' => 'DAILY']
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $staticSig = sig('RR29_Static_Target', '2026-11-20', '2026-12-31', '18:00:00', '23:00:00', 'graceful');
+                    $showSig = sig('RR29_Show_Target', '2026-11-20', '2026-12-31', '19:00:00', '21:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-29 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-29 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $showSig, $staticSig), 'RR-29 later daily start show should execute before static overlap', $errors);
+                },
+            ];
+        }
     }
 
     throw new InvalidArgumentException("Unknown case: {$caseId}");
@@ -1042,6 +1076,7 @@ function caseTitle(string $id): string
         'RR-26' => 'Overlap tie on daily start resolved by later calendar start date',
         'RR-27' => 'Specific overlap window precedence over broad background',
         'RR-28' => 'Non-overlap chronological fallback',
+        'RR-29' => 'Later-start show precedence over overlapping static layer',
     ];
 
     return $titles[$id] ?? $id;

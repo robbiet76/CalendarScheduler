@@ -101,14 +101,14 @@ Treat as potentially overlapping when symbolic boundaries prevent definitive dis
 
 ### Precedence Rules (Priority Order)
 
-1. Specificity wins.
-   A narrower active footprint (date/day/time constrained window) is placed above a broader footprint when they overlap.
+1. Later daily start wins.
+   For overlapping bundles, the row with later effective daily start is placed above.
 
-2. Later daily start wins.
-   If overlap remains ambiguous after specificity, the row with later effective daily start is placed above.
-
-3. Later calendar start date wins when daily start is equal.
+2. Later calendar start date wins when daily start is equal.
    This preserves expected seasonal replacement behavior.
+
+3. Specificity wins.
+   A narrower active footprint (date/day/time constrained window) is placed above a broader footprint when they overlap and stronger time/date precedence does not already decide the relation.
 
 4. Starvation guard.
    Reject any precedence decision that would make the lower bundle un-runnable within its own active scope.
