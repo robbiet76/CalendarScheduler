@@ -40,6 +40,9 @@ $opts = getopt('', [
     'api-endpoint::',
     'api-sync-mode::',
     'api-include-auth-start',
+    'api-include-auth-poll',
+    'api-include-auth-disconnect',
+    'api-include-auth-cycle',
     'api-include-apply-noop',
     'json',
 ]);
@@ -182,6 +185,15 @@ if (!$skipApiSmoke) {
 
     if (array_key_exists('api-include-auth-start', $opts)) {
         $apiArgs[] = '--include-auth-start';
+    }
+    if (array_key_exists('api-include-auth-poll', $opts)) {
+        $apiArgs[] = '--include-auth-poll';
+    }
+    if (array_key_exists('api-include-auth-disconnect', $opts)) {
+        $apiArgs[] = '--include-auth-disconnect';
+    }
+    if (array_key_exists('api-include-auth-cycle', $opts)) {
+        $apiArgs[] = '--include-auth-cycle';
     }
     if (array_key_exists('api-include-apply-noop', $opts)) {
         $apiArgs[] = '--include-apply-noop';

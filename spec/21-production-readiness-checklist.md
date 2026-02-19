@@ -16,20 +16,20 @@ This checklist is intentionally sequential. If a bug/fix detour is needed, compl
 8. A phase is complete only when its gate criteria are met.
 
 ## Phase 1: Release Hardening
-- [ ] Define release checklist doc with preflight, deploy, rollback, and post-verify steps.
-- [ ] Confirm minimum supported environment versions (FPP image, PHP runtime, plugin dependencies).
-- [ ] Ensure all UI API actions return stable error shape (`ok=false`, `error`, actionable hint when possible).
-- [ ] Validate config/bootstrap behavior from clean install (no SSH required path).
+- [x] Define release checklist doc with preflight, deploy, rollback, and post-verify steps.
+- [x] Confirm minimum supported environment versions (FPP image, PHP runtime, plugin dependencies).
+- [x] Ensure all UI API actions return stable error shape (`ok=false`, `error`, actionable hint when possible).
+- [x] Validate config/bootstrap behavior from clean install (no SSH required path).
 
 Phase 1 gate:
-- [ ] Clean install bootstrap succeeds.
-- [ ] All critical API actions fail safely with clear error messages.
+- [x] Clean install bootstrap succeeds.
+- [x] All critical API actions fail safely with clear error messages.
 
 ## Phase 2: Regression and E2E Test Coverage
-- [ ] Keep `bin/cs-resolution-regression` as baseline gate.
-- [ ] Add API smoke checks for `status`, `preview`, `apply`, auth start/poll/disconnect.
-- [ ] Add one golden-calendar E2E script for FPP host validation.
-- [ ] Define release gate command set (local + FPP host).
+- [x] Keep `bin/cs-resolution-regression` as baseline gate.
+- [x] Add API smoke checks for `status`, `preview`, `apply`, auth start/poll/disconnect.
+- [x] Add one golden-calendar E2E script for FPP host validation.
+- [x] Define release gate command set (local + FPP host).
 
 Suggested gate commands:
 - `bin/cs-resolution-regression --json`
@@ -37,41 +37,41 @@ Suggested gate commands:
 - `bin/cs-full-regression --json --api-include-apply-noop`
 
 Phase 2 gate:
-- [ ] Resolution regression passes.
-- [ ] API smoke checks pass.
-- [ ] Golden-calendar E2E pass is green on FPP host.
+- [x] Resolution regression passes.
+- [x] API smoke checks pass.
+- [x] Golden-calendar E2E pass is green on FPP host.
 
 ## Phase 3: Observability and Diagnostics
-- [ ] Standardize diagnostics payload sections:
-- [ ] `syncMode`
-- [ ] `selectedCalendarId`
-- [ ] `counts`
-- [ ] `pendingSummary`
-- [ ] `lastError` (if any)
-- [ ] Keep diagnostics sourced from authoritative manifest where possible.
-- [ ] Add lightweight apply/auth error correlation IDs in logs.
+- [x] Standardize diagnostics payload sections:
+- [x] `syncMode`
+- [x] `selectedCalendarId`
+- [x] `counts`
+- [x] `pendingSummary`
+- [x] `lastError` (if any)
+- [x] Keep diagnostics sourced from authoritative manifest where possible.
+- [x] Add lightweight apply/auth error correlation IDs in logs.
 
 Phase 3 gate:
-- [ ] Diagnostics output is complete and stable across sync modes.
-- [ ] Errors can be traced from UI symptom to log entry.
+- [x] Diagnostics output is complete and stable across sync modes.
+- [x] Errors can be traced from UI symptom to log entry.
 
 ## Phase 4: OAuth and Secret Lifecycle Safety
-- [ ] Verify client secret upload overwrite behavior (no secret file accumulation).
-- [ ] Verify token file lifecycle for connect/disconnect/reconnect.
-- [ ] Verify setup checks and Connect button gating behavior.
-- [ ] Confirm disconnect always leaves system in predictable disconnected state.
+- [x] Verify client secret upload overwrite behavior (no secret file accumulation).
+- [x] Verify token file lifecycle for connect/disconnect/reconnect.
+- [x] Verify setup checks and Connect button gating behavior.
+- [x] Confirm disconnect always leaves system in predictable disconnected state.
 
 Phase 4 gate:
-- [ ] Repeated connect/disconnect cycles produce no stale secret/token artifacts.
-- [ ] OAuth recovery path works without SSH intervention.
+- [x] Repeated connect/disconnect cycles produce no stale secret/token artifacts.
+- [x] OAuth recovery path works without SSH intervention.
 
 ## Phase 5: Packaging and Upgrade Safety
-- [ ] Validate upgrade from existing installs with prior config formats.
-- [ ] Ensure migrations are idempotent and non-destructive.
-- [ ] Confirm no duplicate/legacy runtime files are required.
+- [x] Validate upgrade from existing installs with prior config formats.
+- [x] Ensure migrations are idempotent and non-destructive.
+- [x] Confirm no duplicate/legacy runtime files are required.
 
 Phase 5 gate:
-- [ ] Upgrade test matrix passes for at least one old config snapshot and one fresh install.
+- [x] Upgrade test matrix passes for at least one old config snapshot and one fresh install.
 
 ## Phase 6: User Documentation and Supportability
 - [ ] Publish quick start (OAuth setup + first sync).
