@@ -32,13 +32,16 @@
     z-index: 10;
     padding: 8px 12px;
     margin-bottom: 12px;
-    transition: padding 0.15s ease, font-size 0.15s ease, opacity 0.15s ease;
+    width: 100%;
+    box-sizing: border-box;
+    transition: padding 0.15s ease, font-size 0.15s ease, opacity 0.15s ease, width 0.15s ease;
   }
 
   .cs-top-status.cs-top-status-compact {
     padding: 4px 10px;
     font-size: 12px;
     opacity: 0.95;
+    width: min(560px, calc(100vw - 24px));
   }
 
   .cs-status-loading {
@@ -346,6 +349,8 @@
       applyConfirmArmed = false;
       if (applyBtn) {
         applyBtn.textContent = "Apply Changes";
+        applyBtn.classList.remove("btn-danger");
+        applyBtn.classList.add("btn-success");
       }
     }
 
@@ -356,7 +361,9 @@
       }
       clearApplyConfirmTimer();
       applyConfirmArmed = true;
-      applyBtn.textContent = "Confirm Apply (5s)";
+      applyBtn.textContent = "CONFIRM";
+      applyBtn.classList.remove("btn-success");
+      applyBtn.classList.add("btn-danger");
       applyConfirmTimer = window.setTimeout(function () {
         resetApplyConfirm();
       }, 5000);
