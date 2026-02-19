@@ -10,9 +10,10 @@
 if ($menu !== 'content') {
     return;
 }
+$pluginName = basename(__DIR__);
 ?>
 <li>
-  <a href="plugin.php?plugin=GoogleCalendarScheduler&page=content.php">
+  <a href="plugin.php?plugin=<?php echo rawurlencode($pluginName); ?>&page=content.php">
     Calendar Scheduler
   </a>
 </li>

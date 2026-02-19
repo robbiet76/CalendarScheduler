@@ -1,7 +1,7 @@
 {
   "repoName": "GoogleCalendarScheduler",
   "name": "Calendar Scheduler",
-  "shortName": "GoogleCalendarScheduler",
+  "shortName": "CalendarScheduler",
   "description": "Sync and reconcile FPP schedule entries with calendar providers.",
   "author": "Rob Terry",
   "homeURL": "https://github.com/robbiet76/GoogleCalendarScheduler",

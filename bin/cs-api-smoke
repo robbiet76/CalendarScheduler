@@ -21,7 +21,7 @@ $opts = getopt('', [
 
 $endpoint = trim((string)($opts['endpoint'] ?? ''));
 if ($endpoint === '') {
-    $endpoint = 'http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=ui-api.php&nopage=1';
+    $endpoint = detectDefaultEndpoint();
 }
 
 $syncMode = normalizeSyncMode((string)($opts['sync-mode'] ?? 'both'));
@@ -220,4 +220,21 @@ function normalizeSyncMode(string $syncMode): string
         return $syncMode;
     }
     return 'both';
+}
+
+function detectDefaultEndpoint(): string
+{
+    $candidates = [
+        'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=ui-api.php&nopage=1',
+        'http://127.0.0.1/plugin.php?plugin=GoogleCalendarScheduler&page=ui-api.php&nopage=1',
+    ];
+
+    foreach ($candidates as $candidate) {
+        $resp = postJson($candidate, ['action' => 'status']);
+        if ($resp['httpCode'] === 200 && is_array($resp['json'] ?? null) && (($resp['json']['ok'] ?? false) === true)) {
+            return $candidate;
+        }
+    }
+
+    return $candidates[0];
 }

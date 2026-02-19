@@ -315,7 +315,9 @@
     // -----------------------------------------------------------------------
     // Shared state + element utilities
     // -----------------------------------------------------------------------
-    var API_URL = "plugin.php?plugin=GoogleCalendarScheduler&page=ui-api.php&nopage=1";
+    var qs = new URLSearchParams(window.location.search || "");
+    var pluginName = qs.get("plugin") || "CalendarScheduler";
+    var API_URL = "plugin.php?plugin=" + encodeURIComponent(pluginName) + "&page=ui-api.php&nopage=1";
     var providerConnected = false;
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
