@@ -14,6 +14,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $resolutionRunner = $root . '/bin/cs-resolution-regression';
 $liveRunner = $root . '/bin/cs-regression';
+$apiSmokeRunner = $root . '/bin/cs-api-smoke';
 
 if (!is_file($resolutionRunner)) {
     fwrite(STDERR, "ERROR: Missing runner: {$resolutionRunner}\n");
@@ -21,6 +22,10 @@ if (!is_file($resolutionRunner)) {
 }
 if (!is_file($liveRunner)) {
     fwrite(STDERR, "ERROR: Missing runner: {$liveRunner}\n");
+    exit(2);
+}
+if (!is_file($apiSmokeRunner)) {
+    fwrite(STDERR, "ERROR: Missing runner: {$apiSmokeRunner}\n");
     exit(2);
 }
 
@@ -31,13 +36,19 @@ $opts = getopt('', [
     'skip-resolution',
     'skip-live',
     'resolution-case::',
+    'skip-api-smoke',
+    'api-endpoint::',
+    'api-sync-mode::',
+    'api-include-auth-start',
+    'api-include-apply-noop',
     'json',
 ]);
 
 $skipResolution = array_key_exists('skip-resolution', $opts);
 $skipLive = array_key_exists('skip-live', $opts);
-if ($skipResolution && $skipLive) {
-    fwrite(STDERR, "ERROR: Both --skip-resolution and --skip-live are set. Nothing to run.\n");
+$skipApiSmoke = array_key_exists('skip-api-smoke', $opts);
+if ($skipResolution && $skipLive && $skipApiSmoke) {
+    fwrite(STDERR, "ERROR: All suites are skipped. Nothing to run.\n");
     exit(2);
 }
 
@@ -59,6 +70,7 @@ $result = [
     'runDir' => $runDir,
     'resolution' => null,
     'live' => null,
+    'apiSmoke' => null,
 ];
 
 // Resolution fixture suite (in-memory).
@@ -154,6 +166,53 @@ if (!$skipLive) {
     ];
 }
 
+// API smoke checks (status/preview and optional auth/apply-noop paths).
+if (!$skipApiSmoke) {
+    $apiArgs = ['--json'];
+
+    $apiEndpointRaw = $opts['api-endpoint'] ?? null;
+    if (is_string($apiEndpointRaw) && trim($apiEndpointRaw) !== '') {
+        $apiArgs[] = '--endpoint=' . trim($apiEndpointRaw);
+    }
+
+    $apiSyncModeRaw = $opts['api-sync-mode'] ?? null;
+    if (is_string($apiSyncModeRaw) && trim($apiSyncModeRaw) !== '') {
+        $apiArgs[] = '--sync-mode=' . normalizeSyncMode($apiSyncModeRaw);
+    }
+
+    if (array_key_exists('api-include-auth-start', $opts)) {
+        $apiArgs[] = '--include-auth-start';
+    }
+    if (array_key_exists('api-include-apply-noop', $opts)) {
+        $apiArgs[] = '--include-apply-noop';
+    }
+
+    $api = runCommand(
+        buildPhpCommand($apiSmokeRunner, $apiArgs)
+    );
+    file_put_contents($runDir . '/api-smoke.raw.txt', $api['output']);
+
+    $decoded = decodeJsonObject($api['output']);
+    if ($decoded !== null) {
+        file_put_contents(
+            $runDir . '/api-smoke.json',
+            json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL
+        );
+    }
+
+    $apiOk = $api['exitCode'] === 0 && is_array($decoded) && (bool)($decoded['ok'] ?? false) === true;
+    if (!$apiOk) {
+        $result['ok'] = false;
+    }
+
+    $result['apiSmoke'] = [
+        'ok' => $apiOk,
+        'exitCode' => $api['exitCode'],
+        'reportPath' => is_array($decoded) ? ($runDir . '/api-smoke.json') : null,
+        'checkCount' => is_array($decoded['checks'] ?? null) ? count($decoded['checks']) : 0,
+    ];
+}
+
 $jsonMode = array_key_exists('json', $opts);
 if ($jsonMode) {
     echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
@@ -171,6 +230,10 @@ if ($jsonMode) {
             echo " (runner artifacts={$art})";
         }
         echo PHP_EOL;
+    }
+    if (is_array($result['apiSmoke'])) {
+        echo "- API smoke: " . (($result['apiSmoke']['ok'] ?? false) ? 'PASS' : 'FAIL');
+        echo " (checks=" . (int)($result['apiSmoke']['checkCount'] ?? 0) . ")" . PHP_EOL;
     }
 }
 

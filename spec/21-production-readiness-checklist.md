@@ -31,6 +31,11 @@ Phase 1 gate:
 - [ ] Add one golden-calendar E2E script for FPP host validation.
 - [ ] Define release gate command set (local + FPP host).
 
+Suggested gate commands:
+- `bin/cs-resolution-regression --json`
+- `bin/cs-api-smoke --json`
+- `bin/cs-full-regression --json --api-include-apply-noop`
+
 Phase 2 gate:
 - [ ] Resolution regression passes.
 - [ ] API smoke checks pass.

@@ -9,7 +9,9 @@ Provide an operator-safe release procedure for Calendar Scheduler that includes 
    - `php -l ui-api.php`
    - `php -l content.php`
 3. Run regression suite:
-   - `bin/cs-resolution-regression --all`
+   - `bin/cs-resolution-regression --json`
+   - `bin/cs-api-smoke --json`
+   - Optional integrated run: `bin/cs-full-regression --json --api-include-apply-noop`
 4. Verify key API actions on FPP host return `ok=true`:
    - `status`, `preview`, `auth_device_start`, `auth_device_poll` (pending/connected path), `apply` (dry-safe fixture).
 5. Record release metadata:
