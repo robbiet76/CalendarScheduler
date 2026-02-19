@@ -10,4 +10,5 @@ pluginInfo.json
 ui-api.php
 bin/calendar-scheduler
 runtime/.gitkeep
+scripts
 src
