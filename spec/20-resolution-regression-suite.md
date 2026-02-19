@@ -24,7 +24,8 @@ Out of scope:
 3. Bundle integrity: base + overrides remain coherent atomic grouping.
 4. Ordering correctness:
 - Override rows above base rows when overlap requires precedence.
-- Otherwise chronological ordering by start date/time.
+- Cross-bundle overlap resolved by canonical precedence rules from `spec/08-scheduler-ordering.md`.
+- Non-overlap fallback is chronological ordering by start date/time.
 5. Convergence: after apply, next preview converges (`noop=true`) unless source changed.
 6. Round-trip safety: Calendar -> FPP -> Calendar (or reverse) preserves intent.
 
@@ -120,9 +121,9 @@ For each case, capture:
 - Within bundle: override precedence above base where required.
 - Across bundle rows: chronological unless exception required.
 
-### RR-19 Cross-Bundle Chronological Ordering
+### RR-19 Cross-Bundle Overlap Precedence
 - Pattern: Multiple independent bundles.
-- Expected: Global chronological ordering by start date/time, preserving bundle atomicity.
+- Expected: Non-overlapping bundles remain chronological; overlapping bundles follow precedence rules; bundle atomicity preserved.
 
 ### RR-20 Manual FPP Reorder Recovery
 - Pattern: User manually reorders FPP rows, then sync.
@@ -149,6 +150,18 @@ For each case, capture:
 - Pattern: Apply same resolved state twice.
 - Expected: second apply is no-op.
 
+### RR-26 Overlap Same Daily Start, Later Calendar Start Wins
+- Pattern: Two overlapping bundles with identical daily start/end; one starts later in calendar date.
+- Expected: Later-starting bundle executes above earlier season bundle.
+
+### RR-27 Overlap Specific Window Over Broad Background
+- Pattern: Broad background bundle overlaps narrower window bundle.
+- Expected: Specific/narrow window bundle executes above broad background bundle.
+
+### RR-28 Non-Overlap Chronological Fallback
+- Pattern: Two independent bundles with no overlap.
+- Expected: Chronological ordering remains intact.
+
 ## Minimum Regression Gate (Per Patch)
 Run at least:
 - RR-02
@@ -159,9 +172,11 @@ Run at least:
 - RR-19
 - RR-23
 - RR-25
+- RR-26
+- RR-27
 
 ## Full Regression Gate (Before Release)
-Run all RR-01 through RR-25.
+Run all RR-01 through RR-28.
 
 Automated command:
 

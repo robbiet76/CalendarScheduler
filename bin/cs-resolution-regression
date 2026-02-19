@@ -56,6 +56,9 @@ $allCases = [
     'RR-23',
     'RR-24',
     'RR-25',
+    'RR-26',
+    'RR-27',
+    'RR-28',
 ];
 
 if (array_key_exists('list', $opts)) {
@@ -836,37 +839,34 @@ function buildCaseFixture(string $caseId): array
 
         case 'RR-18': {
             $rows = [
-                makeBaseRow('rr18a', 'RR18_Late_Target', '2026-04-15', '2026-04-20', '19:00:00', '22:00:00'),
-                makeBaseRow('rr18b', 'RR18_Early_Target', '2026-04-01', '2026-04-05', '17:00:00', '21:00:00'),
+                makeBaseRow('rr18b', 'RR18_Broad_Target', '2026-04-01', '2026-04-30', '18:00:00', '23:00:00'),
+                makeBaseRow('rr18a', 'RR18_Narrow_Target', '2026-04-10', '2026-04-12', '18:00:00', '23:00:00'),
             ];
             return [
                 'calendarRows' => $rows,
                 'assert' => static function (array $summary, array &$errors): void {
-                    $earlySig = sig('RR18_Early_Target', '2026-04-01', '2026-04-05', '17:00:00', '21:00:00', 'graceful');
-                    $lateSig = sig('RR18_Late_Target', '2026-04-15', '2026-04-20', '19:00:00', '22:00:00', 'graceful');
+                    $broadSig = sig('RR18_Broad_Target', '2026-04-01', '2026-04-30', '18:00:00', '23:00:00', 'graceful');
+                    $narrowSig = sig('RR18_Narrow_Target', '2026-04-10', '2026-04-12', '18:00:00', '23:00:00', 'graceful');
                     assertTrue($summary['eventCount'] === 2, 'RR-18 eventCount should be 2', $errors);
                     assertTrue($summary['subEventCount'] === 2, 'RR-18 subEventCount should be 2', $errors);
-                    assertTrue(hasEarlierExecutionOrder($summary, $earlySig, $lateSig), 'RR-18 bundles should be chronological', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $narrowSig, $broadSig), 'RR-18 narrower overlap should execute before broad overlap', $errors);
                 },
             ];
         }
 
         case 'RR-19': {
             $rows = [
-                makeBaseRow('rr19a', 'RR19_Late_Target', '2026-05-20', '2026-05-25', '18:00:00', '22:00:00'),
-                makeBaseRow('rr19b', 'RR19_Early_Target', '2026-05-02', '2026-05-08', '18:00:00', '22:00:00'),
-                makeOverrideRow('rr19b', '2026-05-03', 'RR19_Early_Target', '18:00:00', '23:00:00'),
+                makeBaseRow('rr19a', 'RR19_EarlyStart_Target', '2026-05-01', '2026-05-31', '17:00:00', '22:00:00'),
+                makeBaseRow('rr19b', 'RR19_LateStart_Target', '2026-05-01', '2026-05-31', '19:00:00', '21:00:00'),
             ];
             return [
                 'calendarRows' => $rows,
                 'assert' => static function (array $summary, array &$errors): void {
-                    $earlyBase = sig('RR19_Early_Target', '2026-05-02', '2026-05-08', '18:00:00', '22:00:00', 'graceful');
-                    $earlyOverride = sig('RR19_Early_Target', '2026-05-03', '2026-05-03', '18:00:00', '23:00:00', 'graceful');
-                    $lateBase = sig('RR19_Late_Target', '2026-05-20', '2026-05-25', '18:00:00', '22:00:00', 'graceful');
+                    $earlyStartSig = sig('RR19_EarlyStart_Target', '2026-05-01', '2026-05-31', '17:00:00', '22:00:00', 'graceful');
+                    $lateStartSig = sig('RR19_LateStart_Target', '2026-05-01', '2026-05-31', '19:00:00', '21:00:00', 'graceful');
                     assertTrue($summary['eventCount'] === 2, 'RR-19 eventCount should be 2', $errors);
-                    assertTrue($summary['subEventCount'] === 3, 'RR-19 subEventCount should be 3', $errors);
-                    assertTrue(hasEarlierExecutionOrder($summary, $earlyOverride, $earlyBase), 'RR-19 override should execute before base', $errors);
-                    assertTrue(hasEarlierExecutionOrder($summary, $earlyBase, $lateBase), 'RR-19 bundle ordering should be chronological', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-19 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $lateStartSig, $earlyStartSig), 'RR-19 later daily start should execute first', $errors);
                 },
             ];
         }
@@ -885,6 +885,57 @@ function buildCaseFixture(string $caseId): array
                     assertTrue($summary['counts']['calendar']['create'] === 0, 'RR-20 should not create calendar events', $errors);
                     assertTrue($summary['eventCount'] === 1, 'RR-20 eventCount should be 1', $errors);
                     assertTrue($summary['subEventCount'] === 3, 'RR-20 subEventCount should be 3', $errors);
+                },
+            ];
+        }
+
+        case 'RR-26': {
+            $rows = [
+                makeBaseRow('rr26a', 'RR26_EarlySeason_Target', '2026-06-01', '2026-06-30', '18:00:00', '22:00:00'),
+                makeBaseRow('rr26b', 'RR26_LateSeason_Target', '2026-06-10', '2026-06-20', '18:00:00', '22:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $earlySig = sig('RR26_EarlySeason_Target', '2026-06-01', '2026-06-30', '18:00:00', '22:00:00', 'graceful');
+                    $lateSig = sig('RR26_LateSeason_Target', '2026-06-10', '2026-06-20', '18:00:00', '22:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-26 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-26 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $lateSig, $earlySig), 'RR-26 later calendar start date should execute first when daily start matches', $errors);
+                },
+            ];
+        }
+
+        case 'RR-27': {
+            $rows = [
+                makeBaseRow('rr27a', 'RR27_BroadBackground_Target', '2026-07-01', '2026-07-31', '18:00:00', '23:00:00'),
+                makeBaseRow('rr27b', 'RR27_SpecificWindow_Target', '2026-07-10', '2026-07-12', '20:00:00', '22:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $broadSig = sig('RR27_BroadBackground_Target', '2026-07-01', '2026-07-31', '18:00:00', '23:00:00', 'graceful');
+                    $specificSig = sig('RR27_SpecificWindow_Target', '2026-07-10', '2026-07-12', '20:00:00', '22:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-27 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-27 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $specificSig, $broadSig), 'RR-27 specific overlap should execute before broad background', $errors);
+                },
+            ];
+        }
+
+        case 'RR-28': {
+            $rows = [
+                makeBaseRow('rr28a', 'RR28_ChronologyA_Target', '2026-08-01', '2026-08-31', '18:00:00', '22:00:00'),
+                makeBaseRow('rr28b', 'RR28_ChronologyB_Target', '2026-09-01', '2026-09-30', '18:00:00', '22:00:00'),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    $aSig = sig('RR28_ChronologyA_Target', '2026-08-01', '2026-08-31', '18:00:00', '22:00:00', 'graceful');
+                    $bSig = sig('RR28_ChronologyB_Target', '2026-09-01', '2026-09-30', '18:00:00', '22:00:00', 'graceful');
+                    assertTrue($summary['eventCount'] === 2, 'RR-28 eventCount should be 2', $errors);
+                    assertTrue($summary['subEventCount'] === 2, 'RR-28 subEventCount should be 2', $errors);
+                    assertTrue(hasEarlierExecutionOrder($summary, $aSig, $bSig), 'RR-28 non-overlap bundles should remain chronological', $errors);
                 },
             ];
         }
@@ -980,14 +1031,17 @@ function caseTitle(string $id): string
         'RR-15' => 'Weekday constrained recurrence canonicalization',
         'RR-16' => 'Timezone scoped recurrence stability',
         'RR-17' => 'Bundle override precedence ordering',
-        'RR-18' => 'Cross-bundle chronological ordering',
-        'RR-19' => 'Canonical ordering from unordered source rows',
+        'RR-18' => 'Cross-bundle overlap specificity precedence',
+        'RR-19' => 'Cross-bundle overlap later daily start precedence',
         'RR-20' => 'Calendar->FPP segmented mirror',
         'RR-21' => 'Calendar->FPP mirror invariants',
         'RR-22' => 'FPP->Calendar segmented mirror',
         'RR-23' => 'Two-way merge segment stability',
         'RR-24' => 'Calendar tombstone with segmented event delete',
         'RR-25' => 'Idempotent second pass convergence',
+        'RR-26' => 'Overlap tie on daily start resolved by later calendar start date',
+        'RR-27' => 'Specific overlap window precedence over broad background',
+        'RR-28' => 'Non-overlap chronological fallback',
     ];
 
     return $titles[$id] ?? $id;

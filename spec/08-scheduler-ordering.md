@@ -1,246 +1,175 @@
-**Status:** STABLE  
-> **Change Policy:** Intentional, versioned revisions only  
+**Status:** STABLE
+> **Change Policy:** Intentional, versioned revisions only
 > **Authority:** Behavioral Specification v2
 
 # 08 — Scheduler Ordering Model
 
 ## Purpose
 
-This section defines **how scheduler entries are ordered** before being written to FPP.
+This section defines how scheduler entries are ordered before being written to FPP.
 
-Ordering is not cosmetic. In FPP, **ordering determines runtime dominance** when schedules overlap. A correct ordering model is therefore required to ensure that:
+Ordering is execution semantics, not display-only metadata. In FPP, earlier rows win when timing overlaps. The ordering model must therefore guarantee:
 
-- Later-intended schedules actually run
-- Seasonal overrides behave correctly
-- Higher-priority intent is not starved by background entries
+- Correct runtime winner selection
+- Deterministic, explainable output
+- Round-trip stability between FPP and calendar projections
 
-This document defines *what ordering must do* — not how it is implemented.
-
----
-
-## Fundamental Ordering Constraints
-
-1. **Ordering is global**  \
-   Scheduler entries are evaluated top-to-bottom by FPP.
-
-2. **Earlier entries have higher priority**  \
-   When two entries overlap, the one appearing earlier in the schedule takes precedence.
-
-3. **Ordering must be deterministic**  \
-   Given the same Manifest, ordering must always produce the same result.
-
-4. **Ordering must be explainable**  \
-   Every ordering decision must be traceable to an explicit rule.
+This document defines what ordering must do, not a specific algorithm implementation.
 
 ---
 
-## Managed vs Unmanaged Entries
+## Core Principles
 
-The scheduler consists of two conceptual groups of entries:
-
-### Unmanaged Entries
-
-Unmanaged entries are scheduler entries that:
-
-- Are not represented in the Manifest
-- Were created manually or by another system
-- Are not controlled by the calendar integration
-
-**Ordering rules for unmanaged entries:**
-
-- All unmanaged entries appear **before** managed entries
-- Unmanaged entries maintain their **existing relative order**
-- Unmanaged entries are treated as a single, immutable block
-- The planner **must never reorder unmanaged entries**
-
-> **Invariant:** Unmanaged entries always take priority over managed entries.
+1. Ordering is global.
+2. Ordering is deterministic for identical input.
+3. Ordering is explainable using explicit precedence rules.
+4. Ordering preserves complete intent: overlapping entries remain represented.
+5. Calendar-side reorder attempts are not authoritative in current behavior.
 
 ---
 
-### Managed Entries
+## Ordering Units
 
-Managed entries are derived from Manifest Events and their SubEvents.
+### Bundle Is the Atomic Unit
 
-- Only managed entries participate in ordering logic
-- Managed entries may be reordered relative to each other
-- Managed entries are appended *after* the unmanaged block
+Ordering decisions are made at bundle scope.
 
----
+- A bundle is the atomic group derived from one logical event stream.
+- Bundles move as units in global ordering.
+- Bundle rows remain contiguous in final FPP output.
 
-## Atomic Ordering Units
+### Subevent Ordering Inside a Bundle
 
-### SubEvents Are Atomic
+Rows inside one bundle follow these rules:
 
-Ordering is applied at the **Manifest Event** level, not individual scheduler entries.
-
-- A Manifest Event produces one or more SubEvents
-- SubEvents **must never be reordered internally**
-- SubEvents move as a single atomic unit during ordering
-
-> **Invariant:** If any SubEvent moves, all SubEvents move together.
+1. If rows overlap in active scope, more specific override rows must be above broader/base rows.
+2. If rows do not require precedence, order chronologically.
+3. If still tied, use deterministic tie-breakers.
 
 ---
 
-## Why Reordering Is Required
+## Why Chronological-Only Is Insufficient
 
-Calendar intent does not map directly to FPP execution semantics.
+Pure chronological ordering fails in valid runtime scenarios:
 
-Examples that require reordering:
+- Later nightly show overriding an earlier background row
+- Seasonal override over year-round base
+- Symbolic-time handoff windows
+- Narrow exception windows inside broader coverage
 
-- A later-starting nightly show must override an earlier ambient playlist
-- A seasonal schedule must override a year-round baseline
-- A holiday exception must override its base schedule
-
-Simple chronological ordering is insufficient.
-
----
-
-## Ordering Model Overview
-
-Ordering proceeds in **two distinct phases**:
-
-1. **Baseline Chronological Ordering**
-2. **Dominance Resolution Passes**
-
-This ensures clarity, determinism, and correctness.
+Chronology is the default, not the full rule system.
 
 ---
 
-## Phase 1 — Baseline Chronological Ordering
+## Global Ordering Pipeline
 
-Managed Manifest Events are first ordered by:
+Ordering executes in two phases:
 
-1. Start date (earlier first)
-2. Daily start time (earlier first)
-3. Type (playlist / command / sequence)
-4. Target (lexical)
+1. Baseline chronological placement
+2. Overlap-aware precedence resolution
 
-Baseline chronological ordering operates on **effective ordering keys**, which may be symbolic or concrete.
-
-Symbolic dates (e.g., "Thanksgiving", "Christmas") are ordered **relative to other symbolic dates only** and are never resolved to a specific calendar year during ordering. Ordering must not introduce or assume a concrete year.
-
-Type and target ordering in this phase serve **deterministic tie-breaking only** and must not encode semantic priority. All semantic conflict resolution is performed exclusively during dominance resolution.
-
-> This phase does *not* attempt to resolve conflicts.
+The result is a stable total order of all subevents with absolute `executionOrder` values.
 
 ---
 
-## Phase 2 — Dominance Resolution
+## Phase 1 — Baseline Chronological Placement
 
-After baseline ordering, dominance rules are applied iteratively.
+Initial order is built from effective timing keys:
 
-Dominance rules may move a Manifest Event **above** another *only if they overlap*.
+1. Effective start date
+2. Effective start time
+3. Effective end date
+4. Effective end time
+5. Deterministic identity tie-breakers
 
-### Overlap Definition
+Notes:
 
-Event timing for overlap and dominance evaluation is derived from the **aggregate effective timing shape** of all SubEvents (base and exceptions).
-Individual SubEvents are never evaluated independently.
-
-The aggregate effective timing shape represents the union of all SubEvent timing constraints and reflects the full execution footprint of the Manifest Event.
-
-Two Manifest Events overlap if:
-
-- Their date ranges intersect (exclusive of touching edges)
-- Their day masks intersect
-- Their daily time windows intersect (including overnight wrap)
-
-If overlap cannot be conclusively disproven due to symbolic boundaries or unresolved timing components, events are treated as **potentially overlapping** for the purposes of dominance evaluation. The planner must prefer conservative dominance over speculative non-overlap.
-
-If no overlap exists, **ordering must not change**.
+- Symbolic timing/date tokens remain symbolic-first for identity semantics.
+- This phase does not settle overlap dominance; it only provides a deterministic baseline.
 
 ---
 
-## Dominance Rules (in priority order)
+## Phase 2 — Overlap-Aware Precedence Resolution
 
-### Rule 1 — Later Daily Start Time Wins
+After baseline placement, precedence is resolved across overlapping bundles.
 
-If two overlapping events occur on the same day:
+### Overlap Gate
 
-- The event with the **later effective daily start time**, as determined from the aggregate effective timing shape of its SubEvents, dominates
+A precedence decision is only allowed when overlap exists or cannot be safely disproven.
 
-The effective daily start time of a Manifest Event is defined as the **latest daily start time produced by any of its SubEvents**, after normalization.
+Treat as potentially overlapping when symbolic boundaries prevent definitive disproof.
 
-Rationale:
-- Later schedules are intentional overrides
-- Early schedules represent background layers
+### Precedence Rules (Priority Order)
 
-Effective daily start time may be concrete or symbolic (e.g., "Dawn", "Dusk") and may include offsets. Comparison is semantic, not resolutive: symbolic times are compared symbolically and are not converted to concrete clock times during ordering.
+1. Specificity wins.
+   A narrower active footprint (date/day/time constrained window) is placed above a broader footprint when they overlap.
 
----
+2. Later daily start wins.
+   If overlap remains ambiguous after specificity, the row with later effective daily start is placed above.
 
-### Rule 2 — Later Calendar Start Date Wins (Same Start Time)
+3. Later calendar start date wins when daily start is equal.
+   This preserves expected seasonal replacement behavior.
 
-If two overlapping events have:
+4. Starvation guard.
+   Reject any precedence decision that would make the lower bundle un-runnable within its own active scope.
 
-- The same daily start time
-- Different calendar start dates
+5. Deterministic tie-breakers.
+   If still tied, use stable lexical/hash identity tie-breakers only.
 
-Then:
+### Non-Overlap Rule
 
-- The event with the **later effective calendar start date** (after SubEvent normalization) dominates
-
-Rationale:
-- Seasonal overrides must replace earlier seasons
-
----
-
-### Rule 3 — Prevent Start-Time Starvation
-
-If placing Event A above Event B would prevent Event B from ever starting at its intended first occurrence, as determined from the aggregate effective timing shape of Event B:
-
-- Event A dominates
-
-Rationale:
-- Events must be able to start at least once
-
-This rule ensures that an event’s execution footprint is not completely eclipsed by a dominant event that overlaps all of its possible start opportunities.
-
-If an event’s first occurrence cannot be concretely determined due to symbolic timing, starvation prevention is evaluated conservatively without resolving symbolic values to specific dates.
+If bundles do not overlap, keep chronological order.
 
 ---
 
-## Iterative Stabilization
+## Execution Order Assignment
 
-Dominance resolution is applied repeatedly until:
+After final global ordering is resolved:
 
-- No further swaps occur, or
-- A maximum pass limit is reached
+1. Flatten bundles into contiguous subevent rows.
+2. Assign absolute `executionOrder` values (`0..N-1`).
+3. Persist those values as executable state metadata.
 
-The final order must be:
-
-- Stable
-- Deterministic
-- Repeatable
+`executionOrder` is state, not identity.
 
 ---
 
-## Explicitly Forbidden Heuristics
+## Authority and Manual Reorder Policy
 
-The following are **not allowed**:
+Current policy:
 
-- Reordering based on scheduler index
-- Reordering based on creation time
-- Reordering based on UID
-- Random or hash-based ordering
-- Provider-specific ordering rules
-- Manual user ordering overrides
+1. Canonical ordering is enforced by the scheduler.
+2. Manual FPP reorder is treated as drift from canonical order.
+3. Drift appears as updates; apply restores canonical order.
+4. Manual reorder authority is a future optional capability, not current behavior.
+
+---
+
+## Forbidden Heuristics
+
+The following are forbidden as ordering authorities:
+
+- Provider row/index order
+- Creation timestamps
+- Random or hash-only ordering without semantic rules
+- UID-only precedence
+- Calendar-side reorder metadata as authoritative intent
 
 ---
 
 ## Guarantees
 
-- Unmanaged entries always remain first
-- Managed entries never override unmanaged entries
-- Manifest Events remain atomic
-- Ordering decisions are deterministic
-- Ordering is derived solely from Manifest semantics
+1. Overlap intent is preserved on both sides.
+2. Bundle atomicity and contiguity are preserved.
+3. Ordering is deterministic and explainable.
+4. Ordering converges after apply.
 
 ---
 
 ## Non-Goals
 
-- Allowing users to manually reorder managed entries
-- Preserving historical ordering artifacts
-- Optimizing for minimal diff size
+- UI-driven manual ordering controls
+- Diff minimization at the expense of correctness
+- Hiding lower-priority overlaps from calendar projections
 
-Correctness always outweighs minimal change.
+Correct execution semantics take precedence over minimal mutation size.

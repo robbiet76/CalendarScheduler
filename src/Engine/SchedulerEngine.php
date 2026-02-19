@@ -962,9 +962,9 @@ final class SchedulerEngine
         // Canonical ordering is always enforced. Explicit/manual order metadata is
         // intentionally ignored so scheduler execution stays deterministic.
 
-        // Treat each bundle as an atomic block in fallback ordering.
-        // Block order is chronological by bundle anchor; rows within each
-        // block follow normal chronological ordering with override exceptions.
+        // Treat each bundle as an atomic block in global ordering.
+        // Rows are sorted inside each bundle first; bundle blocks are then
+        // ordered using baseline chronology plus overlap-aware precedence.
         $bundleGroups = [];
         foreach ($missing as $intent) {
             $bundleKey = trim((string)$intent->bundleUid);
@@ -986,23 +986,46 @@ final class SchedulerEngine
 
         $bundleKeys = array_keys($bundleGroups);
         usort($bundleKeys, function (string $a, string $b) use ($bundleGroups): int {
-            $aIntents = $bundleGroups[$a];
-            $bIntents = $bundleGroups[$b];
-
-            $aStart = $this->bundleAnchorStart($aIntents);
-            $bStart = $this->bundleAnchorStart($bIntents);
-            if ($aStart !== $bStart) {
-                return $aStart <=> $bStart;
-            }
-
-            $aEnd = $this->bundleAnchorEnd($aIntents);
-            $bEnd = $this->bundleAnchorEnd($bIntents);
-            if ($aEnd !== $bEnd) {
-                return $aEnd <=> $bEnd;
-            }
-
-            return strcmp($a, $b);
+            return $this->compareBundleChronology(
+                $bundleGroups[$a],
+                $bundleGroups[$b],
+                $a,
+                $b
+            );
         });
+
+        // Iterative stabilization pass:
+        // baseline order is chronological, then adjacent bundles are swapped
+        // when overlap-aware precedence requires inversion.
+        $bundleCount = count($bundleKeys);
+        if ($bundleCount > 1) {
+            $maxPasses = max(1, $bundleCount * $bundleCount);
+            for ($pass = 0; $pass < $maxPasses; $pass++) {
+                $changed = false;
+                for ($i = 1; $i < $bundleCount; $i++) {
+                    $aboveKey = $bundleKeys[$i - 1];
+                    $belowKey = $bundleKeys[$i];
+
+                    $cmp = $this->compareBundlePrecedence(
+                        $bundleGroups[$aboveKey],
+                        $bundleGroups[$belowKey],
+                        $aboveKey,
+                        $belowKey
+                    );
+
+                    // cmp > 0 means below should move above.
+                    if ($cmp > 0) {
+                        $bundleKeys[$i - 1] = $belowKey;
+                        $bundleKeys[$i] = $aboveKey;
+                        $changed = true;
+                    }
+                }
+
+                if (!$changed) {
+                    break;
+                }
+            }
+        }
 
         $orderedMissing = [];
         foreach ($bundleKeys as $bundleKey) {
@@ -1026,13 +1049,16 @@ final class SchedulerEngine
 
     private function comparePlannerIntentOrder(PlannerIntent $a, PlannerIntent $b): int
     {
-        // Bundle exception: overrides must stay above base rows.
+        // Bundle exception: override rows stay above base rows when overlap
+        // requires precedence.
         if ($a->bundleUid === $b->bundleUid && $a->role !== $b->role) {
-            if ($a->role === 'override' && $b->role === 'base') {
-                return -1;
-            }
-            if ($a->role === 'base' && $b->role === 'override') {
-                return 1;
+            if ($this->plannerIntentsOverlapForOrdering($a, $b)) {
+                if ($a->role === 'override' && $b->role === 'base') {
+                    return -1;
+                }
+                if ($a->role === 'base' && $b->role === 'override') {
+                    return 1;
+                }
             }
         }
 
@@ -1060,6 +1086,681 @@ final class SchedulerEngine
         }
 
         return strcmp($a->sourceEventUid, $b->sourceEventUid);
+    }
+
+    /**
+     * Compare bundle blocks using overlap-aware precedence rules.
+     *
+     * Return:
+     * - `-1` when first bundle should be above second bundle
+     * - `1` when second bundle should be above first bundle
+     * - `0` when no preference beyond deterministic tie
+     *
+     * @param array<int,PlannerIntent> $first
+     * @param array<int,PlannerIntent> $second
+     */
+    private function compareBundlePrecedence(
+        array $first,
+        array $second,
+        string $firstKey,
+        string $secondKey
+    ): int {
+        // Non-overlap falls back to chronological bundle ordering.
+        if (!$this->bundlesOverlapForOrdering($first, $second)) {
+            return $this->compareBundleChronology($first, $second, $firstKey, $secondKey);
+        }
+
+        // Rule 1: specificity wins (narrower active footprint above broader).
+        $specificityCmp = $this->compareBundleSpecificity($first, $second);
+        if ($specificityCmp !== 0) {
+            return $this->applyStarvationGuard(
+                $specificityCmp,
+                $first,
+                $second,
+                $firstKey,
+                $secondKey
+            );
+        }
+
+        // Rule 2: later daily start wins.
+        $dailyStartCmp = $this->compareBundleEffectiveDailyStart($first, $second);
+        if ($dailyStartCmp !== 0) {
+            return $this->applyStarvationGuard(
+                $dailyStartCmp,
+                $first,
+                $second,
+                $firstKey,
+                $secondKey
+            );
+        }
+
+        // Rule 3: same daily start -> later calendar start date wins.
+        $calendarStartCmp = $this->compareBundleCalendarStartDate($first, $second);
+        if ($calendarStartCmp !== 0) {
+            return $this->applyStarvationGuard(
+                $calendarStartCmp,
+                $first,
+                $second,
+                $firstKey,
+                $secondKey
+            );
+        }
+
+        return $this->compareBundleChronology($first, $second, $firstKey, $secondKey);
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $first
+     * @param array<int,PlannerIntent> $second
+     */
+    private function compareBundleChronology(
+        array $first,
+        array $second,
+        string $firstKey,
+        string $secondKey
+    ): int {
+        $firstStart = $this->bundleAnchorStart($first);
+        $secondStart = $this->bundleAnchorStart($second);
+        if ($firstStart !== $secondStart) {
+            return $firstStart <=> $secondStart;
+        }
+
+        $firstEnd = $this->bundleAnchorEnd($first);
+        $secondEnd = $this->bundleAnchorEnd($second);
+        if ($firstEnd !== $secondEnd) {
+            return $firstEnd <=> $secondEnd;
+        }
+
+        return strcmp($firstKey, $secondKey);
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $first
+     * @param array<int,PlannerIntent> $second
+     */
+    private function compareBundleSpecificity(array $first, array $second): int
+    {
+        $firstTuple = $this->bundleSpecificityTuple($first);
+        $secondTuple = $this->bundleSpecificityTuple($second);
+
+        for ($i = 0; $i < count($firstTuple); $i++) {
+            if ($firstTuple[$i] === $secondTuple[$i]) {
+                continue;
+            }
+            // Lower tuple value = narrower footprint = higher precedence.
+            return $firstTuple[$i] < $secondTuple[$i] ? -1 : 1;
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundle
+     * @return array{0:int,1:int,2:int}
+     */
+    private function bundleSpecificityTuple(array $bundle): array
+    {
+        return [
+            $this->bundleScopeSpanDays($bundle),
+            $this->bundleWeekdayCoverageCount($bundle),
+            $this->bundleDailyWindowSpanSeconds($bundle),
+        ];
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundle
+     */
+    private function bundleScopeSpanDays(array $bundle): int
+    {
+        $start = $this->bundleAnchorStart($bundle);
+        $end = $this->bundleAnchorEnd($bundle);
+        $seconds = max(0, $end - $start);
+        return (int)max(1, (int)ceil($seconds / 86400));
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundle
+     */
+    private function bundleWeekdayCoverageCount(array $bundle): int
+    {
+        $days = [];
+        foreach ($bundle as $intent) {
+            foreach (array_keys($this->plannerIntentWeekdaySet($intent)) as $day) {
+                $days[$day] = true;
+            }
+        }
+
+        return max(1, count($days));
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundle
+     */
+    private function bundleDailyWindowSpanSeconds(array $bundle): int
+    {
+        $maxSpan = 0;
+        foreach ($bundle as $intent) {
+            $span = $this->intentDailyWindowSpanSeconds($intent);
+            if ($span > $maxSpan) {
+                $maxSpan = $span;
+            }
+        }
+
+        return max(1, min(86400, $maxSpan));
+    }
+
+    private function intentDailyWindowSpanSeconds(PlannerIntent $intent): int
+    {
+        if ($intent->allDay || $this->intentUsesSymbolicDailyTime($intent)) {
+            return 86400;
+        }
+
+        $segments = $this->intentDailyWindowSegments($intent);
+        $span = 0;
+        foreach ($segments as $segment) {
+            $span += max(0, $segment[1] - $segment[0]);
+        }
+
+        return max(1, min(86400, $span));
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $first
+     * @param array<int,PlannerIntent> $second
+     */
+    private function compareBundleEffectiveDailyStart(array $first, array $second): int
+    {
+        $firstStart = $this->bundleEffectiveDailyStart($first);
+        $secondStart = $this->bundleEffectiveDailyStart($second);
+        if ($firstStart === null || $secondStart === null) {
+            return 0;
+        }
+        if ($firstStart['kind'] !== $secondStart['kind']) {
+            return 0;
+        }
+        if ($firstStart['value'] === $secondStart['value']) {
+            return 0;
+        }
+
+        // Later start should be above.
+        return $firstStart['value'] > $secondStart['value'] ? -1 : 1;
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundle
+     * @return array{kind:string,value:int}|null
+     */
+    private function bundleEffectiveDailyStart(array $bundle): ?array
+    {
+        $kind = null;
+        $value = null;
+
+        foreach ($bundle as $intent) {
+            $candidate = $this->intentDailyStartCandidate($intent);
+            if ($candidate === null) {
+                return null;
+            }
+
+            if ($kind === null) {
+                $kind = $candidate['kind'];
+                $value = $candidate['value'];
+                continue;
+            }
+
+            if ($kind !== $candidate['kind']) {
+                return null;
+            }
+
+            if ($candidate['value'] > $value) {
+                $value = $candidate['value'];
+            }
+        }
+
+        if ($kind === null || $value === null) {
+            return null;
+        }
+
+        return [
+            'kind' => $kind,
+            'value' => $value,
+        ];
+    }
+
+    /**
+     * @return array{kind:string,value:int}|null
+     */
+    private function intentDailyStartCandidate(PlannerIntent $intent): ?array
+    {
+        $settings = $this->extractSchedulerSettingsFromPayload($intent->payload);
+        $startSetting = isset($settings['start']) && is_string($settings['start'])
+            ? trim((string)$settings['start'])
+            : '';
+
+        if ($startSetting !== '') {
+            $normalized = FPPSemantics::normalizeSymbolicTimeToken($startSetting);
+            if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
+                $rank = $this->symbolicStartRank($normalized);
+                $offset = isset($settings['start_offset']) && is_numeric($settings['start_offset'])
+                    ? (int)$settings['start_offset']
+                    : 0;
+
+                return [
+                    'kind' => 'symbolic',
+                    'value' => ($rank * 100000) + $offset,
+                ];
+            }
+
+            if (preg_match('/^(\d{2}):(\d{2})(?::(\d{2}))?$/', $startSetting, $m) === 1) {
+                $h = (int)$m[1];
+                $min = (int)$m[2];
+                $sec = isset($m[3]) ? (int)$m[3] : 0;
+                return [
+                    'kind' => 'hard',
+                    'value' => ($h * 3600) + ($min * 60) + $sec,
+                ];
+            }
+        }
+
+        if ($this->intentUsesSymbolicDailyTime($intent)) {
+            return null;
+        }
+
+        return [
+            'kind' => 'hard',
+            'value' => $this->secondsSinceMidnight($intent->start),
+        ];
+    }
+
+    private function symbolicStartRank(string $token): int
+    {
+        return match ($token) {
+            'Dawn' => 1,
+            'SunRise' => 2,
+            'SunSet' => 3,
+            'Dusk' => 4,
+            default => 0,
+        };
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $first
+     * @param array<int,PlannerIntent> $second
+     */
+    private function compareBundleCalendarStartDate(array $first, array $second): int
+    {
+        $firstStart = $this->bundleAnchorStart($first);
+        $secondStart = $this->bundleAnchorStart($second);
+        if ($firstStart === $secondStart) {
+            return 0;
+        }
+
+        // Later calendar start date should be above.
+        return $firstStart > $secondStart ? -1 : 1;
+    }
+
+    /**
+     * Apply starvation guard to a precedence decision.
+     *
+     * @param array<int,PlannerIntent> $first
+     * @param array<int,PlannerIntent> $second
+     */
+    private function applyStarvationGuard(
+        int $decision,
+        array $first,
+        array $second,
+        string $firstKey,
+        string $secondKey
+    ): int {
+        if ($decision === 0) {
+            return 0;
+        }
+
+        if ($decision < 0) {
+            $firstStarvesSecond = $this->bundleOrderingWouldStarve($first, $second);
+            $secondStarvesFirst = $this->bundleOrderingWouldStarve($second, $first);
+            if ($firstStarvesSecond && !$secondStarvesFirst) {
+                return 1;
+            }
+            if ($firstStarvesSecond && $secondStarvesFirst) {
+                return $this->compareBundleChronology($first, $second, $firstKey, $secondKey);
+            }
+            return -1;
+        }
+
+        $secondStarvesFirst = $this->bundleOrderingWouldStarve($second, $first);
+        $firstStarvesSecond = $this->bundleOrderingWouldStarve($first, $second);
+        if ($secondStarvesFirst && !$firstStarvesSecond) {
+            return -1;
+        }
+        if ($secondStarvesFirst && $firstStarvesSecond) {
+            return $this->compareBundleChronology($first, $second, $firstKey, $secondKey);
+        }
+        return 1;
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $above
+     * @param array<int,PlannerIntent> $below
+     */
+    private function bundleOrderingWouldStarve(array $above, array $below): bool
+    {
+        if (!$this->bundlesOverlapForOrdering($above, $below)) {
+            return false;
+        }
+
+        $aboveStart = $this->bundleAnchorStart($above);
+        $aboveEnd = $this->bundleAnchorEnd($above);
+        $belowStart = $this->bundleAnchorStart($below);
+        $belowEnd = $this->bundleAnchorEnd($below);
+        $dateContains = $aboveStart <= $belowStart && $aboveEnd >= $belowEnd;
+
+        $aboveDays = $this->bundleWeekdaySet($above);
+        $belowDays = $this->bundleWeekdaySet($below);
+        $daysContains = $this->weekdaySetContains($aboveDays, $belowDays);
+
+        $aboveSegments = $this->bundleDailyWindowSegments($above);
+        $belowSegments = $this->bundleDailyWindowSegments($below);
+        if ($aboveSegments === null || $belowSegments === null) {
+            return false;
+        }
+        $timeContains = $this->segmentsContain($aboveSegments, $belowSegments);
+
+        $strictDate = $aboveStart < $belowStart || $aboveEnd > $belowEnd;
+        $strictDays = count($aboveDays) > count($belowDays);
+        $strictTime = !$this->segmentsEqual($aboveSegments, $belowSegments);
+
+        return $dateContains
+            && $daysContains
+            && $timeContains
+            && ($strictDate || $strictDays || $strictTime);
+    }
+
+    /**
+     * @param array<int,array{0:int,1:int}> $segments
+     */
+    private function segmentsEqual(array $first, array $second): bool
+    {
+        if (count($first) !== count($second)) {
+            return false;
+        }
+        foreach ($first as $i => $segment) {
+            if (!isset($second[$i])) {
+                return false;
+            }
+            if ($segment[0] !== $second[$i][0] || $segment[1] !== $second[$i][1]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param array<int,array{0:int,1:int}> $container
+     * @param array<int,array{0:int,1:int}> $containee
+     */
+    private function segmentsContain(array $container, array $containee): bool
+    {
+        foreach ($containee as $need) {
+            $covered = false;
+            foreach ($container as $have) {
+                if ($have[0] <= $need[0] && $have[1] >= $need[1]) {
+                    $covered = true;
+                    break;
+                }
+            }
+            if (!$covered) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $first
+     * @param array<int,PlannerIntent> $second
+     */
+    private function bundlesOverlapForOrdering(array $first, array $second): bool
+    {
+        foreach ($first as $firstIntent) {
+            foreach ($second as $secondIntent) {
+                if ($this->plannerIntentsOverlapForOrdering($firstIntent, $secondIntent)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function plannerIntentsOverlapForOrdering(PlannerIntent $first, PlannerIntent $second): bool
+    {
+        $firstScopeStart = $first->scope->getStart()->getTimestamp();
+        $firstScopeEnd = $first->scope->getEnd()->getTimestamp();
+        $secondScopeStart = $second->scope->getStart()->getTimestamp();
+        $secondScopeEnd = $second->scope->getEnd()->getTimestamp();
+
+        // Touching edges do not overlap.
+        if (max($firstScopeStart, $secondScopeStart) >= min($firstScopeEnd, $secondScopeEnd)) {
+            return false;
+        }
+
+        if (!$this->weekdaySetsIntersect(
+            $this->plannerIntentWeekdaySet($first),
+            $this->plannerIntentWeekdaySet($second)
+        )) {
+            return false;
+        }
+
+        // Symbolic timing cannot be conclusively disproven; assume overlap.
+        if ($this->intentUsesSymbolicDailyTime($first) || $this->intentUsesSymbolicDailyTime($second)) {
+            return true;
+        }
+
+        $firstSegments = $this->intentDailyWindowSegments($first);
+        $secondSegments = $this->intentDailyWindowSegments($second);
+
+        foreach ($firstSegments as $a) {
+            foreach ($secondSegments as $b) {
+                if (max($a[0], $b[0]) < min($a[1], $b[1])) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundle
+     * @return array<string,bool>
+     */
+    private function bundleWeekdaySet(array $bundle): array
+    {
+        $days = [];
+        foreach ($bundle as $intent) {
+            foreach (array_keys($this->plannerIntentWeekdaySet($intent)) as $day) {
+                $days[$day] = true;
+            }
+        }
+        return $days;
+    }
+
+    /**
+     * @param array<string,bool> $first
+     * @param array<string,bool> $second
+     */
+    private function weekdaySetsIntersect(array $first, array $second): bool
+    {
+        foreach ($first as $day => $_) {
+            if (isset($second[$day])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param array<string,bool> $container
+     * @param array<string,bool> $containee
+     */
+    private function weekdaySetContains(array $container, array $containee): bool
+    {
+        foreach ($containee as $day => $_) {
+            if (!isset($container[$day])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @return array<string,bool>
+     */
+    private function plannerIntentWeekdaySet(PlannerIntent $intent): array
+    {
+        $days = is_array($intent->weeklyDays) ? $intent->weeklyDays : [];
+        if ($days === []) {
+            // Unspecified day mask is conservatively treated as all days.
+            $days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+        }
+
+        $set = [];
+        foreach ($days as $day) {
+            if (!is_string($day)) {
+                continue;
+            }
+            $token = strtoupper(trim($day));
+            if ($token === '') {
+                continue;
+            }
+            $set[$token] = true;
+        }
+
+        if ($set === []) {
+            return [
+                'SU' => true,
+                'MO' => true,
+                'TU' => true,
+                'WE' => true,
+                'TH' => true,
+                'FR' => true,
+                'SA' => true,
+            ];
+        }
+
+        return $set;
+    }
+
+    private function intentUsesSymbolicDailyTime(PlannerIntent $intent): bool
+    {
+        $settings = $this->extractSchedulerSettingsFromPayload($intent->payload);
+        foreach (['start', 'end'] as $key) {
+            $value = $settings[$key] ?? null;
+            if (!is_string($value) || trim($value) === '') {
+                continue;
+            }
+            $normalized = FPPSemantics::normalizeSymbolicTimeToken($value);
+            if (is_string($normalized) && FPPSemantics::isSymbolicTime($normalized)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int,PlannerIntent> $bundle
+     * @return array<int,array{0:int,1:int}>|null
+     */
+    private function bundleDailyWindowSegments(array $bundle): ?array
+    {
+        $segments = [];
+        foreach ($bundle as $intent) {
+            if ($intent->allDay || $this->intentUsesSymbolicDailyTime($intent)) {
+                return [[0, 86400]];
+            }
+            foreach ($this->intentDailyWindowSegments($intent) as $segment) {
+                $segments[] = $segment;
+            }
+        }
+
+        return $this->mergeDailySegments($segments);
+    }
+
+    /**
+     * @return array<int,array{0:int,1:int}>
+     */
+    private function intentDailyWindowSegments(PlannerIntent $intent): array
+    {
+        if ($intent->allDay) {
+            return [[0, 86400]];
+        }
+
+        $start = $this->secondsSinceMidnight($intent->start);
+        $end = $this->secondsSinceMidnight($intent->end);
+
+        if ($start === $end) {
+            // Ambiguous/zero-width windows are treated conservatively as full-day.
+            return [[0, 86400]];
+        }
+
+        if ($end > $start) {
+            return [[$start, $end]];
+        }
+
+        // Overnight wrap.
+        return [
+            [$start, 86400],
+            [0, $end],
+        ];
+    }
+
+    private function secondsSinceMidnight(\DateTimeImmutable $value): int
+    {
+        return ((int)$value->format('H')) * 3600
+            + ((int)$value->format('i')) * 60
+            + (int)$value->format('s');
+    }
+
+    /**
+     * @param array<int,array{0:int,1:int}> $segments
+     * @return array<int,array{0:int,1:int}>
+     */
+    private function mergeDailySegments(array $segments): array
+    {
+        if ($segments === []) {
+            return [[0, 86400]];
+        }
+
+        usort($segments, static function (array $a, array $b): int {
+            if ($a[0] !== $b[0]) {
+                return $a[0] <=> $b[0];
+            }
+            return $a[1] <=> $b[1];
+        });
+
+        $merged = [];
+        foreach ($segments as $segment) {
+            $start = max(0, min(86400, (int)$segment[0]));
+            $end = max(0, min(86400, (int)$segment[1]));
+            if ($end <= $start) {
+                continue;
+            }
+
+            if ($merged === []) {
+                $merged[] = [$start, $end];
+                continue;
+            }
+
+            $lastIndex = count($merged) - 1;
+            $last = $merged[$lastIndex];
+            if ($start <= $last[1]) {
+                $merged[$lastIndex][1] = max($last[1], $end);
+            } else {
+                $merged[] = [$start, $end];
+            }
+        }
+
+        return $merged === [] ? [[0, 86400]] : $merged;
     }
 
     /**
