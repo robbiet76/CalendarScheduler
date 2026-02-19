@@ -78,6 +78,16 @@
     gap: 8px;
   }
 
+  .cs-connection-summary {
+    flex: 1 1 auto;
+    font-size: 13px;
+    color: #2b2f33;
+    margin-left: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .cs-help-list {
     margin-bottom: 8px;
     padding-left: 18px;
@@ -159,6 +169,7 @@
       <div class="backdrop mb-3">
         <div class="cs-panel-header">
           <h4 class="cs-panel-title">1) Connection Setup</h4>
+          <div class="cs-connection-summary cs-hidden" id="csConnectionSummary"></div>
           <button class="buttons btn-black btn-sm" id="csConnectionToggleBtn" type="button">Collapse</button>
         </div>
         <div id="csConnectionPanelBody">
@@ -402,12 +413,14 @@
     function setConnectionCollapsed(collapsed) {
       var body = byId("csConnectionPanelBody");
       var btn = byId("csConnectionToggleBtn");
-      if (!body || !btn) {
+      var summary = byId("csConnectionSummary");
+      if (!body || !btn || !summary) {
         return;
       }
       connectionCollapsed = !!collapsed;
       body.classList.toggle("cs-hidden", connectionCollapsed);
       btn.textContent = connectionCollapsed ? "Expand" : "Collapse";
+      summary.classList.toggle("cs-hidden", !connectionCollapsed);
     }
 
     function updateTopStatusCompact() {
@@ -681,6 +694,24 @@
       setApplyEnabled(pendingCount > 0);
     }
 
+    function updateConnectionSummary(google, selectedLabel) {
+      var node = byId("csConnectionSummary");
+      if (!node) {
+        return;
+      }
+      var connected = !!(google && google.connected);
+      if (!connected) {
+        node.textContent = "Not connected.";
+        return;
+      }
+
+      var label = String(selectedLabel || "").trim();
+      if (label === "") {
+        label = "No calendar selected";
+      }
+      node.textContent = "Connected to Google calendar: " + label;
+    }
+
     // Pull provider state and update setup/connection controls.
     function loadStatus() {
       return fetchJson({ action: "status" }).then(function (res) {
@@ -718,12 +749,21 @@
         if (calendars.length === 0) {
           select.innerHTML = "<option>Connect account to load calendars</option>";
           select.disabled = true;
+          updateConnectionSummary(google, "");
         } else {
+          var selectedLabel = "";
           select.innerHTML = calendars.map(function (c) {
             var selected = c.id === google.selectedCalendarId ? " selected" : "";
             var label = c.primary ? (c.summary + " (Primary)") : c.summary;
+            if (c.id === google.selectedCalendarId) {
+              selectedLabel = label;
+            }
             return "<option value=\"" + escapeHtml(c.id) + "\"" + selected + ">" + escapeHtml(label) + "</option>";
           }).join("");
+          if (!selectedLabel && select.options.length > 0) {
+            selectedLabel = select.options[select.selectedIndex >= 0 ? select.selectedIndex : 0].text || "";
+          }
+          updateConnectionSummary(google, selectedLabel);
           select.disabled = false;
         }
         if (connectedAccountGroup) {
