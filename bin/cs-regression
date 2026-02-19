@@ -51,7 +51,14 @@ if ($label === '') {
 $label = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $label) ?? 'adhoc';
 $outBase = trim((string)($opts['out-dir'] ?? '/tmp/cs-regression'));
 $doApply = array_key_exists('apply', $opts) || !array_key_exists('no-apply', $opts);
-$syncMode = normalizeSyncMode((string)($opts['sync-mode'] ?? 'both'));
+$syncModeRaw = $opts['sync-mode'] ?? null;
+$syncModeArg = '';
+$syncModeLabel = 'config/default';
+if (is_string($syncModeRaw) && trim($syncModeRaw) !== '') {
+    $syncMode = normalizeSyncMode($syncModeRaw);
+    $syncModeArg = ' --sync-mode=' . escapeshellarg($syncMode);
+    $syncModeLabel = $syncMode;
+}
 
 $runDir = rtrim($outBase, '/') . '/' . date('Ymd-His') . '-' . $label;
 if (!is_dir($runDir) && !@mkdir($runDir, 0775, true) && !is_dir($runDir)) {
@@ -61,7 +68,7 @@ if (!is_dir($runDir) && !@mkdir($runDir, 0775, true) && !is_dir($runDir)) {
 
 $pre = runSchedulerCommand(
     $schedulerCli,
-    '--refresh-calendar --dry-run --format=json --sync-mode=' . escapeshellarg($syncMode)
+    '--refresh-calendar --dry-run --format=json' . $syncModeArg
 );
 file_put_contents($runDir . '/pre.raw.txt', $pre['raw']);
 if (!$pre['ok']) {
@@ -74,7 +81,7 @@ $apply = null;
 if ($doApply) {
     $apply = runSchedulerCommand(
         $schedulerCli,
-        '--apply --format=json --sync-mode=' . escapeshellarg($syncMode)
+        '--apply --format=json' . $syncModeArg
     );
     file_put_contents($runDir . '/apply.raw.txt', $apply['raw']);
     if (!$apply['ok']) {
@@ -86,7 +93,7 @@ if ($doApply) {
 
 $post = runSchedulerCommand(
     $schedulerCli,
-    '--refresh-calendar --dry-run --format=json --sync-mode=' . escapeshellarg($syncMode)
+    '--refresh-calendar --dry-run --format=json' . $syncModeArg
 );
 file_put_contents($runDir . '/post.raw.txt', $post['raw']);
 if (!$post['ok']) {
@@ -99,7 +106,7 @@ $report = [
     'label' => $label,
     'runDir' => $runDir,
     'applyExecuted' => $doApply,
-    'syncMode' => $syncMode,
+    'syncMode' => $syncModeLabel,
     'pre' => summarizePreview($pre['json']),
     'post' => summarizePreview($post['json']),
     'apply' => $apply !== null ? summarizeApply($apply['json']) : null,

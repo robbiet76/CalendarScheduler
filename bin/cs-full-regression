@@ -98,13 +98,23 @@ if (!$skipResolution) {
 // Live scheduler convergence run (pre/apply/post).
 if (!$skipLive) {
     $liveLabel = $label . '-live';
-    $syncMode = normalizeSyncMode((string)($opts['sync-mode'] ?? 'both'));
+    $syncModeRaw = $opts['sync-mode'] ?? null;
+    $syncModeArg = '';
+    $syncModeLabel = 'config/default';
+    if (is_string($syncModeRaw) && trim($syncModeRaw) !== '') {
+        $syncMode = normalizeSyncMode($syncModeRaw);
+        $syncModeArg = '--sync-mode=' . $syncMode;
+        $syncModeLabel = $syncMode;
+    }
+
     $liveArgs = [
         '--label=' . $liveLabel,
         '--apply',
-        '--sync-mode=' . $syncMode,
         '--expect-post-noop=true',
     ];
+    if ($syncModeArg !== '') {
+        $liveArgs[] = $syncModeArg;
+    }
 
     $live = runCommand(
         buildPhpCommand($liveRunner, $liveArgs)
@@ -138,7 +148,7 @@ if (!$skipLive) {
     $result['live'] = [
         'ok' => $liveOk,
         'exitCode' => $live['exitCode'],
-        'syncMode' => $syncMode,
+        'syncMode' => $syncModeLabel,
         'artifactsPath' => $artifactsPath,
         'reportPath' => $liveReport !== null ? ($runDir . '/live.report.json') : null,
     ];
