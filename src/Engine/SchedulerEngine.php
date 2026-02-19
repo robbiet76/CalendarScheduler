@@ -1164,6 +1164,14 @@ final class SchedulerEngine
                 $left = $bundleGroups[$leftKey];
                 $right = $bundleGroups[$rightKey];
 
+                // Command rows are point-in-time triggers and should not participate
+                // in overlap precedence constraints against non-command bundles.
+                $leftIsCommand = $this->bundleIsCommand($left);
+                $rightIsCommand = $this->bundleIsCommand($right);
+                if ($leftIsCommand !== $rightIsCommand) {
+                    continue;
+                }
+
                 if (!$this->bundlesOverlapForOrdering($left, $right)) {
                     continue;
                 }
@@ -1293,6 +1301,14 @@ final class SchedulerEngine
         string $firstKey,
         string $secondKey
     ): int {
+        // Commands execute at their start time regardless of row position; keep
+        // them grouped at the bottom for readability.
+        $firstIsCommand = $this->bundleIsCommand($first);
+        $secondIsCommand = $this->bundleIsCommand($second);
+        if ($firstIsCommand !== $secondIsCommand) {
+            return $firstIsCommand ? 1 : -1;
+        }
+
         $firstStart = $this->bundleAnchorStart($first);
         $secondStart = $this->bundleAnchorStart($second);
         if ($firstStart !== $secondStart) {
@@ -1332,6 +1348,29 @@ final class SchedulerEngine
         }
 
         return $type . '|' . $target;
+    }
+
+    /**
+     * Command bundles are point-in-time actions that should be clustered at the
+     * bottom of the schedule for readability.
+     *
+     * @param array<int,PlannerIntent> $bundle
+     */
+    private function bundleIsCommand(array $bundle): bool
+    {
+        if ($bundle === []) {
+            return false;
+        }
+
+        foreach ($bundle as $intent) {
+            $payload = is_array($intent->payload ?? null) ? $intent->payload : [];
+            $derived = $this->deriveTypeAndTargetFromPayload($payload);
+            if (($derived['type'] ?? '') !== 'command') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
