@@ -39,6 +39,7 @@ $expectOptionNames = [
 $opts = getopt('', array_merge([
     'label::',
     'out-dir::',
+    'sync-mode::',
     'apply',
     'no-apply',
 ], $expectOptionNames));
@@ -50,6 +51,7 @@ if ($label === '') {
 $label = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $label) ?? 'adhoc';
 $outBase = trim((string)($opts['out-dir'] ?? '/tmp/cs-regression'));
 $doApply = array_key_exists('apply', $opts) || !array_key_exists('no-apply', $opts);
+$syncMode = normalizeSyncMode((string)($opts['sync-mode'] ?? 'both'));
 
 $runDir = rtrim($outBase, '/') . '/' . date('Ymd-His') . '-' . $label;
 if (!is_dir($runDir) && !@mkdir($runDir, 0775, true) && !is_dir($runDir)) {
@@ -57,7 +59,10 @@ if (!is_dir($runDir) && !@mkdir($runDir, 0775, true) && !is_dir($runDir)) {
     exit(2);
 }
 
-$pre = runSchedulerCommand($schedulerCli, '--refresh-calendar --dry-run --format=json');
+$pre = runSchedulerCommand(
+    $schedulerCli,
+    '--refresh-calendar --dry-run --format=json --sync-mode=' . escapeshellarg($syncMode)
+);
 file_put_contents($runDir . '/pre.raw.txt', $pre['raw']);
 if (!$pre['ok']) {
     fwrite(STDERR, "ERROR: Pre-run failed.\n{$pre['raw']}\n");
@@ -67,7 +72,10 @@ file_put_contents($runDir . '/pre.json', json_encode($pre['json'], JSON_PRETTY_P
 
 $apply = null;
 if ($doApply) {
-    $apply = runSchedulerCommand($schedulerCli, '--apply --format=json');
+    $apply = runSchedulerCommand(
+        $schedulerCli,
+        '--apply --format=json --sync-mode=' . escapeshellarg($syncMode)
+    );
     file_put_contents($runDir . '/apply.raw.txt', $apply['raw']);
     if (!$apply['ok']) {
         fwrite(STDERR, "ERROR: Apply failed.\n{$apply['raw']}\n");
@@ -76,7 +84,10 @@ if ($doApply) {
     file_put_contents($runDir . '/apply.json', json_encode($apply['json'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
 }
 
-$post = runSchedulerCommand($schedulerCli, '--refresh-calendar --dry-run --format=json');
+$post = runSchedulerCommand(
+    $schedulerCli,
+    '--refresh-calendar --dry-run --format=json --sync-mode=' . escapeshellarg($syncMode)
+);
 file_put_contents($runDir . '/post.raw.txt', $post['raw']);
 if (!$post['ok']) {
     fwrite(STDERR, "ERROR: Post-run failed.\n{$post['raw']}\n");
@@ -88,6 +99,7 @@ $report = [
     'label' => $label,
     'runDir' => $runDir,
     'applyExecuted' => $doApply,
+    'syncMode' => $syncMode,
     'pre' => summarizePreview($pre['json']),
     'post' => summarizePreview($post['json']),
     'apply' => $apply !== null ? summarizeApply($apply['json']) : null,
@@ -142,6 +154,15 @@ function runSchedulerCommand(string $schedulerCli, string $args): array
         'raw' => $raw,
         'json' => $ok ? $json : [],
     ];
+}
+
+function normalizeSyncMode(string $syncMode): string
+{
+    $syncMode = strtolower(trim($syncMode));
+    if ($syncMode === 'calendar' || $syncMode === 'fpp' || $syncMode === 'both') {
+        return $syncMode;
+    }
+    return 'both';
 }
 
 /**
@@ -301,4 +322,3 @@ function readPath(array $root, string $path): mixed
     }
     return $cur;
 }
-

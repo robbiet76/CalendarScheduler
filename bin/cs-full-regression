@@ -27,6 +27,7 @@ if (!is_file($liveRunner)) {
 $opts = getopt('', [
     'label::',
     'out-dir::',
+    'sync-mode::',
     'skip-resolution',
     'skip-live',
     'resolution-case::',
@@ -97,9 +98,11 @@ if (!$skipResolution) {
 // Live scheduler convergence run (pre/apply/post).
 if (!$skipLive) {
     $liveLabel = $label . '-live';
+    $syncMode = normalizeSyncMode((string)($opts['sync-mode'] ?? 'both'));
     $liveArgs = [
         '--label=' . $liveLabel,
         '--apply',
+        '--sync-mode=' . $syncMode,
         '--expect-post-noop=true',
     ];
 
@@ -135,6 +138,7 @@ if (!$skipLive) {
     $result['live'] = [
         'ok' => $liveOk,
         'exitCode' => $live['exitCode'],
+        'syncMode' => $syncMode,
         'artifactsPath' => $artifactsPath,
         'reportPath' => $liveReport !== null ? ($runDir . '/live.report.json') : null,
     ];
@@ -216,3 +220,11 @@ function extractArtifactsPath(string $raw): ?string
     return $path !== '' ? $path : null;
 }
 
+function normalizeSyncMode(string $syncMode): string
+{
+    $syncMode = strtolower(trim($syncMode));
+    if ($syncMode === 'calendar' || $syncMode === 'fpp' || $syncMode === 'both') {
+        return $syncMode;
+    }
+    return 'both';
+}

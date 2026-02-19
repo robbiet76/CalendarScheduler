@@ -65,6 +65,8 @@ $opts = getopt('', [
     'schedule:',
     'manifest:',
     'format:',
+    'sync-mode:',
+    'sync_mode:',
     'quiet',
     'refresh-calendar',
     'apply',
@@ -93,6 +95,8 @@ if ($auth) {
 $schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
 $manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
 $format       = $opts['format']   ?? 'text';
+$syncMode     = resolveSyncMode($opts);
+$opts['sync-mode'] = $syncMode;
 
 if (!in_array($format, ['text', 'json'], true)) {
     fwrite(STDERR, "ERROR: --format must be 'text' or 'json'\n");
@@ -204,7 +208,13 @@ $countDelete = $totals['delete'];
 if ($apply) {
     // Apply mode executes reconciliation actions after planning.
     // Writable targets are expressed via ApplyTargets.
-    $targets = ApplyTargets::all();
+    if ($syncMode === 'calendar') {
+        $targets = ApplyTargets::fppOnly();
+    } elseif ($syncMode === 'fpp') {
+        $targets = [ApplyTargets::TARGET_CALENDAR];
+    } else {
+        $targets = ApplyTargets::all();
+    }
 
     if ($plan) {
         $options = ApplyOptions::plan();
@@ -216,6 +226,19 @@ if ($apply) {
             $targets,
             true // fail if calendar actions are blocked
         );
+    }
+
+    if ($syncMode !== 'both') {
+        foreach ($runResult->actions() as $action) {
+            if ($action->type === 'noop' || $action->type === 'block') {
+                continue;
+            }
+            if (!in_array($action->target, $targets, true)) {
+                throw new RuntimeException(
+                    "Apply safety stop: action target '{$action->target}' is not allowed for sync mode '{$syncMode}'."
+                );
+            }
+        }
     }
 
     $googleExecutor = null;
@@ -278,6 +301,39 @@ if ($format === 'json') {
 // text output
 if ($quiet) {
     exit(0);
+}
+
+/**
+ * @param array<string,mixed> $opts
+ */
+function resolveSyncMode(array $opts): string
+{
+    $explicitMode = $opts['sync-mode'] ?? $opts['sync_mode'] ?? null;
+    if (is_string($explicitMode) && trim($explicitMode) !== '') {
+        return normalizeSyncMode($explicitMode);
+    }
+
+    $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+    if (is_file($configPath)) {
+        $raw = @file_get_contents($configPath);
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && is_string($decoded['sync_mode'] ?? null)) {
+                return normalizeSyncMode((string)$decoded['sync_mode']);
+            }
+        }
+    }
+
+    return 'both';
+}
+
+function normalizeSyncMode(string $syncMode): string
+{
+    $syncMode = strtolower(trim($syncMode));
+    if ($syncMode === 'calendar' || $syncMode === 'fpp' || $syncMode === 'both') {
+        return $syncMode;
+    }
+    return 'both';
 }
 
 if ($dryRun) {
