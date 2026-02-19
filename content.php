@@ -554,6 +554,15 @@
       }
     }
 
+    function allSetupChecksOk(setup) {
+      setup = setup || {};
+      return !!setup.clientFilePresent
+        && !!setup.configPresent
+        && !!setup.configValid
+        && !!setup.tokenPathWritable
+        && !!setup.deviceFlowReady;
+    }
+
     // -----------------------------------------------------------------------
     // API + rendering helpers
     // -----------------------------------------------------------------------
@@ -822,8 +831,8 @@
         }
 
         var setup = google.setup || {};
-        var deviceReady = !!setup.deviceFlowReady;
-        if (!providerConnected && !deviceReady) {
+        var connectReady = allSetupChecksOk(setup);
+        if (!providerConnected && !connectReady) {
           connectBtn.dataset.locked = "1";
           connectBtn.disabled = true;
           var hints = Array.isArray(setup.hints) ? setup.hints : [];
