@@ -985,47 +985,7 @@ final class SchedulerEngine
         unset($bundleIntents);
 
         $bundleKeys = array_keys($bundleGroups);
-        usort($bundleKeys, function (string $a, string $b) use ($bundleGroups): int {
-            return $this->compareBundleChronology(
-                $bundleGroups[$a],
-                $bundleGroups[$b],
-                $a,
-                $b
-            );
-        });
-
-        // Iterative stabilization pass:
-        // baseline order is chronological, then adjacent bundles are swapped
-        // when overlap-aware precedence requires inversion.
-        $bundleCount = count($bundleKeys);
-        if ($bundleCount > 1) {
-            $maxPasses = max(1, $bundleCount * $bundleCount);
-            for ($pass = 0; $pass < $maxPasses; $pass++) {
-                $changed = false;
-                for ($i = 1; $i < $bundleCount; $i++) {
-                    $aboveKey = $bundleKeys[$i - 1];
-                    $belowKey = $bundleKeys[$i];
-
-                    $cmp = $this->compareBundlePrecedence(
-                        $bundleGroups[$aboveKey],
-                        $bundleGroups[$belowKey],
-                        $aboveKey,
-                        $belowKey
-                    );
-
-                    // cmp > 0 means below should move above.
-                    if ($cmp > 0) {
-                        $bundleKeys[$i - 1] = $belowKey;
-                        $bundleKeys[$i] = $aboveKey;
-                        $changed = true;
-                    }
-                }
-
-                if (!$changed) {
-                    break;
-                }
-            }
-        }
+        $bundleKeys = $this->orderBundlesWithConstraints($bundleKeys, $bundleGroups);
 
         $orderedMissing = [];
         foreach ($bundleKeys as $bundleKey) {
@@ -1045,6 +1005,171 @@ final class SchedulerEngine
         }
 
         return $ranks;
+    }
+
+    /**
+     * Constrained bundle ordering:
+     * - Hard precedence edges from overlap semantics
+     * - Topological sort
+     * - Readability tie-breaks only among currently legal candidates
+     *
+     * @param array<int,string> $bundleKeys
+     * @param array<string,array<int,PlannerIntent>> $bundleGroups
+     * @return array<int,string>
+     */
+    private function orderBundlesWithConstraints(array $bundleKeys, array $bundleGroups): array
+    {
+        $hardEdges = $this->buildHardBundlePrecedenceEdges($bundleKeys, $bundleGroups);
+        $adjacency = [];
+        $inDegree = [];
+
+        foreach ($bundleKeys as $key) {
+            $adjacency[$key] = [];
+            $inDegree[$key] = 0;
+        }
+
+        foreach ($hardEdges as $edge) {
+            $from = $edge['from'];
+            $to = $edge['to'];
+            if (!isset($adjacency[$from]) || !isset($inDegree[$to])) {
+                continue;
+            }
+            if (isset($adjacency[$from][$to])) {
+                continue;
+            }
+
+            $adjacency[$from][$to] = true;
+            $inDegree[$to]++;
+        }
+
+        $available = [];
+        foreach ($bundleKeys as $key) {
+            if (($inDegree[$key] ?? 0) === 0) {
+                $available[] = $key;
+            }
+        }
+
+        $ordered = [];
+        $remaining = array_fill_keys($bundleKeys, true);
+        $lastGroupKey = null;
+
+        while ($remaining !== []) {
+            if ($available === []) {
+                // Cycle safety fallback: choose deterministic chronological minimum.
+                $candidates = array_keys($remaining);
+                usort($candidates, function (string $a, string $b) use ($bundleGroups): int {
+                    return $this->compareBundleChronology(
+                        $bundleGroups[$a],
+                        $bundleGroups[$b],
+                        $a,
+                        $b
+                    );
+                });
+                $available[] = $candidates[0];
+            }
+
+            usort($available, function (string $a, string $b) use ($bundleGroups, $lastGroupKey): int {
+                if ($lastGroupKey !== null && $lastGroupKey !== '') {
+                    $aGroup = $this->bundleReadabilityGroupKey($bundleGroups[$a]);
+                    $bGroup = $this->bundleReadabilityGroupKey($bundleGroups[$b]);
+                    $aSame = $aGroup === $lastGroupKey;
+                    $bSame = $bGroup === $lastGroupKey;
+                    if ($aSame !== $bSame) {
+                        return $aSame ? -1 : 1;
+                    }
+                }
+
+                $cmp = $this->compareBundleChronology(
+                    $bundleGroups[$a],
+                    $bundleGroups[$b],
+                    $a,
+                    $b
+                );
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+
+                $aGroup = $this->bundleReadabilityGroupKey($bundleGroups[$a]);
+                $bGroup = $this->bundleReadabilityGroupKey($bundleGroups[$b]);
+                if ($aGroup !== $bGroup) {
+                    return strcmp($aGroup, $bGroup);
+                }
+
+                return strcmp($a, $b);
+            });
+
+            $pick = array_shift($available);
+            if (!is_string($pick) || !isset($remaining[$pick])) {
+                continue;
+            }
+
+            $ordered[] = $pick;
+            unset($remaining[$pick]);
+            $lastGroupKey = $this->bundleReadabilityGroupKey($bundleGroups[$pick]);
+
+            foreach (array_keys($adjacency[$pick] ?? []) as $to) {
+                if (!isset($inDegree[$to])) {
+                    continue;
+                }
+                $inDegree[$to]--;
+                if ($inDegree[$to] === 0 && isset($remaining[$to])) {
+                    $available[] = $to;
+                }
+            }
+
+            // Deduplicate available list while preserving legality.
+            $seen = [];
+            $dedup = [];
+            foreach ($available as $key) {
+                if (!is_string($key) || isset($seen[$key]) || !isset($remaining[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $dedup[] = $key;
+            }
+            $available = $dedup;
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * Build hard precedence edges for overlapping bundles only.
+     *
+     * @param array<int,string> $bundleKeys
+     * @param array<string,array<int,PlannerIntent>> $bundleGroups
+     * @return array<int,array{from:string,to:string}>
+     */
+    private function buildHardBundlePrecedenceEdges(array $bundleKeys, array $bundleGroups): array
+    {
+        $edges = [];
+        $count = count($bundleKeys);
+        for ($i = 0; $i < $count; $i++) {
+            for ($j = $i + 1; $j < $count; $j++) {
+                $leftKey = $bundleKeys[$i];
+                $rightKey = $bundleKeys[$j];
+                $left = $bundleGroups[$leftKey];
+                $right = $bundleGroups[$rightKey];
+
+                if (!$this->bundlesOverlapForOrdering($left, $right)) {
+                    continue;
+                }
+
+                $cmp = $this->compareOverlappingBundlePrecedence(
+                    $left,
+                    $right,
+                    $leftKey,
+                    $rightKey
+                );
+                if ($cmp < 0) {
+                    $edges[] = ['from' => $leftKey, 'to' => $rightKey];
+                } elseif ($cmp > 0) {
+                    $edges[] = ['from' => $rightKey, 'to' => $leftKey];
+                }
+            }
+        }
+
+        return $edges;
     }
 
     private function comparePlannerIntentOrder(PlannerIntent $a, PlannerIntent $b): int
@@ -1099,17 +1224,12 @@ final class SchedulerEngine
      * @param array<int,PlannerIntent> $first
      * @param array<int,PlannerIntent> $second
      */
-    private function compareBundlePrecedence(
+    private function compareOverlappingBundlePrecedence(
         array $first,
         array $second,
         string $firstKey,
         string $secondKey
     ): int {
-        // Non-overlap falls back to chronological bundle ordering.
-        if (!$this->bundlesOverlapForOrdering($first, $second)) {
-            return $this->compareBundleChronology($first, $second, $firstKey, $secondKey);
-        }
-
         // Rule 1: specificity wins (narrower active footprint above broader).
         $specificityCmp = $this->compareBundleSpecificity($first, $second);
         if ($specificityCmp !== 0) {
@@ -1146,7 +1266,8 @@ final class SchedulerEngine
             );
         }
 
-        return $this->compareBundleChronology($first, $second, $firstKey, $secondKey);
+        // No hard precedence relation; caller should resolve by chronology/tie-break.
+        return 0;
     }
 
     /**
@@ -1172,6 +1293,32 @@ final class SchedulerEngine
         }
 
         return strcmp($firstKey, $secondKey);
+    }
+
+    /**
+     * Readability grouping key (soft preference only).
+     *
+     * @param array<int,PlannerIntent> $bundle
+     */
+    private function bundleReadabilityGroupKey(array $bundle): string
+    {
+        if ($bundle === []) {
+            return '';
+        }
+
+        $first = $bundle[0];
+        $derived = $this->deriveTypeAndTargetFromPayload(
+            is_array($first->payload ?? null) ? $first->payload : []
+        );
+
+        $type = strtolower(trim((string)($derived['type'] ?? '')));
+        $target = trim((string)($derived['target'] ?? ''));
+        if ($type === '' && $target === '') {
+            $type = 'unknown';
+            $target = $first->sourceEventUid;
+        }
+
+        return $type . '|' . $target;
     }
 
     /**
