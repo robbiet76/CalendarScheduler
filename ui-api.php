@@ -106,8 +106,19 @@ function cs_normalize_event(?array $event): array
         return [];
     }
 
-    $identity = $event['identity'] ?? [];
-    $timing = is_array($identity['timing'] ?? null) ? $identity['timing'] : [];
+    $identity = is_array($event['identity'] ?? null) ? $event['identity'] : [];
+    $timing = [];
+    if (is_array($identity['timing'] ?? null)) {
+        $timing = $identity['timing'];
+    } elseif (is_array($event['timing'] ?? null)) {
+        // Some action payloads carry timing at top-level event.
+        $timing = $event['timing'];
+    } else {
+        // Fallback for segmented events represented through subEvents.
+        $subEvents = is_array($event['subEvents'] ?? null) ? $event['subEvents'] : [];
+        $firstSub = is_array($subEvents[0] ?? null) ? $subEvents[0] : [];
+        $timing = is_array($firstSub['timing'] ?? null) ? $firstSub['timing'] : [];
+    }
 
     $startDate = null;
     if (is_array($timing['start_date'] ?? null)) {
@@ -120,8 +131,8 @@ function cs_normalize_event(?array $event): array
     }
 
     return [
-        'target' => $identity['target'] ?? null,
-        'type' => $identity['type'] ?? null,
+        'target' => $identity['target'] ?? $event['target'] ?? null,
+        'type' => $identity['type'] ?? $event['type'] ?? null,
         'startDate' => $startDate,
         'startTime' => $startTime,
     ];
