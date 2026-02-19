@@ -78,6 +78,13 @@
     gap: 8px;
   }
 
+  .cs-connection-toggle-close {
+    font-size: 20px;
+    line-height: 1;
+    min-width: 36px;
+    padding: 4px 10px;
+  }
+
   .cs-connection-summary {
     margin-top: -2px;
     margin-bottom: 8px;
@@ -167,7 +174,7 @@
       <div class="backdrop mb-3">
         <div class="cs-panel-header">
           <h4 class="cs-panel-title">1) Connection Setup</h4>
-          <button class="buttons btn-black btn-sm" id="csConnectionToggleBtn" type="button">Collapse</button>
+          <button class="buttons btn-black" id="csConnectionToggleBtn" type="button" aria-label="Close Connection Setup">×</button>
         </div>
         <p class="cs-muted cs-connection-summary cs-hidden" id="csConnectionSummary"></p>
         <div id="csConnectionPanelBody">
@@ -416,7 +423,15 @@
       }
       connectionCollapsed = !!collapsed;
       body.classList.toggle("cs-hidden", connectionCollapsed);
-      btn.textContent = connectionCollapsed ? "Expand" : "Collapse";
+      if (connectionCollapsed) {
+        btn.textContent = "Modify";
+        btn.classList.remove("cs-connection-toggle-close");
+        btn.setAttribute("aria-label", "Modify Connection Setup");
+      } else {
+        btn.textContent = "×";
+        btn.classList.add("cs-connection-toggle-close");
+        btn.setAttribute("aria-label", "Close Connection Setup");
+      }
       summary.classList.toggle("cs-hidden", !connectionCollapsed);
     }
 
