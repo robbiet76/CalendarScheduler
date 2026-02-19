@@ -779,7 +779,7 @@
         var googleBadge = byId("csProviderGoogleBadge");
         var outlookBadge = byId("csProviderOutlookBadge");
         connectBtn.dataset.locked = "0";
-        connectBtn.textContent = providerConnected ? "Refresh Provider" : "Connect Provider";
+        connectBtn.textContent = "Connect Provider";
         disconnectBtn.dataset.locked = providerConnected ? "0" : "1";
         disconnectBtn.disabled = !providerConnected;
         uploadBtn.dataset.locked = providerConnected ? "1" : "0";
@@ -948,10 +948,6 @@
     }
 
     byId("csConnectBtn").addEventListener("click", function () {
-      if (providerConnected) {
-        refreshAll();
-        return;
-      }
       startDeviceAuthFlow();
     });
 
