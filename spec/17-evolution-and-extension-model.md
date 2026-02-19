@@ -36,7 +36,7 @@ The system may evolve only along the following axes.
 ### 1. Calendar Providers
 
 Examples:
-- Google Calendar (ICS)
+- Google Calendar API
 - Outlook / Microsoft 365
 - CalDAV-compatible systems
 - Custom ICS feeds
@@ -95,7 +95,7 @@ All schema changes must:
 
 The Manifest must include a version field:
 
-manifest_version: 1
+version: 2
 
 Rules:
 - Version changes are rare
@@ -149,7 +149,7 @@ The following are explicitly forbidden:
 - Heuristic-based behavior changes
 - Identity rules that vary by backend
 - Compatibility shims inside core logic
-- Reading schedule.json outside the semantic layer
+- Reading or writing FPP schedule data outside Adapter/Apply platform boundaries
 - Planner or Diff logic becoming backend-aware
 - Implicit authority shifts based on write direction (e.g. API vs file-based I/O)
 

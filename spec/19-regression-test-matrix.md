@@ -11,7 +11,7 @@ Use `bin/cs-regression` for pre/apply/post capture and assertions.
 Example:
 
 ```bash
-php bin/cs-regression \
+bin/cs-regression \
   --label=sync-baseline \
   --apply \
   --expect-pre-noop=false \
@@ -23,7 +23,7 @@ Artifacts are written to `/tmp/cs-regression/<timestamp>-<label>/`.
 For one-command automation of the full flow (resolution fixtures + live pre/apply/post):
 
 ```bash
-php bin/cs-full-regression --label=nightly
+bin/cs-full-regression --label=nightly
 ```
 
 Artifacts are written to `/tmp/cs-full-regression/<timestamp>-<label>/`.
@@ -139,7 +139,7 @@ This catches the majority of high-risk regressions while staying fast.
 For deterministic checks, pass expectations into runner:
 
 ```bash
-php bin/cs-regression \
+bin/cs-regression \
   --label=example \
   --apply \
   --expect-pre-noop=false \
@@ -151,13 +151,13 @@ php bin/cs-regression \
 If you only want the in-memory resolution suite from the full runner:
 
 ```bash
-php bin/cs-full-regression --label=resolution-only --skip-live
+bin/cs-full-regression --label=resolution-only --skip-live
 ```
 
 If you only want live convergence checks:
 
 ```bash
-php bin/cs-full-regression --label=live-only --skip-resolution
+bin/cs-full-regression --label=live-only --skip-resolution
 ```
 
 ## Notes

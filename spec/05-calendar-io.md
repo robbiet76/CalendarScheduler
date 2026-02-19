@@ -396,7 +396,7 @@ Calendar I/O must never infer, expand, or synthesize additional SubEvents during
 - Symbolic values MUST be represented exclusively in the `symbolic` field and preserved without forward resolution
 - Year selection and concrete date materialization are deferred to Resolution, never Calendar I/O or Intent normalization
 - Unsupported symbolic constructs cause explicit export failure
-- Symbolic dates must not be encoded into description YAML or other editable free‑text metadata as a substitute for provider‑supported structures, as calendar edits may invalidate symbolic meaning.
+- Symbolic dates must not be encoded into description INI metadata or other editable free-text fields as a substitute for provider-supported structures, as calendar edits may invalidate symbolic meaning.
 
 Silent degradation is forbidden.
 
@@ -415,7 +415,7 @@ interface CalendarProvider {
 
 Examples:
 
-- Google Calendar (ICS)
+- Google Calendar API
 - Generic ICS feed
 - Future API-based providers
 
@@ -429,7 +429,7 @@ Calendar I/O failures are **hard failures**.
 - Unsupported recurrence patterns
 - Unsupported symbolic constructs
 
-Malformed or missing description YAML is explicitly non‑fatal; failures apply only to unsupported provider constructs or symbolic semantics.
+Malformed or missing description INI metadata is explicitly non-fatal; failures apply only to unsupported provider constructs or symbolic semantics.
 
 Failures surface immediately and do not partially apply.
 
@@ -580,38 +580,4 @@ Users are expected to:
 - Rely on it
 
 If a value cannot be safely edited by a user, it does not belong in the metadata.
-
-
-### NEW OAUTH/API UPDATE
-
-## OAuth / API-Backed Providers
-
-For API-backed providers (e.g. Google Calendar API as an example):
-
-### Storage
-
-- Provider event IDs MUST be stored in Manifest provenance
-- Structured metadata SHOULD be stored in provider-supported private fields when available
-
-### Writes
-
-- Apply operations create, update, or delete managed events only
-- Partial updates MUST be avoided unless provider guarantees atomicity
-
-### Failure Rules
-
-- API failures are hard failures
-- Partial Apply is forbidden
-
-----
-
-## Symbolic Preservation
-
-- Symbolic dates and times MUST remain symbolic
-- No forward resolution is permitted in Calendar I/O
-- Unsupported symbolic constructs MUST fail explicitly
-
-----
-
-> Calendar I/O is the only layer that knows calendars exist.
 

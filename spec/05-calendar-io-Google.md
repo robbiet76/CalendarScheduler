@@ -238,41 +238,18 @@ It is infrastructure setup, not part of Manifest, Diff, or Apply semantics.
 
 ### Supported OAuth Client Type
 
-**Exactly one OAuth client type is supported:**
+Current runtime accepts OAuth JSON containing either:
+- `installed` client block
+- `web` client block
 
-- ✅ **Web Application**
-- ❌ Desktop App (NOT supported)
-
-Desktop App clients are explicitly unsupported because they do not reliably support
-redirect-based consent flows required by Calendar Scheduler.
+For production setup, the recommended credential profile is Google device-flow compatible credentials (TV / limited-input style).
 
 ---
 
 ### Google Cloud Console Configuration
 
-Create a new OAuth 2.0 Client ID with:
-
-- **Application type:** Web application
-
-#### Authorized Redirect URIs
-
-Exactly one redirect URI MUST be configured:
-
-```
-http://127.0.0.1:8765/oauth2callback
-```
-
-Rules:
-- `127.0.0.1` MUST be used (not `localhost`)
-- Port `8765` is required
-- Path `/oauth2callback` is required
-- Trailing slashes MUST NOT be added
-
-#### Authorized JavaScript Origins
-
-This field:
-- MAY be left empty
-- Is not used by Calendar Scheduler
+Enable Google Calendar API and create OAuth credentials suitable for device authorization.
+Calendar Scheduler’s primary connect path is device flow from UI API actions, not browser redirect callback.
 
 ---
 
@@ -284,12 +261,12 @@ After creating the OAuth client:
 2. Place it on the FPP system at:
 
 ```
-/home/fpp/media/config/calendar-scheduler/calendar/google/client_secret.json
+/home/fpp/media/config/calendar-scheduler/calendar/google/client_secret_device.json
 ```
 
 Rules:
 - File MUST be valid JSON
-- File MUST contain a `"web"` OAuth client
+- File MUST contain an `installed` or `web` client block with `client_id` and `client_secret`
 - File permissions MUST allow read access by the plugin
 
 ---
@@ -308,8 +285,9 @@ Minimum required structure:
 {
   "provider": "google",
   "calendar_id": "primary",
+  "sync_mode": "both",
   "oauth": {
-    "client_file": "client_secret.json",
+    "device_client_file": "client_secret_device.json",
     "token_file": "token.json",
     "redirect_uri": "http://127.0.0.1:8765/oauth2callback",
     "scopes": [
@@ -321,45 +299,17 @@ Minimum required structure:
 
 ---
 
-### OAuth Bootstrap (CLI Flow)
+### OAuth Bootstrap (Primary Path: UI Device Flow)
 
-OAuth authorization is completed in **two distinct phases**.
+Primary connect flow is UI/API device authorization:
+1. `auth_upload_device_client` stores canonical client JSON
+2. `auth_device_start` requests `device_code` and `user_code`
+3. User authorizes at Google device URL
+4. `auth_device_poll` exchanges device code and writes `token.json`
 
-The CLI **does not act as a browser-based OAuth client** and must not be relied upon
-to generate a usable consent URL on constrained systems (e.g. FPP).
+`auth_disconnect` removes local token file and returns to predictable disconnected state.
 
-Instead, the CLI performs **code exchange only**.
-
-#### Phase 1 — Authorization Code Generation (User Browser)
-
-The user MUST generate the authorization code manually using the Web OAuth client.
-
-A valid authorization URL has the form:
-
-https://accounts.google.com/o/oauth2/v2/auth?client_id=<CLIENT_ID>&redirect_uri=http://127.0.0.1:8765/oauth2callback&response_type=code&scope=https://www.googleapis.com/auth/calendar&access_type=offline&prompt=consent
-
-Rules:
-- `<CLIENT_ID>` MUST match the Web Application OAuth client
-- The redirect URI MUST exactly match the configured redirect URI
-- The browser may run on **any machine**
-- The redirect target does NOT need to be reachable
-
-After consent, Google will redirect to:
-
-http://127.0.0.1:8765/oauth2callback?code=...
-
-The user MUST copy the value of the `code` parameter.
-
-#### Phase 2 — Token Exchange (CLI)
-
-The authorization code is exchanged on FPP via:
-
-```bash
-php bin/calendar-scheduler google:auth
-```
-
-The CLI will prompt for the authorization code.
-On success, `token.json` is written.
+Manual authorization-code exchange remains available via `auth_exchange_code`/CLI fallback for operational recovery scenarios.
 
 ---
 
@@ -380,83 +330,31 @@ Rules:
 
 ### Failure Semantics
 
-OAuth setup failures are **hard failures**.
+OAuth setup failures are hard failures.
 
 Calendar Scheduler MUST:
-- Fail loudly
-- Emit actionable error messages
-- Never silently fall back to alternative auth flows
+- Return stable error envelope (`ok=false`, `error`, `code`, optional `hint`)
+- Provide actionable setup hints in status/setup diagnostics
+- Avoid silent fallback behavior
 
-OAuth must succeed before any API-based Calendar I/O is permitted.
-
----
-
-## OAuth Error 400 — Root Cause and Resolution
-
-Google OAuth Error 400 during consent is **always a configuration error**.
-It is never transient and never resolved by retries.
-
-Calendar Scheduler has proven exactly **one valid configuration**.
+OAuth must succeed before authenticated Google API mutation/fetch operations proceed.
 
 ---
 
-### Proven Working Configuration
+## OAuth Error Patterns
 
-OAuth consent succeeds **only** when all of the following are true:
+OAuth failures (including HTTP 400/invalid_client/invalid_grant variants) are configuration or authorization-state problems, not planner/diff issues.
 
-1. OAuth client type is **Web Application**
-2. Redirect URI matches **exactly**:
+Typical causes:
+- Invalid/incorrect client JSON
+- Missing/revoked token
+- Credential mismatch with configured OAuth flow
+- Project/API misconfiguration in Google Cloud
 
-```
-http://127.0.0.1:8765/oauth2callback
-```
-
-3. The Google Calendar API is enabled for the project
-4. Consent is completed in a browser
-5. The `code` query parameter is pasted back into the CLI
-
-Any deviation results in a hard OAuth failure.
-
----
-
-### Common Causes of Error 400
-
-| Cause | Result |
-|-----|------|
-| Desktop App OAuth client | Google rejects redirect-based flow |
-| Using `localhost` instead of `127.0.0.1` | Redirect URI mismatch |
-| Missing `/oauth2callback` path | Redirect URI mismatch |
-| Trailing slash differences | Redirect URI mismatch |
-| Google Calendar API not enabled | OAuth fails before consent |
-| Attempting OOB (`urn:ietf:wg:oauth:2.0:oob`) | Deprecated by Google |
-| Attempting to use the CLI-generated URL instead of a manually constructed authorization URL | Authorization fails, Error 400 |
-
----
-
-### Architectural Clarification
-
-Although authorization is initiated from the CLI:
-
-- The **browser** is the OAuth user agent
-- The **OAuth client is a Web Application**
-- The CLI is **not** an OAuth client
-
-The CLI:
-- Prints the consent URL
-- Waits for the authorization code
-- Exchanges the code for tokens
-
-This architecture requires Web Application OAuth semantics.
-
-Desktop App OAuth is incompatible with this model.
-
-### Proven Operational Model
-
-Calendar Scheduler operates using a **split OAuth model**:
-
-- Authorization UI → User browser (any machine)
-- Token exchange → FPP CLI
-- API access → FPP runtime
+Operational model:
+- Device authorization is initiated by UI/API
+- Token state is persisted on FPP (`token.json`)
+- API access occurs from FPP runtime using stored token
 
 This model is intentional and required to support headless systems.
 
@@ -499,7 +397,7 @@ Rules:
 
 - Scope MUST be declared in:
   - OAuth consent screen
-  - CLI-generated authorization URL
+  - Device authorization request generated by Calendar Scheduler (`auth_device_start`)
   - `config.json`
 
 - No additional scopes are permitted
@@ -517,7 +415,7 @@ Scope MUST be present in **all** of the following:
 
 1. Google Cloud Console → OAuth Consent Screen
 2. Calendar Scheduler `config.json`
-3. Authorization URL generated by `google:auth`
+3. Device authorization request generated by Calendar Scheduler (`auth_device_start`)
 
 Calendar Scheduler MUST treat scope mismatch as a hard failure.
 

@@ -15,7 +15,7 @@ This section describes the high-level architecture of the scheduler system, its 
 - **FPP-specific logic isolated** to a single semantic layer
 - **Deterministic, testable behavior**
 - **Strong observability** through structured logging and diagnostics
-- **No backward-compatibility constraints** (unreleased plugin)
+- **Backward compatibility handled via explicit versioning and migrations**
 - **Calendars, FPP UI, and future tools are treated as *peer intent interfaces*, not authorities**
 
 ---
@@ -294,7 +294,7 @@ They contain no intent or identity and are never compared or diffed directly.
 
 Bundles exist to express execution constraints such as ordering and overrides, not user intent.
 
-(See **04 — Bundles & Ordering**)
+(See **08 — Scheduler Ordering Model**)
 
 ---
 
@@ -317,52 +317,44 @@ Each directory represents a *responsibility boundary* and enforces allowed depen
 
 ```
 src/
-├── Core/          # Pure, deterministic logic (no I/O, no platform knowledge)
-├── Inbound/       # External systems → Manifest (calendar ingestion)
-├── Manifest/      # Authoritative state, identity, ownership
-├── Planner/       # Intent → ordered desired state
+├── Adapter/       # External boundary adapters (calendar providers, FPP schedule I/O)
+├── Intent/        # Raw boundary objects -> canonical intent normalization
+├── Resolution/    # Intent shaping, recurrence/override materialization
+├── Planner/       # Intent -> ordered desired scheduler state
 ├── Diff/          # Desired vs existing reconciliation
-├── Outbound/      # Manifest → external systems (write-only)
+├── Apply/         # External mutation execution (FPP/calendar) via apply operations
 ├── Platform/      # FPP-specific semantics and schema translation
-├── Bootstrap/     # Runtime config, logging, debug flags
-└── UI/            # Presentation and controllers
+├── Engine/        # End-to-end orchestration of preview/apply pipeline
+└── UI/            # Presentation and API contracts
 ```
 
 ### Dependency Rules
 
 The following dependency rules are mandatory:
 
-- **Core**
-  - Has no dependencies on any other directory
-  - Contains only pure functions and shared domain helpers
+- **Adapter**
+  - Owns provider/FPP boundary translation and external data access
+  - Must not implement planner/diff semantics
 
-- **Inbound**
-  - May depend on Core
-  - Must not depend on Manifest, Planner, Diff, or Platform
+- **Intent + Resolution**
+  - Normalize and shape source data into canonical scheduling intent
+  - Must remain deterministic and avoid external writes
 
-- **Manifest**
-  - May depend on Core
-  - Must not depend on Planner, Diff, Outbound, or Platform
+- **Planner + Diff**
+  - Operate on normalized data only
+  - Must not perform provider API calls or platform-specific I/O
 
-- **Planner**
-  - May depend on Core and Manifest
-  - Must not perform I/O or platform-specific logic
-
-- **Diff**
-  - May depend on Manifest
-  - Must not infer intent or modify data
-
-- **Outbound**
-  - May depend on Manifest and Platform
-  - Is strictly write-only with respect to external systems
+- **Apply**
+  - Sole mutation boundary for scheduler/provider writes
+  - Executes already-decided operations; does not infer new intent
 
 - **Platform**
-  - Encapsulates all FPP-specific behavior
-  - Must not leak platform concepts into Core, Planner, or Manifest
+  - Encapsulates FPP-specific semantics
+  - Must not leak platform concepts into intent normalization or diff behavior
 
-- **UI**
-  - May call Planner, Diff, and Apply endpoints
-  - Must not implement scheduling logic
+- **Engine + UI**
+  - Engine orchestrates preview/apply flow using the above layers
+  - UI/API invokes orchestration and displays results; it must not implement scheduling logic
 
 Violations of these boundaries are architectural defects.
 
@@ -370,7 +362,7 @@ Violations of these boundaries are architectural defects.
 
 ## Architectural Non-Goals
 
-- Backward compatibility
+- Compatibility hacks without explicit migration/version handling
 - In-place mutation of legacy scheduler data
 - Provider-specific logic leaking into core layers
 - UI-driven scheduling behavior

@@ -47,7 +47,9 @@ Notes:
 3. Obtain required GitHub approvals and merge PR to `master`.
 4. On FPP host, install/update from packaged artifact (preferred) or pull `master` for validation:
    - `cd /home/fpp/media/plugins/CalendarScheduler`
-   - `git pull --ff-only origin master`
+   - `sudo git fetch --prune origin`
+   - `sudo git checkout master`
+   - `sudo git reset --hard origin/master`
 5. Refresh plugin page in browser and confirm UI loads without console/runtime errors.
 6. Run initial UI checks:
    - Connection Setup renders correctly.
@@ -72,7 +74,7 @@ Notes:
 1. Determine previous known-good commit hash.
 2. On FPP host:
    - `cd /home/fpp/media/plugins/CalendarScheduler`
-   - `git checkout <known-good-commit>`
+   - `sudo git checkout <known-good-commit>`
 3. Reload plugin UI and rerun `status` + `preview` API checks.
 4. If rollback is clean, pin and document incident:
    - failed commit

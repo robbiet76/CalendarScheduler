@@ -7,296 +7,97 @@
 ## Purpose
 
 This section defines:
+- Stable runtime error envelope behavior
+- Fatal vs recoverable expectations
+- Invariants that must hold for preview/apply paths
+- Explicitly forbidden silent-fix behavior
 
-- **Hard invariants** the system must never violate
-- **Soft failures** the system may tolerate (with explicit behavior)
-- A consistent **error reporting contract** across UI, API endpoints, logs, and debug artifacts
-- Which components are allowed to **fail fast** vs. must **degrade safely**
-- Explicitly **forbidden behaviors** (silent repair, guessing, mutation during preview, etc.)
+## Runtime Error Envelope (Current Contract)
 
-> **Policy:** This system is intentionally strict. If upstream data is invalid or internal invariants are violated, we prefer **loud failure** over silent drift.
-
-### Design Philosophy
-
-- Provider-originated data is the primary source of invariant risk.  
-- FPP-originated scheduler data is assumed structurally valid.  
-- The system is not defensive against FPP schema violations.
-
----
-
-## Definitions
-
-### Hard Invariant
-A rule that must always hold. Violation is a **fatal error**.
-
-Examples:
-- Missing semantic identity on a managed entry in apply mode
-- Planner emitting an invalid schedule entry shape
-
-### Soft Failure
-A condition that may be tolerated **only** if:
-- It is **explicitly classified** here, and
-- It results in a predictable **degraded output**, and
-- The condition is **observable** (logs + surfaced in preview results)
-
-Examples:
-- Calendar provider transient failure (network/timeouts)
-- Individual event parse failure while others succeed (depending on mode)
-
-### Fatal Error
-An error that must stop the pipeline for the current run. The UI must show it and no apply must be attempted.
-
-### Recoverable Error
-An error that can be continued past **only** where explicitly allowed (see “Soft failures”).
-
-### Intent-Recoverable Error
-An error where user intent is clear enough to normalize safely; allowed only during Preview and must be explicitly logged.
-
----
-
-## Error Surfaces
-
-All errors must appear in **at least two** places:
-
-1. **Response envelope** (controller endpoint output)
-2. **Logs** (always)
-3. **Diagnostics artifacts** (only when debug enabled)
-
-### Required: Response Envelope
-
-Every endpoint that performs work must return an envelope like:
+Controller errors returned by `ui-api.php` use:
 
 ```json
 {
   "ok": false,
-  "error": {
-    "type": "invariant_violation",
-    "code": "MANIFEST_IDENTITY_MISSING",
-    "message": "Missing semantic identity on managed entry",
-    "component": "Planner",
-    "severity": "fatal",
-    "context": {
-      "uid": "provider:google:abc123",
-      "manifest_id": null
-    }
-  }
+  "error": "human readable message",
+  "code": "stable_machine_code",
+  "hint": "actionable hint when available",
+  "details": {}
 }
 ```
 
-#### Fields
+Required:
+- `ok` (false)
+- `error`
+- `code`
 
-- `type`: high-level family (see taxonomy)
-- `code`: stable machine-readable identifier
-- `message`: human-readable, concise
-- `component`: where the error originated
-- `severity`: `fatal` | `recoverable`
-- `context`: small JSON object for debugging (no secrets)
+Optional:
+- `hint`
+- `details`
 
----
+For `apply` and `auth_*` runtime failures, `details.correlationId` SHOULD be present.
 
-## Error Taxonomy
+## Error Code Families
 
-All errors must map to one of these families:
+Current primary families:
+- `validation_error`
+- `unknown_action`
+- `runtime_error`
+- `api_error` (fallback/internal)
 
-1. **config_error** — missing/invalid runtime config, credentials, paths
-2. **provider_error** — calendar provider I/O, parse, format mismatch
-3. **resolution_error** — event cannot be normalized into intent
-4. **planner_error** — bundle/event construction or ordering invariants
-5. **identity_error** — identity build invalid/unstable/duplicate
-6. **diff_error** — reconciliation duplicates, invalid managed state
-7. **apply_error** — write failures, partial apply, schema mismatch
-8. **invariant_violation** — internal contract broken (always fatal)
+## Hard Invariants
 
----
+The following are non-negotiable:
 
-## Mode-Specific Behavior (Preview vs Apply)
+1. Preview performs no persistent writes.
+2. Apply executes only reconciliation-emitted executable actions.
+3. One-way sync modes enforce directional apply safety.
+4. Managed/unmanaged boundaries are preserved.
+5. Unknown/invalid inputs fail explicitly (no silent mutation).
 
-### Preview Mode (Dry Run)
+## Preview vs Apply Failure Semantics
 
-Preview is allowed to surface incomplete or invalid situations **without mutating FPP**.
-
-Rules:
-
-- Preview MAY include error records in output
-- Preview MUST NOT write to FPP
-- Preview MUST NOT write to the manifest store
-- Preview MUST NOT “fix” anything automatically
-
-Preview may return:
-
-- `ok: true` with warnings (soft failures)
-- `ok: false` (fatal errors)
-
-### Apply Mode
-
-Apply is strict:
-
-- Any missing identity on managed entries → **fatal**
-- Any duplicate identities (desired or existing) → **fatal**
-- Any planner invariant violation → **fatal**
-- Any partial apply attempt must be prevented (preflight) or surfaced (transaction failure)
-- Apply performs no secondary validation against FPP scheduler data; it assumes prior correctness.
-
----
-
-## Core Invariants
-
-### Global Invariants (System-Wide)
-
-1. **Manifest is authoritative for managed intent**
-   - No other data source may override intent.
-
-2. **Planner output is deterministic**
-   - Same inputs → same desired output (including order).
-
-3. **No hidden state**
-   - No implicit persistence in schedule.json or external files (except explicit debug artifacts).
-
-4. **Unmanaged entries are never modified**
-   - Never deleted
-   - Never reordered
-   - Never updated
-
-5. **No silent repair**
-   - The system must not “guess” missing fields, infer identity, or auto-correct upstream mistakes.
-
-6. Invariant enforcement is asymmetric: strict on calendar/provider input, trusting on FPP scheduler input.
-
----
-
-## Component Invariants
-
-### Calendar I/O Layer (Provider + Ingest + Export)
-
-Hard invariants:
-
-- Never emits partially-parsed events as valid
-- Never mutates intent or identity
-- Never writes to FPP
-- Never writes to manifest store
-- Calendar-originated errors are treated as user errors and must be surfaced clearly.
-
-Soft failures (allowed if explicitly surfaced):
-
-- Provider unavailable / timeout
-- Single-event parse failure (when policy is “best effort” preview)
-
-### Resolution & Normalization
-
-Hard invariants:
-
-- Output intent must be complete enough for identity build **or explicitly marked unresolved**
-- Normalization must use shared helpers (no duplicate logic drift)
-- Type must be one of: `playlist | command | sequence`
-
-Soft failures:
-
-- Unsupported recurrence shape (must yield “unresolved” with reason)
-- Unsupported symbolic dates/times (must yield “unresolved” with reason)
-
-### Planner
-
-Hard invariants:
-
-- Each Manifest Event yields:
-  - 1+ SubEvents (atomic group)
-  - Every SubEvent produces exactly one FPP Entry
-- Planner must not output default/empty scheduler entries
-- Planner must not leak metadata into scheduler schema
-- Bundle/Event atomicity is preserved (internal ordering stable)
-
-### Identity
-
-Hard invariants:
-
-- Identity is built from **identity fields only**
-- `stopType` and `repeat` are **not** identity fields
-- Identity build must be canonical and stable across runs
-- No duplicate identity IDs in desired state
-
-### Diff
-
-Hard invariants:
-
-- Match entries **only** by identity ID
-- Never match by index/position
-- Never delete unmanaged entries
-- Duplicate identities in existing or desired state → fatal
+### Preview
+- May return `ok=true` with pending actions and diagnostics
+- May return `ok=false` on runtime/config/provider failure
+- Must not mutate schedule/provider state
 
 ### Apply
+- Uses same planning/reconciliation path as preview
+- Fails fast on invariant violations
+- Returns correlated errors for runtime failures
 
-Hard invariants:
+## Recoverable Conditions (User-Actionable)
 
-- Applies only create/update/delete emitted by Diff
-- Never performs partial updates
-- Never reorders unmanaged entries
-- Must be idempotent: re-running apply after success should produce no changes
+Examples:
+- Missing required request field (`validation_error`)
+- OAuth setup incomplete (hints in status/setup diagnostics)
+- Temporary provider authorization state requiring reconnect
 
----
+Recoverable conditions must still return explicit machine-readable error codes.
 
-## Soft Failures Policy (When Allowed)
+## Logging and Traceability Requirements
 
-Soft failures must:
+All runtime failures must be traceable via:
+- API response error envelope
+- server/log output
 
-- Include `severity: recoverable`
-- Include `context.reason`
-- Be visible in UI as warnings
+Correlated apply/auth runtime failures must map to:
+- `details.correlationId` in API response
+- matching `correlation_id` entry in logs
 
-Recommended list of soft failures:
+## Forbidden Behaviors
 
-- Calendar provider I/O failure in preview (no apply)
-- Best-effort parse failures (some events skipped) in preview
-- Export formatting downgrade (fallback to basic formatting) **only** if no mutation occurs
-
-Explicitly forbidden as “soft”:
-
-- Missing identity during apply
-- Planner emitting incomplete scheduler entry
-- Duplicate identity IDs
-- Any mutation in preview mode
-
----
-
-## Diagnostic Requirements
-
-When debug flags are enabled:
-
-- Write structured JSONL to `/tmp` for:
-  - ingestion summary
-  - resolution decisions (per event)
-  - planner ordering passes
-  - identity build inputs/outputs (redacted)
-  - diff summary
-  - apply actions
-
-Diagnostics must:
-
-- Never include secrets (tokens, credentials)
-- Be bounded in size (truncate with clear marker)
-- Be correlated with a `run_id`
-
----
-
-## Forbidden Behaviors (Non-Negotiable)
-
-The system MUST NOT:
-
-- Auto-generate identity when required fields are missing
-- Substitute defaults for missing schedule fields and proceed silently
-- Repair schedule entries “on the fly” during diff/apply
-- Reorder or delete unmanaged entries
-- Use schedule.json as authoritative input
-- Allow planner output to contain “template defaults” that were never derived from intent
-- Building generalized defensive validation layers for FPP scheduler input.
-
----
+System MUST NOT:
+- Swallow runtime errors and return success
+- Auto-repair invalid user inputs silently
+- Apply writes during preview
+- Execute opposite-direction writes in one-way sync mode
 
 ## Summary
 
-This system uses **strict contracts** and **observable failures** to prevent drift:
-
-- Preview may surface issues without changing state
-- Apply must fail fast on invariant violations
-- Identity is the only reconciliation key
-- Unmanaged entries are preserved exactly
-- Silent fixes are forbidden by design
+Error handling is strict and explicit:
+- stable envelope
+- explicit codes
+- actionable hints
+- correlated traceability for high-impact runtime paths
