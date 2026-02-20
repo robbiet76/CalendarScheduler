@@ -55,6 +55,18 @@ require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutationResult.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMapper.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApplyExecutor.php';
 
+// Calendar — Outlook provider (scaffold)
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookConfig.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookOAuthBootstrap.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApiClient.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookCalendarProvider.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookCalendarTranslator.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookEventMetadataSchema.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookMutation.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookMutationResult.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookEventMapper.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApplyExecutor.php';
+
 // -----------------------------------------------------------------------------
 // Intent
 // -----------------------------------------------------------------------------

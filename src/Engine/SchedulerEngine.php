@@ -21,6 +21,9 @@ use CalendarScheduler\Diff\Reconciler;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookCalendarTranslator;
 use CalendarScheduler\Platform\FppEventTimestampStore;
 use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
@@ -160,8 +163,12 @@ final class SchedulerEngine
         $refreshCalendar = array_key_exists('refresh-calendar', $opts);
         $applyRequested  = array_key_exists('apply', $opts);
 
+        $calendarProvider = $this->normalizeCalendarProvider(
+            $opts['calendar-provider'] ?? $opts['calendar_provider'] ?? null
+        );
+
         if ($refreshCalendar || $applyRequested) {
-            $this->refreshCalendarSnapshotFromGoogle($calendarSnapshotPath);
+            $this->refreshCalendarSnapshotFromProvider($calendarSnapshotPath, $calendarProvider);
         }
 
         $calendarSnapshotRaw = [];
@@ -2306,20 +2313,30 @@ final class SchedulerEngine
      *
      * @throws \RuntimeException on any failure.
      */
-    private function refreshCalendarSnapshotFromGoogle(
-        string $calendarSnapshotPath
+    private function refreshCalendarSnapshotFromProvider(
+        string $calendarSnapshotPath,
+        string $provider
     ): void {
-        $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-        $config = new GoogleConfig($configDir);
+        $provider = $this->normalizeCalendarProvider($provider);
 
-        $client = new GoogleApiClient($config);
-        $rawEvents = $client->listEvents($config->getCalendarId());
-
-        // Translate provider-specific events into snapshot rows
-        $translator = new GoogleCalendarTranslator();
-        $translatedEvents = $translator->ingest($rawEvents, $config->getCalendarId());
+        if ($provider === 'outlook') {
+            $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
+            $config = new OutlookConfig($configDir);
+            $client = new OutlookApiClient($config);
+            $rawEvents = $client->listEvents($config->getCalendarId());
+            $translator = new OutlookCalendarTranslator();
+            $translatedEvents = $translator->ingest($rawEvents, $config->getCalendarId());
+        } else {
+            $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+            $config = new GoogleConfig($configDir);
+            $client = new GoogleApiClient($config);
+            $rawEvents = $client->listEvents($config->getCalendarId());
+            $translator = new GoogleCalendarTranslator();
+            $translatedEvents = $translator->ingest($rawEvents, $config->getCalendarId());
+        }
 
         $payload = [
+            'provider'     => $provider,
             'calendar_id'  => $config->getCalendarId(),
             'events'       => $translatedEvents,
             'generated_at' => (new \DateTimeImmutable(
@@ -2349,5 +2366,34 @@ final class SchedulerEngine
             @unlink($tmp);
             throw new \RuntimeException("Failed to replace calendar snapshot: {$calendarSnapshotPath}");
         }
+    }
+
+    private function normalizeCalendarProvider(mixed $provider): string
+    {
+        if (is_string($provider)) {
+            $provider = strtolower(trim($provider));
+            if ($provider === 'google' || $provider === 'outlook') {
+                return $provider;
+            }
+        }
+
+        $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+        $outlookConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook/config.json';
+
+        if (is_file($outlookConfigPath)) {
+            $raw = @file_get_contents($outlookConfigPath);
+            if (is_string($raw) && trim($raw) !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && strtolower((string)($decoded['provider'] ?? 'outlook')) === 'outlook') {
+                    return 'outlook';
+                }
+            }
+        }
+
+        if (is_file($googleConfigPath)) {
+            return 'google';
+        }
+
+        return 'google';
     }
 }

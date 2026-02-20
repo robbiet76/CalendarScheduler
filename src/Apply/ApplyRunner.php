@@ -29,7 +29,9 @@ final class ApplyRunner
         private readonly ManifestWriter $manifestWriter,
         private readonly ?FppScheduleAdapter $fppAdapter = null,
         private readonly ?FppScheduleWriter $fppWriter = null,
-        private readonly ?\CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor $googleExecutor = null
+        private readonly ?\CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor $googleExecutor = null,
+        private readonly ?\CalendarScheduler\Adapter\Calendar\Outlook\OutlookApplyExecutor $outlookExecutor = null,
+        private readonly string $calendarProvider = 'google'
     ) {}
 
     public function apply(
@@ -159,15 +161,25 @@ final class ApplyRunner
             }
 
             if ($calendarActions !== []) {
-                if ($this->googleExecutor === null) {
-                    throw new \RuntimeException(
-                        'Calendar actions present but no GoogleApplyExecutor configured'
-                    );
-                }
-
                 if (!$options->isPlan() && !$options->isDryRun()) {
-                    $googleResults = $this->googleExecutor->applyActions($calendarActions);
-                    $targetManifest = $this->applyGoogleMutationResultsToManifest($targetManifest, $googleResults);
+                    $provider = $this->normalizeCalendarProvider($this->calendarProvider);
+                    if ($provider === 'outlook') {
+                        if ($this->outlookExecutor === null) {
+                            throw new \RuntimeException(
+                                'Calendar actions present but no OutlookApplyExecutor configured'
+                            );
+                        }
+                        $outlookResults = $this->outlookExecutor->applyActions($calendarActions);
+                        $targetManifest = $this->applyOutlookMutationResultsToManifest($targetManifest, $outlookResults);
+                    } else {
+                        if ($this->googleExecutor === null) {
+                            throw new \RuntimeException(
+                                'Calendar actions present but no GoogleApplyExecutor configured'
+                            );
+                        }
+                        $googleResults = $this->googleExecutor->applyActions($calendarActions);
+                        $targetManifest = $this->applyGoogleMutationResultsToManifest($targetManifest, $googleResults);
+                    }
                     $calendarApplied = true;
                 }
             }
@@ -255,6 +267,92 @@ final class ApplyRunner
 
         $manifest['events'] = $events;
         return $manifest;
+    }
+
+    /**
+     * Persist Outlook provider linkage into manifest subEvent payloads so subsequent
+     * update/delete operations can resolve concrete outlookEventId values.
+     *
+     * @param array<string,mixed> $manifest
+     * @param array<int,\CalendarScheduler\Adapter\Calendar\Outlook\OutlookMutationResult> $results
+     * @return array<string,mixed>
+     */
+    private function applyOutlookMutationResultsToManifest(array $manifest, array $results): array
+    {
+        $events = $manifest['events'] ?? [];
+        if (!is_array($events) || $results === []) {
+            return $manifest;
+        }
+
+        foreach ($results as $result) {
+            if (!($result instanceof \CalendarScheduler\Adapter\Calendar\Outlook\OutlookMutationResult)) {
+                continue;
+            }
+
+            if (
+                $result->op !== \CalendarScheduler\Adapter\Calendar\Outlook\OutlookMutation::OP_CREATE
+                && $result->op !== \CalendarScheduler\Adapter\Calendar\Outlook\OutlookMutation::OP_UPDATE
+            ) {
+                continue;
+            }
+
+            if (!is_string($result->outlookEventId) || $result->outlookEventId === '') {
+                continue;
+            }
+
+            $id = $result->manifestEventId;
+            if (!is_array($events[$id] ?? null)) {
+                continue;
+            }
+
+            $event = $events[$id];
+            $subEvents = $event['subEvents'] ?? null;
+            if (!is_array($subEvents)) {
+                continue;
+            }
+
+            foreach ($subEvents as $i => $sub) {
+                if (!is_array($sub)) {
+                    continue;
+                }
+
+                $stateHash = $sub['stateHash'] ?? null;
+                if (!is_string($stateHash) || $stateHash === '') {
+                    continue;
+                }
+
+                if ($stateHash !== $result->subEventHash) {
+                    continue;
+                }
+
+                $payload = is_array($sub['payload'] ?? null) ? $sub['payload'] : [];
+                $payload['outlookEventId'] = $result->outlookEventId;
+                $sub['payload'] = $payload;
+                $subEvents[$i] = $sub;
+                break;
+            }
+
+            $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+            $outlookEventIds = is_array($correlation['outlookEventIds'] ?? null) ? $correlation['outlookEventIds'] : [];
+            $outlookEventIds[$result->subEventHash] = $result->outlookEventId;
+            $correlation['outlookEventIds'] = $outlookEventIds;
+            $event['correlation'] = $correlation;
+            $event['subEvents'] = array_values($subEvents);
+            $events[$id] = $event;
+        }
+
+        $manifest['events'] = $events;
+        return $manifest;
+    }
+
+    private function normalizeCalendarProvider(string $provider): string
+    {
+        $provider = strtolower(trim($provider));
+        if ($provider === 'google' || $provider === 'outlook') {
+            return $provider;
+        }
+
+        return 'google';
     }
 
     /**

@@ -18,6 +18,10 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApplyExecutor;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMapper;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Engine\SchedulerEngine;
 use CalendarScheduler\Engine\SchedulerRunResult;
@@ -32,6 +36,7 @@ const CS_MANIFEST_PATH = '/home/fpp/media/config/calendar-scheduler/manifest.jso
 const CS_SCHEDULE_PATH = '/home/fpp/media/config/schedule.json';
 const CS_FPP_STAGE_DIR = '/home/fpp/media/config/calendar-scheduler/fpp';
 const CS_GOOGLE_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+const CS_OUTLOOK_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
 const CS_FPP_ENV_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 const CS_GOOGLE_DEVICE_CLIENT_FILENAME = 'client_secret_device.json';
 const CS_GOOGLE_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
@@ -327,6 +332,22 @@ function cs_normalize_sync_mode(mixed $mode): string
         return $mode;
     }
     return CS_SYNC_MODE_BOTH;
+}
+
+function cs_get_calendar_provider(): string
+{
+    $outlookConfigPath = rtrim(CS_OUTLOOK_CONFIG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'config.json';
+    if (is_file($outlookConfigPath)) {
+        $raw = @file_get_contents($outlookConfigPath);
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && strtolower((string)($decoded['provider'] ?? 'outlook')) === 'outlook') {
+                return 'outlook';
+            }
+        }
+    }
+
+    return 'google';
 }
 
 /**
@@ -1115,19 +1136,33 @@ function cs_apply(SchedulerRunResult $result, ?string $syncMode = null): array
 
     $options = ApplyOptions::apply($targets, false);
 
+    $provider = cs_get_calendar_provider();
     $googleExecutor = null;
-    if (is_dir(CS_GOOGLE_CONFIG_DIR) || is_file(CS_GOOGLE_CONFIG_DIR)) {
-        $googleConfig = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
-        $googleClient = new GoogleApiClient($googleConfig);
-        $googleMapper = new GoogleEventMapper();
-        $googleExecutor = new GoogleApplyExecutor($googleClient, $googleMapper);
+    $outlookExecutor = null;
+
+    if ($provider === 'outlook') {
+        if (is_dir(CS_OUTLOOK_CONFIG_DIR) || is_file(CS_OUTLOOK_CONFIG_DIR)) {
+            $outlookConfig = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
+            $outlookClient = new OutlookApiClient($outlookConfig);
+            $outlookMapper = new OutlookEventMapper();
+            $outlookExecutor = new OutlookApplyExecutor($outlookClient, $outlookMapper);
+        }
+    } else {
+        if (is_dir(CS_GOOGLE_CONFIG_DIR) || is_file(CS_GOOGLE_CONFIG_DIR)) {
+            $googleConfig = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+            $googleClient = new GoogleApiClient($googleConfig);
+            $googleMapper = new GoogleEventMapper();
+            $googleExecutor = new GoogleApplyExecutor($googleClient, $googleMapper);
+        }
     }
 
     $applier = new ApplyRunner(
         new ManifestWriter(CS_MANIFEST_PATH),
         new FppScheduleAdapter(CS_SCHEDULE_PATH),
         new FppScheduleWriter(CS_SCHEDULE_PATH, CS_FPP_STAGE_DIR),
-        $googleExecutor
+        $googleExecutor,
+        $outlookExecutor,
+        $provider
     );
 
     $applier->apply($result->reconciliationResult(), $options);

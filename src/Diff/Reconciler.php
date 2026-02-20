@@ -384,6 +384,12 @@ final class Reconciler
             $winningCorrelation['googleEventIds'] = $currentGoogleIds;
         }
 
+        $winningOutlookIds = $winningCorrelation['outlookEventIds'] ?? null;
+        $currentOutlookIds = $currentCorrelation['outlookEventIds'] ?? null;
+        if (!is_array($winningOutlookIds) && is_array($currentOutlookIds) && $currentOutlookIds !== []) {
+            $winningCorrelation['outlookEventIds'] = $currentOutlookIds;
+        }
+
         $winningCalendarId = $winningCorrelation['sourceCalendarId'] ?? null;
         $currentCalendarId = $currentCorrelation['sourceCalendarId'] ?? null;
         if ((!is_string($winningCalendarId) || $winningCalendarId === '') && is_string($currentCalendarId) && $currentCalendarId !== '') {
@@ -424,6 +430,12 @@ final class Reconciler
         $calendarGoogleIds = $calendarCorrelation['googleEventIds'] ?? null;
         if (!is_array($winningGoogleIds) && is_array($calendarGoogleIds) && $calendarGoogleIds !== []) {
             $winningCorrelation['googleEventIds'] = $calendarGoogleIds;
+        }
+
+        $winningOutlookIds = $winningCorrelation['outlookEventIds'] ?? null;
+        $calendarOutlookIds = $calendarCorrelation['outlookEventIds'] ?? null;
+        if (!is_array($winningOutlookIds) && is_array($calendarOutlookIds) && $calendarOutlookIds !== []) {
+            $winningCorrelation['outlookEventIds'] = $calendarOutlookIds;
         }
 
         $winningCalendarId = $winningCorrelation['sourceCalendarId'] ?? null;

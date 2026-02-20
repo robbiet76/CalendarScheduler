@@ -25,6 +25,10 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApplyExecutor;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMapper;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -41,6 +45,16 @@ if ($command === 'google:auth') {
 
     $config = new \CalendarScheduler\Adapter\Calendar\Google\GoogleConfig($configPath);
     $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($config);
+    $printUrl = in_array('--print-url', $argv, true);
+    $bootstrap->runCli($printUrl);
+    exit(0);
+}
+
+if ($command === 'outlook:auth') {
+    $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
+
+    $config = new \CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig($configPath);
+    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Outlook\OutlookOAuthBootstrap($config);
     $printUrl = in_array('--print-url', $argv, true);
     $bootstrap->runCli($printUrl);
     exit(0);
@@ -67,6 +81,8 @@ $opts = getopt('', [
     'format:',
     'sync-mode:',
     'sync_mode:',
+    'calendar-provider:',
+    'calendar_provider:',
     'quiet',
     'refresh-calendar',
     'apply',
@@ -96,7 +112,9 @@ $schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
 $manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
 $format       = $opts['format']   ?? 'text';
 $syncMode     = resolveSyncMode($opts);
+$calendarProvider = resolveCalendarProvider($opts);
 $opts['sync-mode'] = $syncMode;
+$opts['calendar-provider'] = $calendarProvider;
 
 if (!in_array($format, ['text', 'json'], true)) {
     fwrite(STDERR, "ERROR: --format must be 'text' or 'json'\n");
@@ -244,18 +262,32 @@ if ($apply) {
     }
 
     $googleExecutor = null;
+    $outlookExecutor = null;
 
     // Calendar writes are optional and only required if calendar actions exist.
-    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-    if (is_dir($googleConfigPath) || is_file($googleConfigPath)) {
-        $googleConfig = new GoogleConfig($googleConfigPath);
-        $googleClient = new GoogleApiClient($googleConfig);
-        $googleMapper = new GoogleEventMapper();
+    if ($calendarProvider === 'outlook') {
+        $outlookConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
+        if (is_dir($outlookConfigPath) || is_file($outlookConfigPath)) {
+            $outlookConfig = new OutlookConfig($outlookConfigPath);
+            $outlookClient = new OutlookApiClient($outlookConfig);
+            $outlookMapper = new OutlookEventMapper();
+            $outlookExecutor = new OutlookApplyExecutor(
+                $outlookClient,
+                $outlookMapper
+            );
+        }
+    } else {
+        $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
+        if (is_dir($googleConfigPath) || is_file($googleConfigPath)) {
+            $googleConfig = new GoogleConfig($googleConfigPath);
+            $googleClient = new GoogleApiClient($googleConfig);
+            $googleMapper = new GoogleEventMapper();
 
-        $googleExecutor = new GoogleApplyExecutor(
-            $googleClient,
-            $googleMapper
-        );
+            $googleExecutor = new GoogleApplyExecutor(
+                $googleClient,
+                $googleMapper
+            );
+        }
     }
 
     $applier = new ApplyRunner(
@@ -265,7 +297,9 @@ if ($apply) {
             $schedulePath,
             '/home/fpp/media/config/calendar-scheduler/fpp'
         ),
-        $googleExecutor
+        $googleExecutor,
+        $outlookExecutor,
+        $calendarProvider
     );
 
     $applier->apply($runResult->reconciliationResult(), $options);
@@ -329,6 +363,42 @@ function resolveSyncMode(array $opts): string
     return 'both';
 }
 
+/**
+ * @param array<string,mixed> $opts
+ */
+function resolveCalendarProvider(array $opts): string
+{
+    $explicit = $opts['calendar-provider'] ?? $opts['calendar_provider'] ?? null;
+    if (is_string($explicit) && trim($explicit) !== '') {
+        return normalizeCalendarProvider($explicit);
+    }
+
+    $outlookConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook/config.json';
+    if (is_file($outlookConfigPath)) {
+        $raw = @file_get_contents($outlookConfigPath);
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && strtolower((string)($decoded['provider'] ?? 'outlook')) === 'outlook') {
+                return 'outlook';
+            }
+        }
+    }
+
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+    if (is_file($googleConfigPath)) {
+        $raw = @file_get_contents($googleConfigPath);
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && strtolower((string)($decoded['provider'] ?? 'google')) === 'google') {
+                return 'google';
+            }
+        }
+        return 'google';
+    }
+
+    return 'google';
+}
+
 function normalizeSyncMode(string $syncMode): string
 {
     $syncMode = strtolower(trim($syncMode));
@@ -336,6 +406,15 @@ function normalizeSyncMode(string $syncMode): string
         return $syncMode;
     }
     return 'both';
+}
+
+function normalizeCalendarProvider(string $provider): string
+{
+    $provider = strtolower(trim($provider));
+    if ($provider === 'google' || $provider === 'outlook') {
+        return $provider;
+    }
+    return 'google';
 }
 
 if ($dryRun) {
