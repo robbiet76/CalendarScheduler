@@ -1031,7 +1031,16 @@
 
         var setup = providerData.setup || {};
         var connectReady = allSetupChecksOk(setup);
-        if (!providerConnected && !connectReady) {
+        if (!providerConnected && activeProvider === "outlook") {
+          connectBtn.dataset.locked = "0";
+          connectBtn.disabled = false;
+          var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
+          if (outlookHints.length > 0) {
+            setSetupStatus(outlookHints.join(" | "));
+          } else {
+            setSetupStatus("Enter Outlook OAuth details, then click Connect Provider.");
+          }
+        } else if (!providerConnected && !connectReady) {
           connectBtn.dataset.locked = "1";
           connectBtn.disabled = true;
           var hints = Array.isArray(setup.hints) ? setup.hints : [];
