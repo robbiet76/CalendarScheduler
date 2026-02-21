@@ -373,6 +373,21 @@ function resolveCalendarProvider(array $opts): string
         return normalizeCalendarProvider($explicit);
     }
 
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+    if (is_file($googleConfigPath)) {
+        $raw = @file_get_contents($googleConfigPath);
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $provider = strtolower((string)($decoded['provider'] ?? 'google'));
+                if ($provider === 'google' || $provider === 'outlook') {
+                    return $provider;
+                }
+            }
+        }
+        return 'google';
+    }
+
     $outlookConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook/config.json';
     if (is_file($outlookConfigPath)) {
         $raw = @file_get_contents($outlookConfigPath);
@@ -382,18 +397,6 @@ function resolveCalendarProvider(array $opts): string
                 return 'outlook';
             }
         }
-    }
-
-    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
-    if (is_file($googleConfigPath)) {
-        $raw = @file_get_contents($googleConfigPath);
-        if (is_string($raw) && trim($raw) !== '') {
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded) && strtolower((string)($decoded['provider'] ?? 'google')) === 'google') {
-                return 'google';
-            }
-        }
-        return 'google';
     }
 
     return 'google';

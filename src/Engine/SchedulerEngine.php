@@ -2380,6 +2380,20 @@ final class SchedulerEngine
         $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
         $outlookConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook/config.json';
 
+        if (is_file($googleConfigPath)) {
+            $raw = @file_get_contents($googleConfigPath);
+            if (is_string($raw) && trim($raw) !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $selected = strtolower((string)($decoded['provider'] ?? 'google'));
+                    if ($selected === 'google' || $selected === 'outlook') {
+                        return $selected;
+                    }
+                }
+            }
+            return 'google';
+        }
+
         if (is_file($outlookConfigPath)) {
             $raw = @file_get_contents($outlookConfigPath);
             if (is_string($raw) && trim($raw) !== '') {
@@ -2388,10 +2402,6 @@ final class SchedulerEngine
                     return 'outlook';
                 }
             }
-        }
-
-        if (is_file($googleConfigPath)) {
-            return 'google';
         }
 
         return 'google';

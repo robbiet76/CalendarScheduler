@@ -265,12 +265,14 @@ function cs_run_preview_engine(?string $syncMode = null): SchedulerRunResult
     cs_export_fpp_env();
 
     $syncMode = cs_normalize_sync_mode($syncMode ?? CS_SYNC_MODE_BOTH);
+    $provider = cs_get_calendar_provider();
     $engine = new SchedulerEngine();
     return $engine->runFromCli(
         $_SERVER['argv'] ?? [],
         [
             'refresh-calendar' => true,
             'sync-mode' => $syncMode,
+            'calendar-provider' => $provider,
         ]
     );
 }
