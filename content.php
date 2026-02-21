@@ -191,12 +191,20 @@
         <div id="csConnectionPanelBody">
         <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
-        <div class="mb-2">
-          <span class="badge text-bg-primary" id="csProviderGoogleBadge">Google</span>
-          <span class="badge text-bg-secondary" id="csProviderOutlookBadge">Outlook (Coming Soon)</span>
+        <div class="form-group mb-2">
+          <label for="csProviderSelect">Calendar Provider</label>
+          <select id="csProviderSelect" class="form-control">
+            <option value="google">Google</option>
+            <option value="outlook">Outlook</option>
+          </select>
         </div>
 
-        <div id="csConnectionHelp" class="cs-device-box mb-2 cs-hidden">
+        <div class="mb-2">
+          <span class="badge text-bg-primary cs-hidden" id="csProviderGoogleBadge">Google</span>
+          <span class="badge text-bg-primary cs-hidden" id="csProviderOutlookBadge">Outlook</span>
+        </div>
+
+        <div id="csConnectionHelpGoogle" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Google OAuth Setup</strong></div>
           <ol class="cs-help-list mt-1 mb-2">
             <li>In Google Cloud Console, enable <strong>Google Calendar API</strong>.</li>
@@ -217,6 +225,43 @@
           <ul id="csHelpChecks" class="mb-1"></ul>
           <div class="mb-1"><strong>Current Setup Hints</strong></div>
           <ul id="csHelpHints" class="mb-0"></ul>
+        </div>
+
+        <div id="csConnectionHelpOutlook" class="cs-device-box mb-2 cs-hidden">
+          <div><strong>Outlook OAuth Setup</strong></div>
+          <ol class="cs-help-list mt-1 mb-2">
+            <li>Create an Azure app registration with delegated Graph scopes including <code>Calendars.ReadWrite</code> and <code>offline_access</code>.</li>
+            <li>Enter tenant/client details below.</li>
+            <li>Click <strong>Connect Provider</strong>, complete consent, then paste the callback URL/code.</li>
+          </ol>
+          <div class="row g-2">
+            <div class="col-12 col-md-6">
+              <label for="csOutlookTenantId" class="form-label mb-1">Tenant ID</label>
+              <input id="csOutlookTenantId" class="form-control" placeholder="common">
+            </div>
+            <div class="col-12 col-md-6">
+              <label for="csOutlookCalendarId" class="form-label mb-1">Calendar ID</label>
+              <input id="csOutlookCalendarId" class="form-control" placeholder="primary">
+            </div>
+            <div class="col-12 col-md-6">
+              <label for="csOutlookClientId" class="form-label mb-1">Client ID</label>
+              <input id="csOutlookClientId" class="form-control" placeholder="Application (client) ID">
+            </div>
+            <div class="col-12 col-md-6">
+              <label for="csOutlookClientSecret" class="form-label mb-1">Client Secret</label>
+              <input id="csOutlookClientSecret" type="password" class="form-control" placeholder="Client secret">
+            </div>
+            <div class="col-12">
+              <label for="csOutlookRedirectUri" class="form-label mb-1">Redirect URI</label>
+              <input id="csOutlookRedirectUri" class="form-control" placeholder="http://127.0.0.1:8765/oauth2callback">
+            </div>
+            <div class="col-12">
+              <label for="csOutlookScopes" class="form-label mb-1">Scopes (space separated)</label>
+              <input id="csOutlookScopes" class="form-control" placeholder="offline_access openid profile User.Read Calendars.ReadWrite">
+            </div>
+          </div>
+          <div class="mb-1 mt-2"><strong>Current Setup Hints</strong></div>
+          <ul id="csOutlookHelpHints" class="mb-0"></ul>
         </div>
 
         <div class="mb-2 cs-hidden" id="csConnectedAccountGroup">
@@ -258,6 +303,31 @@
       <div class="cs-modal-footer">
         <a id="csDeviceAuthOpenBtn" class="buttons btn-black" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">Open Google Device Page</a>
         <button id="csDeviceAuthCancelBtn" type="button" class="buttons btn-black">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="csOutlookAuthModalWrap" class="cs-modal-backdrop cs-hidden" role="dialog" aria-modal="true" aria-labelledby="csOutlookAuthModalTitle">
+    <div class="cs-modal">
+      <div class="cs-modal-header">
+        <strong id="csOutlookAuthModalTitle">Finish Outlook Sign-In</strong>
+      </div>
+      <div class="cs-modal-body">
+        <div class="mb-2">1) Open Microsoft sign-in and consent page:</div>
+        <div class="mb-2">
+          <a id="csOutlookAuthLink" href="#" target="_blank" rel="noopener noreferrer">Open Outlook Consent Page</a>
+        </div>
+        <div class="mb-2">2) Paste full callback URL or authorization code:</div>
+        <div class="d-flex gap-2 align-items-center">
+          <input id="csOutlookAuthCodeInput" class="form-control" placeholder="Paste callback URL or code here">
+          <button id="csOutlookAuthPasteBtn" type="button" class="buttons btn-black">Paste</button>
+        </div>
+        <div id="csOutlookAuthInlineMsg" class="cs-muted mt-2">Waiting for Microsoft consent completion...</div>
+      </div>
+      <div class="cs-modal-footer">
+        <a id="csOutlookAuthOpenBtn" class="buttons btn-black" href="#" target="_blank" rel="noopener noreferrer">Open Outlook Consent Page</a>
+        <button id="csOutlookAuthCompleteBtn" type="button" class="buttons btn-success">Complete Sign-In</button>
+        <button id="csOutlookAuthCancelBtn" type="button" class="buttons btn-black">Cancel</button>
       </div>
     </div>
   </div>
@@ -318,6 +388,7 @@
     var qs = new URLSearchParams(window.location.search || "");
     var pluginName = qs.get("plugin") || "CalendarScheduler";
     var API_URL = "plugin.php?plugin=" + encodeURIComponent(pluginName) + "&page=ui-api.php&nopage=1";
+    var activeProvider = "google";
     var providerConnected = false;
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
@@ -346,7 +417,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect", "csProviderSelect"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -498,6 +569,51 @@
       }
     }
 
+    function setOutlookAuthVisible(visible, url) {
+      var wrap = byId("csOutlookAuthModalWrap");
+      var link = byId("csOutlookAuthLink");
+      var openBtn = byId("csOutlookAuthOpenBtn");
+      var input = byId("csOutlookAuthCodeInput");
+      var completeBtn = byId("csOutlookAuthCompleteBtn");
+      var inlineMsg = byId("csOutlookAuthInlineMsg");
+      if (!wrap || !link || !openBtn || !input || !completeBtn || !inlineMsg) {
+        return;
+      }
+
+      if (visible) {
+        var dest = url || "#";
+        link.href = dest;
+        openBtn.href = dest;
+        wrap.classList.remove("cs-hidden");
+        input.classList.remove("is-invalid");
+        inlineMsg.textContent = "Waiting for Microsoft consent completion...";
+        inlineMsg.classList.remove("text-danger");
+        inlineMsg.classList.add("cs-muted");
+        completeBtn.disabled = false;
+        input.focus();
+      } else {
+        wrap.classList.add("cs-hidden");
+        link.href = "#";
+        openBtn.href = "#";
+        input.value = "";
+        input.classList.remove("is-invalid");
+        inlineMsg.textContent = "";
+        inlineMsg.classList.remove("text-danger");
+        inlineMsg.classList.add("cs-muted");
+        completeBtn.disabled = false;
+      }
+    }
+
+    function setOutlookAuthMessage(message, isError) {
+      var inlineMsg = byId("csOutlookAuthInlineMsg");
+      if (!inlineMsg) {
+        return;
+      }
+      inlineMsg.textContent = String(message || "");
+      inlineMsg.classList.toggle("text-danger", !!isError);
+      inlineMsg.classList.toggle("cs-muted", !isError);
+    }
+
     function setError(message) {
       if (!message) {
         return;
@@ -521,22 +637,43 @@
     }
 
     function renderConnectionHelp(setup, connected) {
-      var box = byId("csConnectionHelp");
+      var googleBox = byId("csConnectionHelpGoogle");
+      var outlookBox = byId("csConnectionHelpOutlook");
       var checksNode = byId("csHelpChecks");
       var hintsNode = byId("csHelpHints");
-      if (!box || !checksNode || !hintsNode) {
+      var outlookHintsNode = byId("csOutlookHelpHints");
+      if (!googleBox || !outlookBox || !checksNode || !hintsNode || !outlookHintsNode) {
         return;
       }
 
       if (connected) {
-        box.classList.add("cs-hidden");
+        googleBox.classList.add("cs-hidden");
+        outlookBox.classList.add("cs-hidden");
         checksNode.innerHTML = "";
         hintsNode.innerHTML = "";
+        outlookHintsNode.innerHTML = "";
+        return;
+      }
+      setup = setup || {};
+      if (activeProvider === "outlook") {
+        googleBox.classList.add("cs-hidden");
+        outlookBox.classList.remove("cs-hidden");
+        checksNode.innerHTML = "";
+        hintsNode.innerHTML = "";
+        var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
+        if (outlookHints.length === 0) {
+          outlookHintsNode.innerHTML = "<li class=\"cs-help-check-ok\">No setup issues detected.</li>";
+        } else {
+          outlookHintsNode.innerHTML = outlookHints.map(function (hint) {
+            return "<li>" + escapeHtml(hint) + "</li>";
+          }).join("");
+        }
         return;
       }
 
-      box.classList.remove("cs-hidden");
-      setup = setup || {};
+      outlookBox.classList.add("cs-hidden");
+      googleBox.classList.remove("cs-hidden");
+      outlookHintsNode.innerHTML = "";
 
       checksNode.innerHTML = [
         checkRow("Device client file present", !!setup.clientFilePresent),
@@ -558,6 +695,12 @@
 
     function allSetupChecksOk(setup) {
       setup = setup || {};
+      if (activeProvider === "outlook") {
+        return !!setup.configPresent
+          && !!setup.configValid
+          && !!setup.tokenPathWritable
+          && !!setup.oauthConfigured;
+      }
       return !!setup.clientFilePresent
         && !!setup.configPresent
         && !!setup.configValid
@@ -739,12 +882,12 @@
       setApplyEnabled(pendingCount > 0);
     }
 
-    function updateConnectionSummary(google, selectedLabel) {
+    function updateConnectionSummary(providerData, selectedLabel) {
       var node = byId("csConnectionSummary");
       if (!node) {
         return;
       }
-      var connected = !!(google && google.connected);
+      var connected = !!(providerData && providerData.connected);
       if (!connected) {
         node.textContent = "Not connected.";
         return;
@@ -754,15 +897,22 @@
       if (label === "") {
         label = "No calendar selected";
       }
-      node.textContent = "Connected to Google calendar: " + label;
+      node.textContent = "Connected to " + (activeProvider === "outlook" ? "Outlook" : "Google") + " calendar: " + label;
     }
 
     // Pull provider state and update setup/connection controls.
     function loadStatus() {
       return fetchJson({ action: "status" }).then(function (res) {
+        activeProvider = (typeof res.provider === "string" && res.provider) ? res.provider : "google";
+        var providerSelect = byId("csProviderSelect");
+        if (providerSelect) {
+          providerSelect.value = activeProvider;
+        }
         var google = res.google || {};
+        var outlook = res.outlook || {};
+        var providerData = activeProvider === "outlook" ? outlook : google;
         syncMode = (typeof res.syncMode === "string" && res.syncMode) ? res.syncMode : "both";
-        providerConnected = !!google.connected;
+        providerConnected = !!providerData.connected;
         if (!connectionCollapsedLoaded) {
           var uiPrefs = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
           setConnectionCollapsed(!!uiPrefs.connectionCollapsed);
@@ -770,18 +920,20 @@
         }
         if (providerConnected) {
           setDeviceAuthVisible(false);
+          setOutlookAuthVisible(false);
           clearDeviceAuthPoll();
         } else {
           setDeviceAuthVisible(false);
+          setOutlookAuthVisible(false);
         }
-        renderConnectionHelp(google.setup || {}, providerConnected);
+        renderConnectionHelp(providerData.setup || {}, providerConnected);
         var subtitle = byId("csConnectionSubtitle");
         if (subtitle) {
           subtitle.textContent = providerConnected
             ? "Connect to a calendar using OAuth."
             : "Connect to a calendar using OAuth. Select calendar provider.";
         }
-        var account = google.account || "Not connected yet";
+        var account = providerData.account || "Not connected yet";
         var accountValue = byId("csConnectedAccountValue");
         if (accountValue) {
           accountValue.textContent = account;
@@ -790,17 +942,17 @@
         var select = byId("csCalendarSelect");
         var connectedAccountGroup = byId("csConnectedAccountGroup");
         var calendarSelectGroup = byId("csCalendarSelectGroup");
-        var calendars = Array.isArray(google.calendars) ? google.calendars : [];
+        var calendars = Array.isArray(providerData.calendars) ? providerData.calendars : [];
         if (calendars.length === 0) {
           select.innerHTML = "<option>Connect account to load calendars</option>";
           select.disabled = true;
-          updateConnectionSummary(google, "");
+          updateConnectionSummary(providerData, "");
         } else {
           var selectedLabel = "";
           select.innerHTML = calendars.map(function (c) {
-            var selected = c.id === google.selectedCalendarId ? " selected" : "";
+            var selected = c.id === providerData.selectedCalendarId ? " selected" : "";
             var label = c.primary ? (c.summary + " (Primary)") : c.summary;
-            if (c.id === google.selectedCalendarId) {
+            if (c.id === providerData.selectedCalendarId) {
               selectedLabel = label;
             }
             return "<option value=\"" + escapeHtml(c.id) + "\"" + selected + ">" + escapeHtml(label) + "</option>";
@@ -808,7 +960,7 @@
           if (!selectedLabel && select.options.length > 0) {
             selectedLabel = select.options[select.selectedIndex >= 0 ? select.selectedIndex : 0].text || "";
           }
-          updateConnectionSummary(google, selectedLabel);
+          updateConnectionSummary(providerData, selectedLabel);
           select.disabled = false;
         }
         if (connectedAccountGroup) {
@@ -826,12 +978,24 @@
         var outlookBadge = byId("csProviderOutlookBadge");
         var pendingPanel = byId("csPendingPanel");
         var applyPanel = byId("csApplyPanel");
+        var uploadBtnWrap = byId("csUploadDeviceClientBtn");
         connectBtn.dataset.locked = "0";
         connectBtn.textContent = providerConnected ? "Disconnect Provider" : "Connect Provider";
         connectBtn.classList.toggle("btn-success", !providerConnected);
         connectBtn.classList.toggle("btn-black", providerConnected);
-        uploadBtn.dataset.locked = providerConnected ? "1" : "0";
-        uploadBtn.disabled = providerConnected;
+        if (activeProvider === "google") {
+          uploadBtn.dataset.locked = providerConnected ? "1" : "0";
+          uploadBtn.disabled = providerConnected;
+          if (uploadBtnWrap) {
+            uploadBtnWrap.classList.remove("cs-hidden");
+          }
+        } else {
+          uploadBtn.dataset.locked = "1";
+          uploadBtn.disabled = true;
+          if (uploadBtnWrap) {
+            uploadBtnWrap.classList.add("cs-hidden");
+          }
+        }
         if (syncModeSelect) {
           syncModeSelect.value = syncMode;
           syncModeSelect.dataset.locked = providerConnected ? "0" : "1";
@@ -848,13 +1012,13 @@
           applyPanel.classList.toggle("cs-hidden", !providerConnected);
         }
         if (googleBadge) {
-          googleBadge.classList.remove("cs-hidden");
+          googleBadge.classList.toggle("cs-hidden", activeProvider !== "google");
         }
         if (outlookBadge) {
-          outlookBadge.classList.toggle("cs-hidden", providerConnected);
+          outlookBadge.classList.toggle("cs-hidden", activeProvider !== "outlook");
         }
 
-        var setup = google.setup || {};
+        var setup = providerData.setup || {};
         var connectReady = allSetupChecksOk(setup);
         if (!providerConnected && !connectReady) {
           connectBtn.dataset.locked = "1";
@@ -863,7 +1027,38 @@
           var msg = hints.length > 0 ? hints.join(" | ") : "Provider setup is incomplete.";
           setSetupStatus(msg);
         } else if (!providerConnected) {
-          setSetupStatus("Not connected. Click Connect Provider to start Google device sign-in.");
+          if (activeProvider === "outlook") {
+            setSetupStatus("Not connected. Click Connect Provider to start Outlook sign-in.");
+          } else {
+            setSetupStatus("Not connected. Click Connect Provider to start Google device sign-in.");
+          }
+        }
+
+        if (activeProvider === "outlook") {
+          var tenantInput = byId("csOutlookTenantId");
+          var calendarInput = byId("csOutlookCalendarId");
+          var clientIdInput = byId("csOutlookClientId");
+          var clientSecretInput = byId("csOutlookClientSecret");
+          var redirectInput = byId("csOutlookRedirectUri");
+          var scopesInput = byId("csOutlookScopes");
+          if (tenantInput && !tenantInput.value) {
+            tenantInput.value = "common";
+          }
+          if (calendarInput && !calendarInput.value) {
+            calendarInput.value = providerData.selectedCalendarId || "primary";
+          }
+          if (clientIdInput && !clientIdInput.value) {
+            clientIdInput.value = "";
+          }
+          if (redirectInput && !redirectInput.value) {
+            redirectInput.value = "http://127.0.0.1:8765/oauth2callback";
+          }
+          if (scopesInput && !scopesInput.value) {
+            scopesInput.value = "offline_access openid profile User.Read Calendars.ReadWrite";
+          }
+          if (clientSecretInput && providerConnected) {
+            clientSecretInput.value = "";
+          }
         }
         return refreshDiagnostics();
       });
@@ -965,6 +1160,57 @@
         });
     }
 
+    function startOutlookAuthFlow() {
+      var tenantId = (byId("csOutlookTenantId").value || "").trim() || "common";
+      var clientId = (byId("csOutlookClientId").value || "").trim();
+      var clientSecret = (byId("csOutlookClientSecret").value || "").trim();
+      var redirectUri = (byId("csOutlookRedirectUri").value || "").trim() || "http://127.0.0.1:8765/oauth2callback";
+      var scopes = (byId("csOutlookScopes").value || "").trim() || "offline_access openid profile User.Read Calendars.ReadWrite";
+      var calendarId = (byId("csOutlookCalendarId").value || "").trim() || "primary";
+
+      if (!clientId || !clientSecret) {
+        setOutlookAuthMessage("Outlook client_id and client_secret are required before connecting.", true);
+        setSetupStatus("Outlook client_id and client_secret are required.");
+        return;
+      }
+
+      setButtonsDisabled(true);
+      setLoadingState();
+      fetchJson({
+        action: "auth_outlook_save_config",
+        tenant_id: tenantId,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        scopes: scopes,
+        calendar_id: calendarId
+      })
+        .then(function () {
+          return fetchJson({ action: "auth_outlook_authorize_url" });
+        })
+        .then(function (res) {
+          var authUrl = (res && res.auth_url) ? String(res.auth_url) : "";
+          if (!authUrl) {
+            throw new Error("Outlook authorize URL was not returned.");
+          }
+
+          setOutlookAuthVisible(true, authUrl);
+          setOutlookAuthMessage("Consent page opened. Paste callback URL or authorization code to complete.", false);
+          setSetupStatus("Outlook consent started. Complete sign-in in the opened window.");
+          try {
+            window.open(authUrl, "_blank", "noopener");
+          } catch (e) {
+            // User can still use the modal "Open Outlook Consent Page" button.
+          }
+        })
+        .catch(function (err) {
+          setError(err.message);
+        })
+        .finally(function () {
+          setButtonsDisabled(false);
+        });
+    }
+
     // -----------------------------------------------------------------------
     // Orchestration: refresh, bind events, initialize page
     // -----------------------------------------------------------------------
@@ -1003,7 +1249,8 @@
 
     byId("csConnectBtn").addEventListener("click", function () {
       if (providerConnected) {
-        if (!window.confirm("Disconnect provider and remove the local Google token from this FPP instance?")) {
+        var providerLabel = activeProvider === "outlook" ? "Outlook" : "Google";
+        if (!window.confirm("Disconnect provider and remove the local " + providerLabel + " token from this FPP instance?")) {
           return;
         }
         setButtonsDisabled(true);
@@ -1011,6 +1258,7 @@
         fetchJson({ action: "auth_disconnect" })
           .then(function () {
             setDeviceAuthVisible(false);
+            setOutlookAuthVisible(false);
             clearDeviceAuthPoll();
             return refreshAll();
           })
@@ -1019,7 +1267,27 @@
         return;
       }
 
-      startDeviceAuthFlow();
+      if (activeProvider === "outlook") {
+        startOutlookAuthFlow();
+      } else {
+        startDeviceAuthFlow();
+      }
+    });
+
+    byId("csProviderSelect").addEventListener("change", function () {
+      var provider = (this.value || "google").trim().toLowerCase();
+      setButtonsDisabled(true);
+      setLoadingState();
+      fetchJson({ action: "set_provider", provider: provider })
+        .then(function () {
+          activeProvider = provider;
+          setDeviceAuthVisible(false);
+          setOutlookAuthVisible(false);
+          clearDeviceAuthPoll();
+          return refreshAll();
+        })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
     });
 
     byId("csConnectionCloseBtn").addEventListener("click", function () {
@@ -1085,6 +1353,81 @@
       clearDeviceAuthPoll();
       setDeviceAuthVisible(false);
       setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
+    });
+
+    byId("csOutlookAuthCancelBtn").addEventListener("click", function () {
+      setOutlookAuthVisible(false);
+      setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
+    });
+
+    byId("csOutlookAuthPasteBtn").addEventListener("click", function () {
+      var input = byId("csOutlookAuthCodeInput");
+      if (!input) {
+        return;
+      }
+
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText()
+          .then(function (text) {
+            var value = String(text || "").trim();
+            if (!value) {
+              setOutlookAuthMessage("Clipboard is empty. Copy callback URL/code first.", true);
+              return;
+            }
+            input.value = value;
+            input.classList.remove("is-invalid");
+            setOutlookAuthMessage("Pasted from clipboard. Click Complete Sign-In.", false);
+          })
+          .catch(function () {
+            setOutlookAuthMessage("Clipboard read failed. Paste manually into the field.", true);
+          });
+        return;
+      }
+
+      setOutlookAuthMessage("Clipboard read is unavailable in this browser context. Paste manually.", true);
+    });
+
+    byId("csOutlookAuthCompleteBtn").addEventListener("click", function () {
+      var input = byId("csOutlookAuthCodeInput");
+      var completeBtn = byId("csOutlookAuthCompleteBtn");
+      var code = input ? String(input.value || "").trim() : "";
+      if (!code) {
+        if (input) {
+          input.classList.add("is-invalid");
+          input.focus();
+        }
+        setOutlookAuthMessage("Paste the full callback URL or authorization code to continue.", true);
+        return;
+      }
+      if (input) {
+        input.classList.remove("is-invalid");
+      }
+      if (completeBtn) {
+        completeBtn.disabled = true;
+      }
+      setOutlookAuthMessage("Completing Outlook sign-in...", false);
+
+      setButtonsDisabled(true);
+      setLoadingState();
+      fetchJson({ action: "auth_exchange_code", code: code })
+        .then(function () {
+          setOutlookAuthMessage("Outlook sign-in complete.", false);
+          setOutlookAuthVisible(false);
+          return refreshAll();
+        })
+        .catch(function (err) {
+          if (input) {
+            input.classList.add("is-invalid");
+          }
+          setOutlookAuthMessage("Sign-in failed: " + err.message, true);
+          setError(err.message);
+        })
+        .finally(function () {
+          if (completeBtn) {
+            completeBtn.disabled = false;
+          }
+          setButtonsDisabled(false);
+        });
     });
 
     byId("csCopyDeviceCodeBtn").addEventListener("click", function () {
