@@ -721,6 +721,13 @@
         && !!setup.deviceFlowReady;
     }
 
+    function outlookFormReady() {
+      var clientId = (byId("csOutlookClientId").value || "").trim();
+      var clientSecret = (byId("csOutlookClientSecret").value || "").trim();
+      var redirectUri = (byId("csOutlookRedirectUri").value || "").trim();
+      return !!clientId && !!clientSecret && !!redirectUri;
+    }
+
     // -----------------------------------------------------------------------
     // API + rendering helpers
     // -----------------------------------------------------------------------
@@ -1032,10 +1039,13 @@
         var setup = providerData.setup || {};
         var connectReady = allSetupChecksOk(setup);
         if (!providerConnected && activeProvider === "outlook") {
-          connectBtn.dataset.locked = "0";
-          connectBtn.disabled = false;
+          var localReady = outlookFormReady();
+          connectBtn.dataset.locked = localReady ? "0" : "1";
+          connectBtn.disabled = !localReady;
           var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
-          if (outlookHints.length > 0) {
+          if (!localReady) {
+            setSetupStatus("Enter Outlook client ID, client secret, and redirect URI to enable Connect.");
+          } else if (outlookHints.length > 0) {
             setSetupStatus(outlookHints.join(" | "));
           } else {
             setSetupStatus("Enter Outlook OAuth details, then click Connect Provider.");
@@ -1322,6 +1332,24 @@
 
     byId("csProviderOutlookBadge").addEventListener("click", function () {
       onProviderTagClick("outlook");
+    });
+
+    ["csOutlookClientId", "csOutlookClientSecret", "csOutlookRedirectUri"].forEach(function (id) {
+      var node = byId(id);
+      if (!node) {
+        return;
+      }
+      node.addEventListener("input", function () {
+        if (activeProvider === "outlook" && !providerConnected) {
+          var connectBtn = byId("csConnectBtn");
+          if (!connectBtn) {
+            return;
+          }
+          var ready = outlookFormReady();
+          connectBtn.dataset.locked = ready ? "0" : "1";
+          connectBtn.disabled = !ready;
+        }
+      });
     });
 
     byId("csConnectionCloseBtn").addEventListener("click", function () {
