@@ -102,6 +102,25 @@
     margin-top: 4px;
   }
 
+  .cs-provider-tags {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .cs-provider-tag {
+    border: 1px solid #212529;
+    background: #fff;
+    color: #212529;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .cs-provider-tag.cs-provider-tag-active {
+    background: #212529;
+    color: #fff;
+  }
+
   .cs-help-list {
     margin-bottom: 8px;
     padding-left: 18px;
@@ -191,17 +210,11 @@
         <div id="csConnectionPanelBody">
         <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
-        <div class="form-group mb-2">
-          <label for="csProviderSelect">Calendar Provider</label>
-          <select id="csProviderSelect" class="form-control">
-            <option value="google">Google</option>
-            <option value="outlook">Outlook</option>
-          </select>
-        </div>
-
         <div class="mb-2">
-          <span class="badge text-bg-primary cs-hidden" id="csProviderGoogleBadge">Google</span>
-          <span class="badge text-bg-primary cs-hidden" id="csProviderOutlookBadge">Outlook</span>
+          <div class="cs-provider-tags" role="tablist" aria-label="Calendar Provider">
+            <button type="button" class="badge cs-provider-tag" id="csProviderGoogleBadge" data-provider="google">Google</button>
+            <button type="button" class="badge cs-provider-tag" id="csProviderOutlookBadge" data-provider="outlook">Outlook</button>
+          </div>
         </div>
 
         <div id="csConnectionHelpGoogle" class="cs-device-box mb-2 cs-hidden">
@@ -417,7 +430,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect", "csProviderSelect"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -904,10 +917,6 @@
     function loadStatus() {
       return fetchJson({ action: "status" }).then(function (res) {
         activeProvider = (typeof res.provider === "string" && res.provider) ? res.provider : "google";
-        var providerSelect = byId("csProviderSelect");
-        if (providerSelect) {
-          providerSelect.value = activeProvider;
-        }
         var google = res.google || {};
         var outlook = res.outlook || {};
         var providerData = activeProvider === "outlook" ? outlook : google;
@@ -1012,10 +1021,12 @@
           applyPanel.classList.toggle("cs-hidden", !providerConnected);
         }
         if (googleBadge) {
-          googleBadge.classList.toggle("cs-hidden", activeProvider !== "google");
+          googleBadge.classList.toggle("cs-provider-tag-active", activeProvider === "google");
+          googleBadge.setAttribute("aria-selected", activeProvider === "google" ? "true" : "false");
         }
         if (outlookBadge) {
-          outlookBadge.classList.toggle("cs-hidden", activeProvider !== "outlook");
+          outlookBadge.classList.toggle("cs-provider-tag-active", activeProvider === "outlook");
+          outlookBadge.setAttribute("aria-selected", activeProvider === "outlook" ? "true" : "false");
         }
 
         var setup = providerData.setup || {};
@@ -1274,8 +1285,14 @@
       }
     });
 
-    byId("csProviderSelect").addEventListener("change", function () {
-      var provider = (this.value || "google").trim().toLowerCase();
+    function onProviderTagClick(provider) {
+      provider = String(provider || "google").trim().toLowerCase();
+      if (provider !== "google" && provider !== "outlook") {
+        return;
+      }
+      if (provider === activeProvider) {
+        return;
+      }
       setButtonsDisabled(true);
       setLoadingState();
       fetchJson({ action: "set_provider", provider: provider })
@@ -1288,6 +1305,14 @@
         })
         .catch(function (err) { setError(err.message); })
         .finally(function () { setButtonsDisabled(false); });
+    }
+
+    byId("csProviderGoogleBadge").addEventListener("click", function () {
+      onProviderTagClick("google");
+    });
+
+    byId("csProviderOutlookBadge").addEventListener("click", function () {
+      onProviderTagClick("outlook");
     });
 
     byId("csConnectionCloseBtn").addEventListener("click", function () {
