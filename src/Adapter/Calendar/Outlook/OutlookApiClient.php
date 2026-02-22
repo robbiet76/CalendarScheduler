@@ -59,7 +59,7 @@ final class OutlookApiClient
 
         $res = $this->requestJson(
             'POST',
-            '/me/calendars/' . rawurlencode($calendarId) . '/events',
+            $this->calendarBasePath($calendarId) . '/events',
             $payload
         );
 
@@ -78,7 +78,7 @@ final class OutlookApiClient
 
         $this->requestJson(
             'PATCH',
-            '/me/calendars/' . rawurlencode($calendarId) . '/events/' . rawurlencode($eventId),
+            $this->eventPath($calendarId, $eventId),
             $payload
         );
     }
@@ -90,7 +90,7 @@ final class OutlookApiClient
         try {
             $this->requestJson(
                 'DELETE',
-                '/me/calendars/' . rawurlencode($calendarId) . '/events/' . rawurlencode($eventId),
+                $this->eventPath($calendarId, $eventId),
                 null
             );
         } catch (\RuntimeException $e) {
@@ -136,7 +136,7 @@ final class OutlookApiClient
     {
         $this->ensureAuthenticated();
 
-        return $this->requestJson('GET', '/me/calendars/' . rawurlencode($calendarId), null);
+        return $this->requestJson('GET', $this->calendarBasePath($calendarId), null);
     }
 
     /**
@@ -149,7 +149,7 @@ final class OutlookApiClient
 
         return $this->requestJson(
             'PATCH',
-            '/me/calendars/' . rawurlencode($calendarId),
+            $this->calendarBasePath($calendarId),
             $payload
         );
     }
@@ -169,7 +169,7 @@ final class OutlookApiClient
             '$orderby' => 'lastModifiedDateTime asc',
         ], $params);
 
-        $url = '/me/calendars/' . rawurlencode($calendarId) . '/events';
+        $url = $this->calendarBasePath($calendarId) . '/events';
         if ($baseParams !== []) {
             $url .= '?' . http_build_query($baseParams, '', '&', PHP_QUERY_RFC3986);
         }
@@ -186,6 +186,26 @@ final class OutlookApiClient
         }
 
         return $allItems;
+    }
+
+    private function calendarBasePath(string $calendarId): string
+    {
+        $normalized = strtolower(trim($calendarId));
+        if ($normalized === '' || $normalized === 'primary' || $normalized === 'default') {
+            return '/me/calendar';
+        }
+
+        return '/me/calendars/' . rawurlencode($calendarId);
+    }
+
+    private function eventPath(string $calendarId, string $eventId): string
+    {
+        $normalized = strtolower(trim($calendarId));
+        if ($normalized === '' || $normalized === 'primary' || $normalized === 'default') {
+            return '/me/events/' . rawurlencode($eventId);
+        }
+
+        return '/me/calendars/' . rawurlencode($calendarId) . '/events/' . rawurlencode($eventId);
     }
 
     // ---------------------------------------------------------------------
