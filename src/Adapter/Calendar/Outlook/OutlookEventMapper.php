@@ -287,7 +287,7 @@ final class OutlookEventMapper
         $startDateTime = $startDate . 'T' . $startTime;
         $endDateTime = $endDate . 'T' . $endTime;
 
-        $recurrence = $this->buildOutlookRecurrence($timing, $startDate, $endDate);
+        $recurrence = $this->buildOutlookRecurrence($timing, $startDate, $endDate, $timezone);
         if (is_array($recurrence)) {
             [$startDateTime, $endDateTime] = $this->buildRecurringInstanceDateTimes(
                 $startDate,
@@ -651,7 +651,12 @@ final class OutlookEventMapper
      * @param array<string,mixed> $timing
      * @return array<string,mixed>|null
      */
-    private function buildOutlookRecurrence(array $timing, string $startDate, string $endDate): ?array
+    private function buildOutlookRecurrence(
+        array $timing,
+        string $startDate,
+        string $endDate,
+        string $timezone
+    ): ?array
     {
         $weeklyDays = $this->extractWeeklyDays($timing);
         $isRange = strcmp($endDate, $startDate) > 0;
@@ -674,7 +679,7 @@ final class OutlookEventMapper
                 'type' => 'endDate',
                 'startDate' => $startDate,
                 'endDate' => $endDate,
-                'recurrenceTimeZone' => 'UTC',
+                'recurrenceTimeZone' => $timezone,
             ],
         ];
     }
