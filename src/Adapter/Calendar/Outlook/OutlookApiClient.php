@@ -385,7 +385,24 @@ final class OutlookApiClient
             $msg = 'Unknown Outlook API error';
         }
 
-        throw new \RuntimeException("Outlook API error (HTTP {$code}): {$msg}");
+        $detail = '';
+        if ($this->debugCalendar) {
+            $payloadSummary = '';
+            if (is_array($payload)) {
+                $summary = [
+                    'subject' => $payload['subject'] ?? null,
+                    'start' => $payload['start'] ?? null,
+                    'end' => $payload['end'] ?? null,
+                    'isAllDay' => $payload['isAllDay'] ?? null,
+                    'recurrence' => $payload['recurrence'] ?? null,
+                ];
+                $encodedSummary = json_encode($summary, JSON_UNESCAPED_SLASHES);
+                $payloadSummary = is_string($encodedSummary) ? $encodedSummary : '';
+            }
+            $detail = ' [path=' . $pathOrUrl . ($payloadSummary !== '' ? ' payload=' . $payloadSummary : '') . ']';
+        }
+
+        throw new \RuntimeException("Outlook API error (HTTP {$code}): {$msg}{$detail}");
     }
 
     /**
