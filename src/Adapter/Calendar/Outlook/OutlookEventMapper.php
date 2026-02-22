@@ -12,6 +12,7 @@ namespace CalendarScheduler\Adapter\Calendar\Outlook;
 
 use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Platform\HolidayResolver;
+use CalendarScheduler\Platform\SunTimeDisplayEstimator;
 
 final class OutlookEventMapper
 {
@@ -20,6 +21,8 @@ final class OutlookEventMapper
     private bool $debugCalendar;
     private ?HolidayResolver $holidayResolver = null;
     private \DateTimeZone $localTimezone;
+    private ?float $latitude = null;
+    private ?float $longitude = null;
 
     /** @var array<string,int> */
     private array $diagnostics = [
@@ -32,6 +35,7 @@ final class OutlookEventMapper
         $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
         $this->localTimezone = $this->resolveLocalTimezone();
         $this->holidayResolver = $this->loadHolidayResolver();
+        [$this->latitude, $this->longitude] = $this->loadCoordinates();
     }
 
     /**
@@ -268,8 +272,33 @@ final class OutlookEventMapper
 
         $startTime = $allDay ? '00:00:00' : ($this->readHardTime($timing, 'start_time') ?? null);
         $endTime = $allDay ? '00:00:00' : ($this->readHardTime($timing, 'end_time') ?? null);
-        if ($startTime === null || $endTime === null) {
-            throw new \RuntimeException('Missing hard start/end time for timed event');
+        if (!$allDay) {
+            $startSymbolic = is_string($timing['start_time']['symbolic'] ?? null)
+                ? trim((string)$timing['start_time']['symbolic'])
+                : '';
+            $endSymbolic = is_string($timing['end_time']['symbolic'] ?? null)
+                ? trim((string)$timing['end_time']['symbolic'])
+                : '';
+            if ($startSymbolic !== '') {
+                $startTime = $this->resolveSymbolicDisplayTime(
+                    $startDate,
+                    $startSymbolic,
+                    isset($timing['start_time']['offset']) ? (int)$timing['start_time']['offset'] : 0
+                );
+            }
+            if ($endSymbolic !== '') {
+                $endTime = $this->resolveSymbolicDisplayTime(
+                    $startDate,
+                    $endSymbolic,
+                    isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : 0
+                );
+            }
+            if (!is_string($startTime) || $startTime === '') {
+                $startTime = '00:00:00';
+            }
+            if (!is_string($endTime) || $endTime === '') {
+                $endTime = $startTime;
+            }
         }
 
         [$startDate, $startTime, $endDate, $endTime] = $this->normalizeDateTimes(
@@ -606,6 +635,73 @@ final class OutlookEventMapper
         }
 
         return new HolidayResolver($holidays);
+    }
+
+    /**
+     * @return array{0:?float,1:?float}
+     */
+    private function loadCoordinates(): array
+    {
+        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        if (!is_file($envPath)) {
+            return [null, null];
+        }
+
+        $raw = @file_get_contents($envPath);
+        if (!is_string($raw) || $raw === '') {
+            return [null, null];
+        }
+
+        $json = @json_decode($raw, true);
+        if (!is_array($json)) {
+            return [null, null];
+        }
+
+        $lat = $json['latitude'] ?? null;
+        $lon = $json['longitude'] ?? null;
+        if (!is_numeric($lat) || !is_numeric($lon)) {
+            return [null, null];
+        }
+
+        return [(float)$lat, (float)$lon];
+    }
+
+    private function resolveSymbolicDisplayTime(string $date, string $symbolic, int $offset): ?string
+    {
+        $symbolic = trim($symbolic);
+        if ($symbolic === '') {
+            return null;
+        }
+
+        if ($this->latitude !== null && $this->longitude !== null) {
+            $estimated = SunTimeDisplayEstimator::estimate(
+                $date,
+                $symbolic,
+                $this->latitude,
+                $this->longitude,
+                $this->localTimezone->getName(),
+                $offset,
+                30
+            );
+            if (is_string($estimated) && $estimated !== '') {
+                return $estimated;
+            }
+        }
+
+        $base = match ($symbolic) {
+            'Dawn' => '06:00:00',
+            'SunRise' => '07:00:00',
+            'SunSet' => '18:00:00',
+            'Dusk' => '18:30:00',
+            default => null,
+        };
+        if (!is_string($base)) {
+            return null;
+        }
+
+        $dt = new \DateTimeImmutable($date . ' ' . $base, new \DateTimeZone('UTC'));
+        $dt = $dt->modify(($offset >= 0 ? '+' : '') . (string)$offset . ' minutes');
+        return $dt->format('H:i:s');
     }
 
     private function composeManagedDescription(
