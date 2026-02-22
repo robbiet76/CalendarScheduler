@@ -247,6 +247,8 @@
             <li>Enter tenant/client details below.</li>
             <li>Click <strong>Connect Provider</strong>, complete consent, then paste the callback URL/code.</li>
           </ol>
+          <div class="mb-1"><strong>Current Setup Checks</strong></div>
+          <ul id="csOutlookHelpChecks" class="mb-1"></ul>
           <div class="row g-2">
             <div class="col-12 col-md-6">
               <label for="csOutlookTenantId" class="form-label mb-1">Tenant ID</label>
@@ -661,8 +663,9 @@
       var outlookBox = byId("csConnectionHelpOutlook");
       var checksNode = byId("csHelpChecks");
       var hintsNode = byId("csHelpHints");
+      var outlookChecksNode = byId("csOutlookHelpChecks");
       var outlookHintsNode = byId("csOutlookHelpHints");
-      if (!googleBox || !outlookBox || !checksNode || !hintsNode || !outlookHintsNode) {
+      if (!googleBox || !outlookBox || !checksNode || !hintsNode || !outlookChecksNode || !outlookHintsNode) {
         return;
       }
 
@@ -671,6 +674,7 @@
         outlookBox.classList.add("cs-hidden");
         checksNode.innerHTML = "";
         hintsNode.innerHTML = "";
+        outlookChecksNode.innerHTML = "";
         outlookHintsNode.innerHTML = "";
         return;
       }
@@ -680,6 +684,18 @@
         outlookBox.classList.remove("cs-hidden");
         checksNode.innerHTML = "";
         hintsNode.innerHTML = "";
+        var outlookDeviceReady = !!setup.configPresent
+          && !!setup.configValid
+          && !!setup.oauthConfigured
+          && !!setup.tokenPathWritable;
+        outlookChecksNode.innerHTML = [
+          checkRow("Config present", !!setup.configPresent),
+          checkRow("Config valid", !!setup.configValid),
+          checkRow("OAuth fields configured", !!setup.oauthConfigured),
+          checkRow("Token file present", !!setup.tokenFilePresent),
+          checkRow("Token directory writable", !!setup.tokenPathWritable),
+          checkRow("Device flow ready", outlookDeviceReady)
+        ].join("");
         var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
         if (outlookHints.length === 0) {
           outlookHintsNode.innerHTML = "<li class=\"cs-help-check-ok\">No setup issues detected.</li>";
@@ -693,6 +709,7 @@
 
       outlookBox.classList.add("cs-hidden");
       googleBox.classList.remove("cs-hidden");
+      outlookChecksNode.innerHTML = "";
       outlookHintsNode.innerHTML = "";
 
       checksNode.innerHTML = [
