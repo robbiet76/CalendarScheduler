@@ -262,9 +262,27 @@ final class OutlookEventMapper
         );
 
         $timezone = $this->resolveTimezone($subEvent);
+        $payloadIn = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
+        $behaviorIn = is_array($subEvent['behavior'] ?? null) ? $subEvent['behavior'] : [];
+        $identity = is_array($action->event['identity'] ?? null) ? $action->event['identity'] : [];
+        $identityType = is_string($identity['type'] ?? null) ? trim((string)$identity['type']) : '';
+        $enabled = (bool)($behaviorIn['enabled'] ?? ($payloadIn['enabled'] ?? true));
+        $repeat = is_string($behaviorIn['repeat'] ?? null)
+            ? trim((string)$behaviorIn['repeat'])
+            : (is_string($payloadIn['repeat'] ?? null) ? trim((string)$payloadIn['repeat']) : 'none');
+        $stopType = is_string($behaviorIn['stopType'] ?? null)
+            ? trim((string)$behaviorIn['stopType'])
+            : (is_string($payloadIn['stopType'] ?? null) ? trim((string)$payloadIn['stopType']) : 'graceful');
 
         $subject = $this->buildSubject($action, $subEvent);
-        $description = $this->buildDescription($action, $subEvent);
+        $description = $this->buildDescription(
+            $subEvent,
+            $identityType,
+            $enabled,
+            $repeat,
+            $stopType,
+            $timing
+        );
 
         $startDateTime = $startDate . 'T' . $startTime;
         $endDateTime = $endDate . 'T' . $endTime;
@@ -282,35 +300,18 @@ final class OutlookEventMapper
         }
 
         $subEventHash = $this->deriveSubEventHash($subEvent);
-        $payloadIn = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
-        $behaviorIn = is_array($subEvent['behavior'] ?? null) ? $subEvent['behavior'] : [];
-        $identity = is_array($action->event['identity'] ?? null) ? $action->event['identity'] : [];
-        $identityType = is_string($identity['type'] ?? null) ? trim((string)$identity['type']) : null;
-        if ($identityType === '') {
-            $identityType = null;
-        }
-        $enabled = (bool)($behaviorIn['enabled'] ?? ($payloadIn['enabled'] ?? true));
-        $repeat = is_string($behaviorIn['repeat'] ?? null)
-            ? trim((string)$behaviorIn['repeat'])
-            : (is_string($payloadIn['repeat'] ?? null) ? trim((string)$payloadIn['repeat']) : null);
-        if ($repeat === '') {
-            $repeat = null;
-        }
-        $stopType = is_string($behaviorIn['stopType'] ?? null)
-            ? trim((string)$behaviorIn['stopType'])
-            : (is_string($payloadIn['stopType'] ?? null) ? trim((string)$payloadIn['stopType']) : null);
-        if ($stopType === '') {
-            $stopType = null;
-        }
+        $identityTypeMeta = $identityType !== '' ? $identityType : null;
+        $repeatMeta = $repeat !== '' ? $repeat : null;
+        $stopTypeMeta = $stopType !== '' ? $stopType : null;
         $privateMetadata = OutlookEventMetadataSchema::privateMetadata(
             manifestEventId: $action->identityHash,
             subEventHash: $subEventHash,
             provider: 'outlook',
             formatVersion: self::MANAGED_FORMAT_VERSION,
-            type: $identityType,
+            type: $identityTypeMeta,
             enabled: $enabled,
-            repeat: $repeat,
-            stopType: $stopType,
+            repeat: $repeatMeta,
+            stopType: $stopTypeMeta,
             executionOrder: $this->extractExecutionOrder($subEvent),
             executionOrderManual: $this->extractExecutionOrderManual($subEvent),
             symbolicStart: is_string($timing['start_time']['symbolic'] ?? null)
@@ -382,13 +383,19 @@ final class OutlookEventMapper
      */
     private function resolveTimezone(array $subEvent): string
     {
+        $timing = is_array($subEvent['timing'] ?? null) ? $subEvent['timing'] : [];
+        $timingTz = $timing['timezone'] ?? null;
+        if (is_string($timingTz) && trim($timingTz) !== '') {
+            return trim($timingTz);
+        }
+
         $payload = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
         $tz = $payload['timezone'] ?? $payload['timeZone'] ?? null;
         if (is_string($tz) && trim($tz) !== '') {
             return trim($tz);
         }
 
-        return 'UTC';
+        return $this->resolveDefaultTimezone();
     }
 
     /**
@@ -403,24 +410,35 @@ final class OutlookEventMapper
         }
 
         $identity = is_array($action->event['identity'] ?? null) ? $action->event['identity'] : [];
-        $type = is_string($identity['type'] ?? null) ? trim((string)$identity['type']) : 'show';
         $target = is_string($identity['target'] ?? null) ? trim((string)$identity['target']) : 'event';
 
-        return $type . ': ' . $target;
+        return $target;
     }
 
     /**
      * @param array<string,mixed> $subEvent
      */
-    private function buildDescription(ReconciliationAction $action, array $subEvent): string
+    private function buildDescription(
+        array $subEvent,
+        string $identityType,
+        bool $enabled,
+        string $repeat,
+        string $stopType,
+        array $timing
+    ): string
     {
         $payload = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
-        $description = $payload['description'] ?? null;
-        if (is_string($description) && trim($description) !== '') {
-            return trim($description);
-        }
+        $description = is_string($payload['description'] ?? null) ? (string)$payload['description'] : '';
 
-        return 'Managed by CalendarScheduler (' . $action->identityHash . ')';
+        return $this->composeManagedDescription(
+            $description,
+            $identityType,
+            $enabled,
+            $repeat,
+            $stopType,
+            is_array($timing['start_time'] ?? null) ? $timing['start_time'] : null,
+            is_array($timing['end_time'] ?? null) ? $timing['end_time'] : null
+        );
     }
 
     private function nextDate(string $ymd): string
@@ -431,6 +449,169 @@ final class OutlookEventMapper
         }
 
         return $dt->modify('+1 day')->format('Y-m-d');
+    }
+
+    private function resolveDefaultTimezone(): string
+    {
+        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        if (is_file($envPath)) {
+            $raw = @file_get_contents($envPath);
+            if (is_string($raw) && $raw !== '') {
+                $json = @json_decode($raw, true);
+                $tzName = is_array($json) ? ($json['timezone'] ?? null) : null;
+                if (is_string($tzName) && trim($tzName) !== '') {
+                    return trim($tzName);
+                }
+            }
+        }
+
+        $fallback = date_default_timezone_get();
+        return is_string($fallback) && trim($fallback) !== '' ? trim($fallback) : 'UTC';
+    }
+
+    private function composeManagedDescription(
+        string $existingDescription,
+        string $type,
+        bool $enabled,
+        string $repeat,
+        string $stopType,
+        ?array $startTime,
+        ?array $endTime
+    ): string {
+        $startSym = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
+        $endSym = is_string($endTime['symbolic'] ?? null) ? trim((string)$endTime['symbolic']) : '';
+        $startOffset = isset($startTime['offset']) ? (int)($startTime['offset']) : 0;
+        $endOffset = isset($endTime['offset']) ? (int)($endTime['offset']) : 0;
+
+        $settings = [];
+        $settings[] = '# Managed by Calendar Scheduler';
+        $settings[] = '# Edit values below. Free-form notes can be added at the bottom.';
+        $settings[] = '';
+        $settings[] = '[settings]';
+        $settings[] = '# Edit FPP Scheduler Settings';
+        $settings[] = '# Schedule Type: Playlist | Sequence | Command';
+        $settings[] = '# Enabled: True | False';
+        $settings[] = '# Repeat: None | Immediate | 5 | 10 | 15 | 20 | 30 | 60 (Min.)';
+        $settings[] = '# Stop Type: Graceful | Graceful Loop | Hard Stop';
+        $settings[] = '';
+        $settings[] = 'type = ' . $this->formatTypeForDescription($type);
+        $settings[] = 'enabled = ' . ($enabled ? 'True' : 'False');
+        $settings[] = 'repeat = ' . $this->formatRepeatForDescription($repeat);
+        $settings[] = 'stopType = ' . $this->formatStopTypeForDescription($stopType);
+        $settings[] = '';
+        $settings[] = '[symbolic_time]';
+        $settings[] = '# Edit Symbolic Time Settings';
+        $settings[] = '# Start Time/End Time: Dawn | SunRise | SunSet | Dusk';
+        $settings[] = '# Start Time/End Time Offset Min: (Enter +/- minutes)';
+        $settings[] = '# Leave values blank to use hard clock time from event start/end.';
+        $settings[] = '';
+        $settings[] = 'start = ' . $startSym;
+        $settings[] = 'start_offset = ' . (string)$startOffset;
+        $settings[] = 'end = ' . $endSym;
+        $settings[] = 'end_offset = ' . (string)$endOffset;
+        $settings[] = '';
+        $settings[] = '# Notes:';
+        $settings[] = '# - Calendar Event Title should match Playlist/Sequence/Command name.';
+        $settings[] = '';
+        $settings[] = '# -------------------- USER NOTES BELOW --------------------';
+
+        $sections = [implode("\n", $settings)];
+
+        $existingDescription = trim($this->stripManagedSections($existingDescription));
+        if ($existingDescription !== '') {
+            $sections[] = $existingDescription;
+        }
+
+        return implode("\n\n", $sections);
+    }
+
+    private function stripManagedSections(string $description): string
+    {
+        $divider = '# -------------------- USER NOTES BELOW --------------------';
+        $pos = strpos($description, $divider);
+        if ($pos !== false) {
+            $notes = substr($description, $pos + strlen($divider));
+            return trim((string)$notes);
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', $description);
+        if (!is_array($lines) || $lines === []) {
+            return trim($description);
+        }
+
+        $out = [];
+        $inManaged = false;
+        $seenMarker = false;
+
+        foreach ($lines as $line) {
+            $trim = trim((string)$line);
+            $lower = strtolower($trim);
+
+            if (!$seenMarker && $lower === '# managed by calendar scheduler') {
+                $seenMarker = true;
+                continue;
+            }
+            if ($seenMarker && $lower === '# edit values below. free-form notes can be added at the bottom.') {
+                continue;
+            }
+
+            if (!$inManaged && ($lower === '[settings]' || $lower === '[symbolic_time]')) {
+                $inManaged = true;
+                continue;
+            }
+
+            if ($inManaged) {
+                if ($trim === '') {
+                    $inManaged = false;
+                }
+                continue;
+            }
+
+            $out[] = (string)$line;
+        }
+
+        return trim(implode("\n", $out));
+    }
+
+    private function formatTypeForDescription(string $type): string
+    {
+        return match (strtolower(trim($type))) {
+            'sequence' => 'Sequence',
+            'command' => 'Command',
+            default => 'Playlist',
+        };
+    }
+
+    private function formatRepeatForDescription(string $repeat): string
+    {
+        $r = strtolower(trim($repeat));
+        if ($r === 'immediate') {
+            return 'Immediate';
+        }
+        if ($r === 'none' || $r === '') {
+            return 'None';
+        }
+        if (preg_match('/^(\d+)min$/', $r, $m) === 1) {
+            return $m[1];
+        }
+        if (ctype_digit($r)) {
+            $n = (int)$r;
+            if ($n > 0) {
+                return (string)$n;
+            }
+        }
+
+        return 'None';
+    }
+
+    private function formatStopTypeForDescription(string $stopType): string
+    {
+        $v = strtolower(trim($stopType));
+        return match ($v) {
+            'hard', 'hard_stop', 'hard stop' => 'Hard Stop',
+            'graceful_loop', 'graceful loop' => 'Graceful Loop',
+            default => 'Graceful',
+        };
     }
 
     /**

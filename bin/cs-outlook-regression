@@ -148,6 +148,89 @@ $tests = [
         }
     },
 
+    'mapper_subject_timezone_description_fallbacks' => static function (): void {
+        $tmp = sys_get_temp_dir() . '/cs-outlook-regression-' . bin2hex(random_bytes(4));
+        if (!mkdir($tmp, 0775, true) && !is_dir($tmp)) {
+            throw new RuntimeException('failed to create temp config dir');
+        }
+
+        try {
+            $configPath = $tmp . '/config.json';
+            $configJson = json_encode([
+                'calendar_id' => 'primary',
+                'oauth' => [
+                    'client_id' => 'x',
+                    'client_secret' => 'y',
+                    'redirect_uri' => 'http://localhost:8765/oauth2callback',
+                    'scopes' => ['offline_access'],
+                ],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            if (!is_string($configJson)) {
+                throw new RuntimeException('failed to encode config JSON');
+            }
+            file_put_contents($configPath, $configJson . PHP_EOL);
+
+            $config = new OutlookConfig($configPath);
+            $mapper = new OutlookEventMapper();
+
+            $subEvent = [
+                'stateHash' => 'sub-hash-002',
+                'timing' => [
+                    'all_day' => false,
+                    'timezone' => 'America/Chicago',
+                    'start_date' => ['hard' => '2026-11-10'],
+                    'end_date' => ['hard' => '2026-11-10'],
+                    'start_time' => ['hard' => '18:00:00'],
+                    'end_time' => ['hard' => '19:00:00'],
+                ],
+                'behavior' => [
+                    'enabled' => true,
+                    'repeat' => 'none',
+                    'stopType' => 'graceful',
+                ],
+                'payload' => [
+                    'description' => '',
+                ],
+            ];
+
+            $event = [
+                'identity' => [
+                    'type' => 'sequence',
+                    'target' => 'Preseason_Static',
+                ],
+                'subEvents' => [$subEvent],
+                'correlation' => [],
+            ];
+
+            $action = new ReconciliationAction(
+                ReconciliationAction::TYPE_CREATE,
+                ReconciliationAction::TARGET_CALENDAR,
+                ReconciliationAction::AUTHORITY_CALENDAR,
+                'identity-hash-002',
+                'test',
+                $event
+            );
+
+            $mutations = $mapper->mapAction($action, $config);
+            assert_same(1, count($mutations), 'expected one create mutation');
+            $payload = $mutations[0]->payload;
+
+            assert_same('Preseason_Static', $payload['subject'] ?? null, 'subject fallback should use target only');
+            assert_same('America/Chicago', $payload['start']['timeZone'] ?? null, 'start timezone should come from timing.timezone');
+            assert_same('America/Chicago', $payload['end']['timeZone'] ?? null, 'end timezone should come from timing.timezone');
+
+            $body = is_array($payload['body'] ?? null) ? $payload['body'] : [];
+            $description = is_string($body['content'] ?? null) ? $body['content'] : '';
+            assert_true(str_contains($description, '# Managed by Calendar Scheduler'), 'description should contain managed header');
+            assert_true(str_contains($description, '[settings]'), 'description should contain settings section');
+            assert_true(str_contains($description, 'type = Sequence'), 'description should include sequence type');
+            assert_true(str_contains($description, '# -------------------- USER NOTES BELOW --------------------'), 'description should include notes divider');
+        } finally {
+            @unlink($tmp . '/config.json');
+            @rmdir($tmp);
+        }
+    },
+
     'translator_recurrence_and_metadata_normalization' => static function (): void {
         $description = implode("\n", [
             '# notes above',
