@@ -205,6 +205,40 @@ try {
     exit($code);
 }
 
+// Optional diagnostics: dump reconciliation actions for triage.
+$debugActions = getenv('GCS_DEBUG_ACTIONS') === '1';
+if ($debugActions) {
+    $debugPath = getenv('GCS_DEBUG_ACTIONS_PATH');
+    if (!is_string($debugPath) || trim($debugPath) === '') {
+        $debugPath = '/tmp/cs-actions.json';
+    }
+    $debugPath = trim($debugPath);
+
+    $actionsOut = [];
+    foreach ($runResult->actions() as $action) {
+        $event = is_array($action->event ?? null) ? $action->event : [];
+        $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+        $actionsOut[] = [
+            'identityHash' => $action->identityHash,
+            'target' => $action->target,
+            'type' => $action->type,
+            'authority' => $action->authority,
+            'reason' => $action->reason,
+            'sourceEventUid' => $correlation['sourceEventUid'] ?? null,
+            'googleEventIds' => $correlation['googleEventIds'] ?? null,
+            'outlookEventIds' => $correlation['outlookEventIds'] ?? null,
+        ];
+    }
+
+    $payload = [
+        'generatedAt' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format(DATE_ATOM),
+        'noop' => $runResult->isNoop(),
+        'countsByTarget' => $runResult->countsByTarget(),
+        'actions' => $actionsOut,
+    ];
+    @file_put_contents($debugPath, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+}
+
 // -----------------------------------------------------------------------------
 // Output
 // -----------------------------------------------------------------------------
