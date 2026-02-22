@@ -188,6 +188,11 @@ final class OutlookEventMapper
             $sourceUid = trim((string)$sourceUid);
             $resolvedIds[$sourceUid] = 'delete:' . $sourceUid;
         }
+        $providerUid = $action->event['correlation']['sourceProviderUid'] ?? null;
+        if ($this->isResolvableOutlookEventId($providerUid)) {
+            $providerUid = trim((string)$providerUid);
+            $resolvedIds[$providerUid] = 'delete:' . $providerUid;
+        }
 
         $corrIds = $action->event['correlation']['outlookEventIds'] ?? null;
         if (is_array($corrIds)) {
@@ -1068,6 +1073,11 @@ final class OutlookEventMapper
         $sourceUid = $action->event['correlation']['sourceEventUid'] ?? null;
         if ($this->isResolvableOutlookEventId($sourceUid)) {
             return trim($sourceUid);
+        }
+
+        $providerUid = $action->event['correlation']['sourceProviderUid'] ?? null;
+        if ($this->isResolvableOutlookEventId($providerUid)) {
+            return trim($providerUid);
         }
 
         return null;

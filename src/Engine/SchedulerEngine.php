@@ -628,6 +628,9 @@ final class SchedulerEngine
                     'ownership' => ['managed' => true],
                     'correlation' => [
                         'sourceEventUid' => $parentUid,
+                        // Preserve provider-native UID even when sourceEventUid is replaced
+                        // by manifestEventId linkage for stable identity grouping.
+                        'sourceProviderUid' => $anchor->sourceEventUid,
                         'sourceCalendarId' => $calendarScope,
                     ],
 
