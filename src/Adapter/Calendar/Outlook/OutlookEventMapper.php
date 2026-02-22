@@ -172,7 +172,24 @@ final class OutlookEventMapper
      */
     private function mapDelete(ReconciliationAction $action, array $subEvents, string $calendarId): array
     {
-        $mutations = [];
+        $resolvedIds = [];
+
+        $sourceUid = $action->event['correlation']['sourceEventUid'] ?? null;
+        if (is_string($sourceUid) && trim($sourceUid) !== '') {
+            $resolvedIds[trim($sourceUid)] = 'delete:' . trim($sourceUid);
+        }
+
+        $corrIds = $action->event['correlation']['outlookEventIds'] ?? null;
+        if (is_array($corrIds)) {
+            foreach ($corrIds as $subHash => $id) {
+                if (!is_string($id) || trim($id) === '') {
+                    continue;
+                }
+                $id = trim($id);
+                $subHash = is_string($subHash) && trim($subHash) !== '' ? trim($subHash) : 'delete:' . $id;
+                $resolvedIds[$id] = $subHash;
+            }
+        }
 
         foreach ($subEvents as $subEvent) {
             if (!is_array($subEvent)) {
@@ -182,16 +199,25 @@ final class OutlookEventMapper
             $subEventHash = $this->deriveSubEventHash($subEvent);
             $eventId = $this->resolveOutlookEventId($action, $subEvent, $subEventHash);
             if ($eventId === null) {
-                $this->diagnostics['delete_missing_id']++;
-                if ($this->debugCalendar) {
-                    error_log(
-                        'OutlookEventMapper: skipping delete with no resolvable id identityHash=' .
-                        $action->identityHash . ' subEventHash=' . $subEventHash
-                    );
-                }
                 continue;
             }
 
+            $resolvedIds[$eventId] = $subEventHash;
+        }
+
+        if ($resolvedIds === []) {
+            $this->diagnostics['delete_missing_id']++;
+            if ($this->debugCalendar) {
+                error_log(
+                    'OutlookEventMapper: skipping delete with no resolvable ids identityHash=' .
+                    $action->identityHash
+                );
+            }
+            return [];
+        }
+
+        $mutations = [];
+        foreach ($resolvedIds as $eventId => $subEventHash) {
             $mutations[] = new OutlookMutation(
                 op: OutlookMutation::OP_DELETE,
                 calendarId: $calendarId,
@@ -202,7 +228,7 @@ final class OutlookEventMapper
             );
         }
 
-        return $mutations;
+        return array_values($mutations);
     }
 
     /**
@@ -227,6 +253,14 @@ final class OutlookEventMapper
             throw new \RuntimeException('Missing hard start/end time for timed event');
         }
 
+        [$startDate, $startTime, $endDate, $endTime] = $this->normalizeDateTimes(
+            $startDate,
+            $startTime,
+            $endDate,
+            $endTime,
+            $allDay
+        );
+
         $timezone = $this->resolveTimezone($subEvent);
 
         $subject = $this->buildSubject($action, $subEvent);
@@ -235,7 +269,15 @@ final class OutlookEventMapper
         $startDateTime = $startDate . 'T' . $startTime;
         $endDateTime = $endDate . 'T' . $endTime;
 
-        if ($allDay) {
+        $recurrence = $this->buildOutlookRecurrence($timing, $startDate, $endDate);
+        if (is_array($recurrence)) {
+            [$startDateTime, $endDateTime] = $this->buildRecurringInstanceDateTimes(
+                $startDate,
+                $startTime,
+                $endTime,
+                $allDay
+            );
+        } elseif ($allDay) {
             $endDateTime = $this->nextDate($endDate) . 'T00:00:00';
         }
 
@@ -248,7 +290,7 @@ final class OutlookEventMapper
         );
         $singleValueExtendedProperties = OutlookEventMetadataSchema::toSingleValueExtendedProperties($privateMetadata);
 
-        return [
+        $payload = [
             'subject' => $subject,
             'body' => [
                 'contentType' => 'Text',
@@ -265,6 +307,12 @@ final class OutlookEventMapper
             'isAllDay' => $allDay,
             'singleValueExtendedProperties' => $singleValueExtendedProperties,
         ];
+
+        if (is_array($recurrence)) {
+            $payload['recurrence'] = $recurrence;
+        }
+
+        return $payload;
     }
 
     /**
@@ -352,6 +400,141 @@ final class OutlookEventMapper
     }
 
     /**
+     * @return array{0:string,1:string,2:string,3:string}
+     */
+    private function normalizeDateTimes(
+        string $startDate,
+        string $startTime,
+        string $endDate,
+        string $endTime,
+        bool $allDay
+    ): array {
+        if ($allDay) {
+            return [$startDate, '00:00:00', $endDate, '00:00:00'];
+        }
+
+        $start = new \DateTimeImmutable($startDate . ' ' . $startTime, new \DateTimeZone('UTC'));
+        $end = new \DateTimeImmutable($endDate . ' ' . $endTime, new \DateTimeZone('UTC'));
+
+        if ($end <= $start) {
+            if ($endDate === $startDate && strcmp($endTime, $startTime) < 0) {
+                $end = $end->modify('+1 day');
+            } else {
+                $end = $start->modify('+1 minute');
+            }
+        }
+
+        return [
+            $start->format('Y-m-d'),
+            $start->format('H:i:s'),
+            $end->format('Y-m-d'),
+            $end->format('H:i:s'),
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     * @return array<string,mixed>|null
+     */
+    private function buildOutlookRecurrence(array $timing, string $startDate, string $endDate): ?array
+    {
+        $weeklyDays = $this->extractWeeklyDays($timing);
+        $isRange = strcmp($endDate, $startDate) > 0;
+        if ($weeklyDays === [] && !$isRange) {
+            return null;
+        }
+
+        $pattern = [
+            'type' => $weeklyDays !== [] ? 'weekly' : 'daily',
+            'interval' => 1,
+        ];
+        if ($weeklyDays !== []) {
+            $pattern['daysOfWeek'] = $weeklyDays;
+            $pattern['firstDayOfWeek'] = 'sunday';
+        }
+
+        return [
+            'pattern' => $pattern,
+            'range' => [
+                'type' => 'endDate',
+                'startDate' => $startDate,
+                'endDate' => $endDate,
+                'recurrenceTimeZone' => 'UTC',
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $timing
+     * @return list<string>
+     */
+    private function extractWeeklyDays(array $timing): array
+    {
+        $days = is_array($timing['days'] ?? null) ? $timing['days'] : [];
+        if (($days['type'] ?? null) !== 'weekly' || !is_array($days['value'] ?? null)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($days['value'] as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+            $mapped = $this->mapCanonicalWeekdayToOutlook($value);
+            if ($mapped !== null) {
+                $out[] = $mapped;
+            }
+        }
+
+        $out = array_values(array_unique($out));
+        return $out;
+    }
+
+    private function mapCanonicalWeekdayToOutlook(string $value): ?string
+    {
+        $key = strtoupper(trim($value));
+        return match ($key) {
+            'SU', 'SUNDAY' => 'sunday',
+            'MO', 'MONDAY' => 'monday',
+            'TU', 'TUESDAY' => 'tuesday',
+            'WE', 'WEDNESDAY' => 'wednesday',
+            'TH', 'THURSDAY' => 'thursday',
+            'FR', 'FRIDAY' => 'friday',
+            'SA', 'SATURDAY' => 'saturday',
+            default => null,
+        };
+    }
+
+    /**
+     * @return array{0:string,1:string}
+     */
+    private function buildRecurringInstanceDateTimes(
+        string $startDate,
+        string $startTime,
+        string $endTime,
+        bool $allDay
+    ): array {
+        if ($allDay) {
+            return [$startDate . 'T00:00:00', $this->nextDate($startDate) . 'T00:00:00'];
+        }
+
+        $instanceEndDate = $startDate;
+        if (strcmp($endTime, $startTime) < 0) {
+            $instanceEndDate = $this->nextDate($startDate);
+        } elseif ($endTime === $startTime) {
+            $end = new \DateTimeImmutable($startDate . ' ' . $endTime, new \DateTimeZone('UTC'));
+            $end = $end->modify('+1 minute');
+            $instanceEndDate = $end->format('Y-m-d');
+            $endTime = $end->format('H:i:s');
+        }
+
+        return [
+            $startDate . 'T' . $startTime,
+            $instanceEndDate . 'T' . $endTime,
+        ];
+    }
+
+    /**
      * @param array<string,mixed> $subEvent
      */
     private function deriveSubEventHash(array $subEvent): string
@@ -390,6 +573,11 @@ final class OutlookEventMapper
             if (is_string($corrId) && trim($corrId) !== '') {
                 return trim($corrId);
             }
+        }
+
+        $sourceUid = $action->event['correlation']['sourceEventUid'] ?? null;
+        if (is_string($sourceUid) && trim($sourceUid) !== '') {
+            return trim($sourceUid);
         }
 
         return null;
