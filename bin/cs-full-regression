@@ -15,6 +15,7 @@ $root = dirname(__DIR__);
 $resolutionRunner = $root . '/bin/cs-resolution-regression';
 $liveRunner = $root . '/bin/cs-regression';
 $apiSmokeRunner = $root . '/bin/cs-api-smoke';
+$outlookRunner = $root . '/bin/cs-outlook-regression';
 
 if (!is_file($resolutionRunner)) {
     fwrite(STDERR, "ERROR: Missing runner: {$resolutionRunner}\n");
@@ -28,6 +29,10 @@ if (!is_file($apiSmokeRunner)) {
     fwrite(STDERR, "ERROR: Missing runner: {$apiSmokeRunner}\n");
     exit(2);
 }
+if (!is_file($outlookRunner)) {
+    fwrite(STDERR, "ERROR: Missing runner: {$outlookRunner}\n");
+    exit(2);
+}
 
 $opts = getopt('', [
     'label::',
@@ -37,6 +42,7 @@ $opts = getopt('', [
     'skip-live',
     'resolution-case::',
     'skip-api-smoke',
+    'skip-outlook',
     'api-endpoint::',
     'api-sync-mode::',
     'api-include-auth-start',
@@ -50,7 +56,8 @@ $opts = getopt('', [
 $skipResolution = array_key_exists('skip-resolution', $opts);
 $skipLive = array_key_exists('skip-live', $opts);
 $skipApiSmoke = array_key_exists('skip-api-smoke', $opts);
-if ($skipResolution && $skipLive && $skipApiSmoke) {
+$skipOutlook = array_key_exists('skip-outlook', $opts);
+if ($skipResolution && $skipLive && $skipApiSmoke && $skipOutlook) {
     fwrite(STDERR, "ERROR: All suites are skipped. Nothing to run.\n");
     exit(2);
 }
@@ -74,6 +81,7 @@ $result = [
     'resolution' => null,
     'live' => null,
     'apiSmoke' => null,
+    'outlook' => null,
 ];
 
 // Resolution fixture suite (in-memory).
@@ -225,6 +233,25 @@ if (!$skipApiSmoke) {
     ];
 }
 
+// Outlook parity regression checks (mapper/metadata/translator roundtrip).
+if (!$skipOutlook) {
+    $outlook = runCommand(
+        buildPhpCommand($outlookRunner, [])
+    );
+    file_put_contents($runDir . '/outlook.raw.txt', $outlook['output']);
+
+    $outlookOk = $outlook['exitCode'] === 0;
+    if (!$outlookOk) {
+        $result['ok'] = false;
+    }
+
+    $result['outlook'] = [
+        'ok' => $outlookOk,
+        'exitCode' => $outlook['exitCode'],
+        'reportPath' => $runDir . '/outlook.raw.txt',
+    ];
+}
+
 $jsonMode = array_key_exists('json', $opts);
 if ($jsonMode) {
     echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
@@ -246,6 +273,9 @@ if ($jsonMode) {
     if (is_array($result['apiSmoke'])) {
         echo "- API smoke: " . (($result['apiSmoke']['ok'] ?? false) ? 'PASS' : 'FAIL');
         echo " (checks=" . (int)($result['apiSmoke']['checkCount'] ?? 0) . ")" . PHP_EOL;
+    }
+    if (is_array($result['outlook'])) {
+        echo "- Outlook parity: " . (($result['outlook']['ok'] ?? false) ? 'PASS' : 'FAIL') . PHP_EOL;
     }
 }
 
