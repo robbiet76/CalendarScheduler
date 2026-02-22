@@ -1,0 +1,283 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookCalendarTranslator;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMapper;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMetadataSchema;
+use CalendarScheduler\Diff\ReconciliationAction;
+
+require_once dirname(__DIR__) . '/bootstrap.php';
+
+$failures = [];
+$tests = [
+    'metadata_schema_roundtrip' => static function (): void {
+        $private = OutlookEventMetadataSchema::privateMetadata(
+            manifestEventId: 'manifest-1',
+            subEventHash: 'hash-1',
+            provider: 'outlook',
+            formatVersion: '2',
+            type: 'playlist',
+            enabled: true,
+            repeat: '10min',
+            stopType: 'graceful_loop',
+            executionOrder: 7,
+            executionOrderManual: true,
+            symbolicStart: 'SunSet',
+            symbolicStartOffset: -15,
+            symbolicEnd: 'Dusk',
+            symbolicEndOffset: 20
+        );
+        $props = OutlookEventMetadataSchema::toSingleValueExtendedProperties($private);
+        assert_true(count($props) >= 10, 'expected extended properties to include parity fields');
+
+        $decoded = OutlookEventMetadataSchema::decodeFromOutlookEvent([
+            'singleValueExtendedProperties' => $props,
+        ]);
+
+        assert_same('manifest-1', $decoded['manifestEventId'] ?? null, 'manifest id should roundtrip');
+        assert_same('hash-1', $decoded['subEventHash'] ?? null, 'subEvent hash should roundtrip');
+        assert_same(7, $decoded['executionOrder'] ?? null, 'execution order should roundtrip as int');
+        assert_same(true, $decoded['executionOrderManual'] ?? null, 'execution order manual should roundtrip as bool');
+        assert_same('playlist', $decoded['settings']['type'] ?? null, 'type should roundtrip');
+        assert_same(true, $decoded['settings']['enabled'] ?? null, 'enabled should roundtrip');
+        assert_same('10min', $decoded['settings']['repeat'] ?? null, 'repeat should roundtrip');
+        assert_same('graceful_loop', $decoded['settings']['stopType'] ?? null, 'stopType should roundtrip');
+        assert_same('SunSet', $decoded['settings']['start'] ?? null, 'symbolic start should roundtrip');
+        assert_same(-15, $decoded['settings']['start_offset'] ?? null, 'symbolic start offset should roundtrip');
+        assert_same('Dusk', $decoded['settings']['end'] ?? null, 'symbolic end should roundtrip');
+        assert_same(20, $decoded['settings']['end_offset'] ?? null, 'symbolic end offset should roundtrip');
+    },
+
+    'mapper_weekly_recurrence_and_metadata' => static function (): void {
+        $tmp = sys_get_temp_dir() . '/cs-outlook-regression-' . bin2hex(random_bytes(4));
+        if (!mkdir($tmp, 0775, true) && !is_dir($tmp)) {
+            throw new RuntimeException('failed to create temp config dir');
+        }
+
+        try {
+            $configPath = $tmp . '/config.json';
+            $configJson = json_encode([
+                'calendar_id' => 'primary',
+                'oauth' => [
+                    'client_id' => 'x',
+                    'client_secret' => 'y',
+                    'redirect_uri' => 'http://localhost:8765/oauth2callback',
+                    'scopes' => ['offline_access'],
+                ],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            if (!is_string($configJson)) {
+                throw new RuntimeException('failed to encode config JSON');
+            }
+            file_put_contents($configPath, $configJson . PHP_EOL);
+
+            $config = new OutlookConfig($configPath);
+            $mapper = new OutlookEventMapper();
+
+            $subEvent = [
+                'stateHash' => 'sub-hash-001',
+                'executionOrder' => 4,
+                'executionOrderManual' => true,
+                'timing' => [
+                    'all_day' => false,
+                    'start_date' => ['hard' => '2026-10-01'],
+                    'end_date' => ['hard' => '2026-10-31'],
+                    'start_time' => ['hard' => '18:00:00', 'symbolic' => 'SunSet', 'offset' => -10],
+                    'end_time' => ['hard' => '22:00:00', 'symbolic' => 'Dusk', 'offset' => 15],
+                    'days' => ['type' => 'weekly', 'value' => ['MO', 'WE', 'FR']],
+                ],
+                'behavior' => [
+                    'enabled' => true,
+                    'repeat' => 'immediate',
+                    'stopType' => 'graceful_loop',
+                ],
+                'payload' => [
+                    'summary' => 'Regression Weekly Event',
+                    'description' => 'Regression mapper payload',
+                    'timezone' => 'America/New_York',
+                ],
+            ];
+
+            $event = [
+                'identity' => [
+                    'type' => 'playlist',
+                    'target' => 'Regression Playlist',
+                ],
+                'subEvents' => [$subEvent],
+                'correlation' => [],
+            ];
+
+            $action = new ReconciliationAction(
+                ReconciliationAction::TYPE_CREATE,
+                ReconciliationAction::TARGET_CALENDAR,
+                ReconciliationAction::AUTHORITY_CALENDAR,
+                'identity-hash-001',
+                'test',
+                $event
+            );
+
+            $mutations = $mapper->mapAction($action, $config);
+            assert_same(1, count($mutations), 'expected one create mutation');
+            $mutation = $mutations[0];
+            assert_same('create', $mutation->op, 'expected create mutation');
+
+            $payload = $mutation->payload;
+            $recurrence = $payload['recurrence'] ?? null;
+            assert_true(is_array($recurrence), 'recurrence should be present for weekly range');
+            assert_same('weekly', $recurrence['pattern']['type'] ?? null, 'pattern type should be weekly');
+            assert_same(['monday', 'wednesday', 'friday'], $recurrence['pattern']['daysOfWeek'] ?? null, 'days should map to outlook weekday names');
+            assert_same('2026-10-01', $recurrence['range']['startDate'] ?? null, 'range start should match start date');
+            assert_same('2026-10-31', $recurrence['range']['endDate'] ?? null, 'range end should match end date');
+
+            $props = is_array($payload['singleValueExtendedProperties'] ?? null)
+                ? $payload['singleValueExtendedProperties']
+                : [];
+            $propsByName = props_by_name($props);
+            assert_same('4', $propsByName['cs.executionOrder'] ?? null, 'execution order metadata should be written');
+            assert_same('true', $propsByName['cs.executionOrderManual'] ?? null, 'execution order manual metadata should be written');
+            assert_same('playlist', $propsByName['cs.type'] ?? null, 'type metadata should be written');
+            assert_same('immediate', $propsByName['cs.repeat'] ?? null, 'repeat metadata should be written');
+            assert_same('graceful_loop', $propsByName['cs.stopType'] ?? null, 'stopType metadata should be written');
+            assert_same('SunSet', $propsByName['cs.symbolicStart'] ?? null, 'symbolic start metadata should be written');
+            assert_same('-10', $propsByName['cs.symbolicStartOffset'] ?? null, 'symbolic start offset metadata should be written');
+        } finally {
+            @unlink($tmp . '/config.json');
+            @rmdir($tmp);
+        }
+    },
+
+    'translator_recurrence_and_metadata_normalization' => static function (): void {
+        $description = implode("\n", [
+            '# notes above',
+            '[settings]',
+            'enabled=true',
+            'repeat=10min',
+            'stopType=Hard Stop',
+            '[symbolic_time]',
+            'start=sunset',
+            'start_offset=-5',
+            'end=dusk',
+            'end_offset=8',
+        ]);
+
+        $props = OutlookEventMetadataSchema::toSingleValueExtendedProperties(
+            OutlookEventMetadataSchema::privateMetadata(
+                manifestEventId: 'manifest-2',
+                subEventHash: 'hash-2',
+                provider: 'outlook',
+                formatVersion: '2',
+                type: 'playlist',
+                enabled: false,
+                repeat: 'none',
+                stopType: 'graceful'
+            )
+        );
+
+        $translator = new OutlookCalendarTranslator();
+        $rows = $translator->translateOutlookEvents([
+            [
+                'id' => 'evt-1',
+                'type' => 'seriesMaster',
+                'subject' => 'Translator Regression Event',
+                'body' => ['content' => $description],
+                'start' => ['dateTime' => '2026-11-01T18:00:00', 'timeZone' => 'America/New_York'],
+                'end' => ['dateTime' => '2026-11-01T21:00:00', 'timeZone' => 'America/New_York'],
+                'recurrence' => [
+                    'pattern' => [
+                        'type' => 'weekly',
+                        'interval' => 1,
+                        'daysOfWeek' => ['monday', 'friday'],
+                    ],
+                    'range' => [
+                        'type' => 'endDate',
+                        'startDate' => '2026-11-01',
+                        'endDate' => '2026-12-01',
+                    ],
+                ],
+                'singleValueExtendedProperties' => $props,
+                'createdDateTime' => '2026-10-01T00:00:00Z',
+                'lastModifiedDateTime' => '2026-10-02T00:00:00Z',
+            ],
+        ], 'primary');
+
+        assert_same(1, count($rows), 'expected one translated row');
+        $row = $rows[0];
+        assert_same('outlook', $row['provider'] ?? null, 'provider should be outlook');
+        assert_same('evt-1', $row['uid'] ?? null, 'uid should be preserved');
+        assert_same('WEEKLY', $row['rrule']['freq'] ?? null, 'rrule freq should map from outlook recurrence');
+        assert_same(['MO', 'FR'], $row['rrule']['byday'] ?? null, 'rrule byday should map weekdays');
+        assert_same('20261201', $row['rrule']['until'] ?? null, 'rrule until should map endDate');
+
+        $metadata = is_array($row['payload']['metadata'] ?? null) ? $row['payload']['metadata'] : [];
+        $settings = is_array($metadata['settings'] ?? null) ? $metadata['settings'] : [];
+        assert_same('10min', $settings['repeat'] ?? null, 'description repeat should normalize to canonical token');
+        assert_same('hard', $settings['stopType'] ?? null, 'description stopType should normalize');
+        assert_same('SunSet', $settings['start'] ?? null, 'description symbolic start should normalize');
+        assert_same(-5, $settings['start_offset'] ?? null, 'description symbolic start offset should normalize');
+        assert_same('Dusk', $settings['end'] ?? null, 'description symbolic end should normalize');
+        assert_same(8, $settings['end_offset'] ?? null, 'description symbolic end offset should normalize');
+    },
+];
+
+foreach ($tests as $name => $test) {
+    try {
+        $test();
+        fwrite(STDOUT, "[PASS] {$name}\n");
+    } catch (Throwable $e) {
+        $failures[] = "[FAIL] {$name}: " . $e->getMessage();
+    }
+}
+
+if ($failures !== []) {
+    foreach ($failures as $line) {
+        fwrite(STDERR, $line . PHP_EOL);
+    }
+    exit(1);
+}
+
+fwrite(STDOUT, "Outlook regression checks passed.\n");
+exit(0);
+
+/**
+ * @param list<array{id:mixed,value:mixed}> $properties
+ * @return array<string,string>
+ */
+function props_by_name(array $properties): array
+{
+    $out = [];
+    foreach ($properties as $property) {
+        if (!is_array($property)) {
+            continue;
+        }
+        $id = is_string($property['id'] ?? null) ? trim((string)$property['id']) : '';
+        $value = is_string($property['value'] ?? null) ? $property['value'] : null;
+        if ($id === '' || $value === null) {
+            continue;
+        }
+        $parts = explode(' ', $id);
+        $name = end($parts);
+        if (is_string($name) && str_starts_with($name, 'cs.')) {
+            $out[$name] = $value;
+        }
+    }
+    return $out;
+}
+
+function assert_true(bool $condition, string $message): void
+{
+    if (!$condition) {
+        throw new RuntimeException($message);
+    }
+}
+
+function assert_same(mixed $expected, mixed $actual, string $message): void
+{
+    if ($expected !== $actual) {
+        throw new RuntimeException(
+            $message . ' expected=' . json_encode($expected, JSON_UNESCAPED_SLASHES)
+            . ' actual=' . json_encode($actual, JSON_UNESCAPED_SLASHES)
+        );
+    }
+}
