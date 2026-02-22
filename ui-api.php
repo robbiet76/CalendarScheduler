@@ -1439,6 +1439,143 @@ function cs_google_device_poll(string $deviceCode): array
     return ['status' => 'connected'];
 }
 
+/**
+ * @return array{tenant_id:string,client_id:string,client_secret:string,scopes:string}
+ */
+function cs_outlook_device_auth_config(): array
+{
+    cs_bootstrap_outlook_config_if_missing();
+    $config = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
+    $oauth = $config->getOauth();
+
+    $tenantId = is_string($oauth['tenant_id'] ?? null) && trim((string)$oauth['tenant_id']) !== ''
+        ? trim((string)$oauth['tenant_id'])
+        : 'common';
+    $clientId = is_string($oauth['client_id'] ?? null) ? trim((string)$oauth['client_id']) : '';
+    $clientSecret = is_string($oauth['client_secret'] ?? null) ? trim((string)$oauth['client_secret']) : '';
+    $scopes = is_array($oauth['scopes'] ?? null) ? $oauth['scopes'] : [];
+    $scope = implode(' ', array_values(array_filter($scopes, static fn ($v): bool => is_string($v) && trim($v) !== '')));
+
+    if ($clientId === '' || $clientSecret === '') {
+        throw new \RuntimeException('Outlook OAuth client_id/client_secret missing');
+    }
+    if ($scope === '') {
+        $scope = CS_OUTLOOK_DEFAULT_SCOPE;
+    }
+
+    return [
+        'tenant_id' => $tenantId,
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'scopes' => $scope,
+    ];
+}
+
+/**
+ * @param array<string,mixed> $token
+ */
+function cs_write_outlook_token(array $token): void
+{
+    cs_bootstrap_outlook_config_if_missing();
+    $config = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
+    $tokenPath = $config->getTokenPath();
+    $oauth = $config->getOauth();
+    $scopes = is_array($oauth['scopes'] ?? null) ? $oauth['scopes'] : [];
+    $scopeValue = implode(' ', array_values(array_filter($scopes, 'is_string')));
+
+    $now = time();
+    $expiresIn = isset($token['expires_in']) ? (int)$token['expires_in'] : 0;
+    $normalized = [
+        'access_token' => (string)($token['access_token'] ?? ''),
+        'refresh_token' => (string)($token['refresh_token'] ?? ''),
+        'token_type' => (string)($token['token_type'] ?? 'Bearer'),
+        'scope' => (string)($token['scope'] ?? $scopeValue),
+        'expires_in' => $expiresIn,
+        'expires_at' => $expiresIn > 0 ? ($now + $expiresIn - 30) : 0,
+        'created_at' => $now,
+    ];
+
+    if ($normalized['access_token'] === '') {
+        throw new \RuntimeException('Outlook token exchange returned no access_token');
+    }
+    if ($normalized['refresh_token'] === '' && is_file($tokenPath)) {
+        $existing = json_decode((string) @file_get_contents($tokenPath), true);
+        if (is_array($existing) && is_string($existing['refresh_token'] ?? null)) {
+            $normalized['refresh_token'] = $existing['refresh_token'];
+        }
+    }
+
+    $json = json_encode($normalized, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        throw new \RuntimeException('Unable to encode Outlook token JSON');
+    }
+    if (@file_put_contents($tokenPath, $json . "\n") === false) {
+        throw new \RuntimeException("Unable to write Outlook token file: {$tokenPath}");
+    }
+    @chmod($tokenPath, 0600);
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function cs_outlook_device_start(): array
+{
+    $auth = cs_outlook_device_auth_config();
+    $tenantId = rawurlencode($auth['tenant_id']);
+    $resp = cs_http_post_form_json(
+        "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/devicecode",
+        [
+            'client_id' => $auth['client_id'],
+            'scope' => $auth['scopes'],
+        ]
+    );
+
+    if (!isset($resp['device_code'], $resp['user_code'])) {
+        $error = is_string($resp['error'] ?? null) ? $resp['error'] : 'unknown_error';
+        throw new \RuntimeException("Outlook device auth start failed: {$error}");
+    }
+
+    return $resp;
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function cs_outlook_device_poll(string $deviceCode): array
+{
+    $auth = cs_outlook_device_auth_config();
+    $tenantId = rawurlencode($auth['tenant_id']);
+    $resp = cs_http_post_form_json(
+        "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token",
+        [
+            'client_id' => $auth['client_id'],
+            'client_secret' => $auth['client_secret'],
+            'device_code' => $deviceCode,
+            'grant_type' => 'urn:ietf:params:oauth:grant-type:device_code',
+        ]
+    );
+
+    if (isset($resp['error'])) {
+        $error = is_string($resp['error']) ? $resp['error'] : 'unknown_error';
+        if (in_array($error, ['authorization_pending', 'slow_down'], true)) {
+            return [
+                'status' => 'pending',
+                'error' => $error,
+            ];
+        }
+        if (in_array($error, ['access_denied', 'expired_token', 'authorization_declined', 'bad_verification_code'], true)) {
+            return [
+                'status' => 'failed',
+                'error' => $error,
+            ];
+        }
+        throw new \RuntimeException("Outlook device auth poll failed: {$error}");
+    }
+
+    cs_write_outlook_token($resp);
+    return ['status' => 'connected'];
+}
+
 function cs_google_exchange_authorization_code(string $code): void
 {
     $code = cs_extract_authorization_code($code);
@@ -1664,14 +1801,23 @@ try {
     }
 
     if ($action === 'auth_device_start') {
-        $resp = cs_google_device_start();
+        $provider = cs_get_calendar_provider();
+        if ($provider === 'outlook') {
+            $resp = cs_outlook_device_start();
+            $verificationUrl = $resp['verification_uri'] ?? ($resp['verification_url'] ?? 'https://microsoft.com/devicelogin');
+            $verificationUrlComplete = $resp['verification_uri_complete'] ?? ($resp['verification_url_complete'] ?? $verificationUrl);
+        } else {
+            $resp = cs_google_device_start();
+            $verificationUrl = $resp['verification_url'] ?? ($resp['verification_uri'] ?? 'https://www.google.com/device');
+            $verificationUrlComplete = $resp['verification_url_complete'] ?? ($resp['verification_uri_complete'] ?? $verificationUrl);
+        }
         cs_respond([
             'ok' => true,
             'device' => [
                 'device_code' => $resp['device_code'] ?? '',
                 'user_code' => $resp['user_code'] ?? '',
-                'verification_url' => $resp['verification_url'] ?? ($resp['verification_uri'] ?? ''),
-                'verification_url_complete' => $resp['verification_url_complete'] ?? ($resp['verification_uri_complete'] ?? ''),
+                'verification_url' => $verificationUrl,
+                'verification_url_complete' => $verificationUrlComplete,
                 'expires_in' => (int) ($resp['expires_in'] ?? 0),
                 'interval' => (int) ($resp['interval'] ?? 5),
             ],
@@ -1689,7 +1835,10 @@ try {
                 ['field' => 'device_code']
             );
         }
-        $poll = cs_google_device_poll(trim($deviceCode));
+        $provider = cs_get_calendar_provider();
+        $poll = $provider === 'outlook'
+            ? cs_outlook_device_poll(trim($deviceCode))
+            : cs_google_device_poll(trim($deviceCode));
         cs_respond([
             'ok' => true,
             'poll' => $poll,

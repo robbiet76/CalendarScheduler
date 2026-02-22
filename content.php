@@ -558,27 +558,34 @@
 
     function setDeviceAuthVisible(visible, code, url) {
       var wrap = byId("csDeviceAuthModalWrap");
+      var titleNode = byId("csDeviceAuthModalTitle");
       var codeNode = byId("csDeviceAuthCode");
       var link = byId("csDeviceAuthLink");
       var openBtn = byId("csDeviceAuthOpenBtn");
       var copyBtn = byId("csCopyDeviceCodeBtn");
-      if (!wrap || !codeNode || !link || !openBtn || !copyBtn) {
+      if (!wrap || !titleNode || !codeNode || !link || !openBtn || !copyBtn) {
         return;
       }
+      var isOutlook = activeProvider === "outlook";
+      var defaultUrl = isOutlook ? "https://microsoft.com/devicelogin" : "https://www.google.com/device";
+      titleNode.textContent = isOutlook ? "Finish Outlook Sign-In" : "Finish Google Sign-In";
+      openBtn.textContent = isOutlook ? "Open Microsoft Device Page" : "Open Google Device Page";
       if (visible) {
         var authCode = code || "-";
         codeNode.textContent = authCode;
         copyBtn.disabled = authCode === "-";
-        var dest = url || "https://www.google.com/device";
+        var dest = url || defaultUrl;
         link.href = dest;
         openBtn.href = dest;
+        link.textContent = dest.replace(/^https?:\/\//, "");
         wrap.classList.remove("cs-hidden");
       } else {
         wrap.classList.add("cs-hidden");
         codeNode.textContent = "-";
         copyBtn.disabled = true;
-        link.href = "https://www.google.com/device";
-        openBtn.href = "https://www.google.com/device";
+        link.href = defaultUrl;
+        openBtn.href = defaultUrl;
+        link.textContent = defaultUrl.replace(/^https?:\/\//, "");
       }
     }
 
@@ -1162,7 +1169,7 @@
 
     function startDeviceAuthFlow() {
       setLoadingState();
-      fetchJson({ action: "auth_device_start" })
+      return fetchJson({ action: "auth_device_start" })
         .then(function (res) {
           var device = res.device || {};
           var deviceCode = device.device_code || "";
@@ -1186,7 +1193,8 @@
         })
         .catch(function (err) {
           setDeviceAuthVisible(false);
-          setError("Automatic device authorization could not start: " + err.message + ".");
+          setError("Automatic device authorization could not start: " + err.message);
+          throw err;
         });
     }
 
@@ -1206,7 +1214,7 @@
 
       setButtonsDisabled(true);
       setLoadingState();
-      fetchJson({
+      return fetchJson({
         action: "auth_outlook_save_config",
         tenant_id: tenantId,
         client_id: clientId,
@@ -1216,25 +1224,14 @@
         calendar_id: calendarId
       })
         .then(function () {
-          return fetchJson({ action: "auth_outlook_authorize_url" });
+          setOutlookAuthVisible(false);
         })
-        .then(function (res) {
-          var authUrl = (res && res.auth_url) ? String(res.auth_url) : "";
-          if (!authUrl) {
-            throw new Error("Outlook authorize URL was not returned.");
-          }
-
-          setOutlookAuthVisible(true, authUrl);
-          setOutlookAuthMessage("Consent page opened. Paste callback URL or authorization code to complete.", false);
-          setSetupStatus("Outlook consent started. Complete sign-in in the opened window.");
-          try {
-            window.open(authUrl, "_blank", "noopener");
-          } catch (e) {
-            // User can still use the modal "Open Outlook Consent Page" button.
-          }
+        .then(function () {
+          return startDeviceAuthFlow();
         })
         .catch(function (err) {
           setError(err.message);
+          throw err;
         })
         .finally(function () {
           setButtonsDisabled(false);
@@ -1298,9 +1295,9 @@
       }
 
       if (activeProvider === "outlook") {
-        startOutlookAuthFlow();
+        startOutlookAuthFlow().catch(function () {});
       } else {
-        startDeviceAuthFlow();
+        startDeviceAuthFlow().catch(function () {});
       }
     });
 
