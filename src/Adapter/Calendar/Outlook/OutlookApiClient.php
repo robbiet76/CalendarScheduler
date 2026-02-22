@@ -175,6 +175,9 @@ final class OutlookApiClient
             '$top' => 1000,
             '$orderby' => 'lastModifiedDateTime asc',
         ], $params);
+        if (!isset($baseParams['$expand']) || !is_string($baseParams['$expand']) || trim((string)$baseParams['$expand']) === '') {
+            $baseParams['$expand'] = OutlookEventMetadataSchema::graphExpandQuery();
+        }
 
         $url = $this->calendarBasePath($calendarId) . '/events';
         if ($baseParams !== []) {

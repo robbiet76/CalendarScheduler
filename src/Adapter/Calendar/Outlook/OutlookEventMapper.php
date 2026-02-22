@@ -14,6 +14,8 @@ use CalendarScheduler\Diff\ReconciliationAction;
 
 final class OutlookEventMapper
 {
+    private const MANAGED_FORMAT_VERSION = '2';
+
     private bool $debugCalendar;
 
     /** @var array<string,int> */
@@ -237,6 +239,15 @@ final class OutlookEventMapper
             $endDateTime = $this->nextDate($endDate) . 'T00:00:00';
         }
 
+        $subEventHash = $this->deriveSubEventHash($subEvent);
+        $privateMetadata = OutlookEventMetadataSchema::privateMetadata(
+            manifestEventId: $action->identityHash,
+            subEventHash: $subEventHash,
+            provider: 'outlook',
+            formatVersion: self::MANAGED_FORMAT_VERSION
+        );
+        $singleValueExtendedProperties = OutlookEventMetadataSchema::toSingleValueExtendedProperties($privateMetadata);
+
         return [
             'subject' => $subject,
             'body' => [
@@ -252,6 +263,7 @@ final class OutlookEventMapper
                 'timeZone' => $timezone,
             ],
             'isAllDay' => $allDay,
+            'singleValueExtendedProperties' => $singleValueExtendedProperties,
         ];
     }
 

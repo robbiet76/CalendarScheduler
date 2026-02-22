@@ -13,6 +13,7 @@ namespace CalendarScheduler\Adapter\Calendar\Outlook;
 final class OutlookEventMetadataSchema
 {
     public const VERSION = '2';
+    public const EXTENDED_PROPERTY_SET_GUID = '00020329-0000-0000-C000-000000000046';
 
     public const KEY_MANIFEST_EVENT_ID = 'cs.manifestEventId';
     public const KEY_SUB_EVENT_HASH = 'cs.subEventHash';
@@ -43,6 +44,59 @@ final class OutlookEventMetadataSchema
         }
 
         return $out;
+    }
+
+    public static function graphPropertyId(string $key): string
+    {
+        return 'String {' . self::EXTENDED_PROPERTY_SET_GUID . '} Name ' . $key;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    public static function graphPropertyIds(): array
+    {
+        return [
+            self::graphPropertyId(self::KEY_MANIFEST_EVENT_ID),
+            self::graphPropertyId(self::KEY_SUB_EVENT_HASH),
+            self::graphPropertyId(self::KEY_PROVIDER),
+            self::graphPropertyId(self::KEY_SCHEMA_VERSION),
+            self::graphPropertyId(self::KEY_FORMAT_VERSION),
+        ];
+    }
+
+    /**
+     * @param array<string,string> $privateMetadata
+     * @return array<int,array{id:string,value:string}>
+     */
+    public static function toSingleValueExtendedProperties(array $privateMetadata): array
+    {
+        $out = [];
+        foreach ($privateMetadata as $key => $value) {
+            if (!is_string($key) || !str_starts_with($key, 'cs.')) {
+                continue;
+            }
+            if (!is_string($value)) {
+                continue;
+            }
+            $out[] = [
+                'id' => self::graphPropertyId($key),
+                'value' => $value,
+            ];
+        }
+
+        return $out;
+    }
+
+    public static function graphExpandQuery(): string
+    {
+        $predicates = [];
+        foreach (self::graphPropertyIds() as $id) {
+            $escaped = str_replace("'", "''", $id);
+            $predicates[] = "id eq '{$escaped}'";
+        }
+
+        return 'singleValueExtendedProperties($filter=' . implode(' or ', $predicates) . ')';
     }
 
     /**
