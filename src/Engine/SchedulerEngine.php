@@ -257,7 +257,8 @@ final class SchedulerEngine
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch,
             $syncMode,
-            $calendarId
+            $calendarId,
+            $calendarProvider
         );
 
         $this->saveTombstones($tombstonesPath, $this->lastTombstonesBySource, $calendarId);
@@ -288,10 +289,12 @@ final class SchedulerEngine
         int $calendarSnapshotEpoch,
         int $fppSnapshotEpoch,
         string $syncMode = self::SYNC_MODE_BOTH,
-        string $calendarScope = 'default'
+        string $calendarScope = 'default',
+        string $calendarProvider = 'google'
     ): SchedulerRunResult {
         $syncMode = $this->normalizeSyncMode($syncMode);
         $calendarScope = trim($calendarScope) !== '' ? trim($calendarScope) : 'default';
+        $calendarProvider = $this->normalizeCalendarProvider($calendarProvider);
         $this->orderingTimezone = $context->timezone->getName();
         $computedCalendarUpdatedAtById = $calendarUpdatedAtById;
         $computedFppUpdatedAtById = $fppUpdatedAtById;
@@ -641,11 +644,13 @@ final class SchedulerEngine
                     $manifestEvent,
                     $context
                 );
-                $metadataForIdentity = is_array($anchorPayload['metadata'] ?? null) ? $anchorPayload['metadata'] : [];
-                $manifestEventIdForIdentity = $metadataForIdentity['manifestEventId'] ?? null;
-                if (is_string($manifestEventIdForIdentity) && trim($manifestEventIdForIdentity) !== '') {
-                    // Managed calendar rows should round-trip back to their originating manifest identity.
-                    $normalizedIntent->identityHash = trim($manifestEventIdForIdentity);
+                if ($calendarProvider === 'outlook') {
+                    $metadataForIdentity = is_array($anchorPayload['metadata'] ?? null) ? $anchorPayload['metadata'] : [];
+                    $manifestEventIdForIdentity = $metadataForIdentity['manifestEventId'] ?? null;
+                    if (is_string($manifestEventIdForIdentity) && trim($manifestEventIdForIdentity) !== '') {
+                        // Outlook-managed rows should round-trip back to their originating manifest identity.
+                        $normalizedIntent->identityHash = trim($manifestEventIdForIdentity);
+                    }
                 }
 
                 $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
