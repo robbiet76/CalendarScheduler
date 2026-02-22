@@ -132,6 +132,13 @@ final class OutlookApiClient
     }
 
     /** @return array<string,mixed> */
+    public function getMe(): array
+    {
+        $this->ensureAuthenticated();
+        return $this->requestJson('GET', '/me', null);
+    }
+
+    /** @return array<string,mixed> */
     public function getCalendar(string $calendarId): array
     {
         $this->ensureAuthenticated();

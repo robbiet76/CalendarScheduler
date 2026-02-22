@@ -667,6 +667,16 @@ function cs_outlook_status(): array
 
         $client = new OutlookApiClient($config);
         try {
+            $me = $client->getMe();
+            $accountName = null;
+            if (is_string($me['displayName'] ?? null) && trim((string)$me['displayName']) !== '') {
+                $accountName = trim((string)$me['displayName']);
+            } elseif (is_string($me['mail'] ?? null) && trim((string)$me['mail']) !== '') {
+                $accountName = trim((string)$me['mail']);
+            } elseif (is_string($me['userPrincipalName'] ?? null) && trim((string)$me['userPrincipalName']) !== '') {
+                $accountName = trim((string)$me['userPrincipalName']);
+            }
+
             $calendarsRaw = $client->listCalendars();
             $calendars = [];
             foreach ($calendarsRaw as $item) {
@@ -686,7 +696,7 @@ function cs_outlook_status(): array
             }
             $base['connected'] = true;
             $base['calendars'] = $calendars;
-            $base['account'] = 'Connected';
+            $base['account'] = $accountName !== null ? $accountName : 'Connected';
             $base['error'] = null;
             return $base;
         } catch (\Throwable $e) {
