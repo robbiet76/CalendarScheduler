@@ -175,8 +175,9 @@ final class OutlookEventMapper
         $resolvedIds = [];
 
         $sourceUid = $action->event['correlation']['sourceEventUid'] ?? null;
-        if (is_string($sourceUid) && trim($sourceUid) !== '') {
-            $resolvedIds[trim($sourceUid)] = 'delete:' . trim($sourceUid);
+        if ($this->isResolvableOutlookEventId($sourceUid)) {
+            $sourceUid = trim((string)$sourceUid);
+            $resolvedIds[$sourceUid] = 'delete:' . $sourceUid;
         }
 
         $corrIds = $action->event['correlation']['outlookEventIds'] ?? null;
@@ -186,6 +187,9 @@ final class OutlookEventMapper
                     continue;
                 }
                 $id = trim($id);
+                if (!$this->isResolvableOutlookEventId($id)) {
+                    continue;
+                }
                 $subHash = is_string($subHash) && trim($subHash) !== '' ? trim($subHash) : 'delete:' . $id;
                 $resolvedIds[$id] = $subHash;
             }
@@ -818,23 +822,41 @@ final class OutlookEventMapper
         $payload = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
 
         $id = $payload['outlookEventId'] ?? null;
-        if (is_string($id) && trim($id) !== '') {
+        if ($this->isResolvableOutlookEventId($id)) {
             return trim($id);
         }
 
         $corrIds = $action->event['correlation']['outlookEventIds'] ?? null;
         if (is_array($corrIds)) {
             $corrId = $corrIds[$subEventHash] ?? null;
-            if (is_string($corrId) && trim($corrId) !== '') {
+            if ($this->isResolvableOutlookEventId($corrId)) {
                 return trim($corrId);
             }
         }
 
         $sourceUid = $action->event['correlation']['sourceEventUid'] ?? null;
-        if (is_string($sourceUid) && trim($sourceUid) !== '') {
+        if ($this->isResolvableOutlookEventId($sourceUid)) {
             return trim($sourceUid);
         }
 
         return null;
+    }
+
+    private function isResolvableOutlookEventId(mixed $value): bool
+    {
+        if (!is_string($value)) {
+            return false;
+        }
+        $value = trim($value);
+        if ($value === '') {
+            return false;
+        }
+
+        // Internal manifest identity hashes are sha256 and are never valid Graph event ids.
+        if (preg_match('/^[a-f0-9]{64}$/i', $value) === 1) {
+            return false;
+        }
+
+        return true;
     }
 }
