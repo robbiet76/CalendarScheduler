@@ -596,6 +596,13 @@ function cs_outlook_status(): array
         'connected' => false,
         'selectedCalendarId' => null,
         'authUrl' => null,
+        'oauth' => [
+            'tenant_id' => '',
+            'client_id' => '',
+            'client_secret' => '',
+            'redirect_uri' => '',
+            'scopes' => [],
+        ],
         'calendars' => [],
         'account' => 'Not configured',
         'error' => null,
@@ -630,6 +637,13 @@ function cs_outlook_status(): array
         $oauth = $config->getOauth();
         $base['setup']['configValid'] = true;
         $base['selectedCalendarId'] = $config->getCalendarId();
+        $base['oauth'] = [
+            'tenant_id' => is_string($oauth['tenant_id'] ?? null) ? (string)$oauth['tenant_id'] : '',
+            'client_id' => is_string($oauth['client_id'] ?? null) ? (string)$oauth['client_id'] : '',
+            'client_secret' => is_string($oauth['client_secret'] ?? null) ? (string)$oauth['client_secret'] : '',
+            'redirect_uri' => is_string($oauth['redirect_uri'] ?? null) ? (string)$oauth['redirect_uri'] : '',
+            'scopes' => is_array($oauth['scopes'] ?? null) ? array_values($oauth['scopes']) : [],
+        ];
 
         $clientId = is_string($oauth['client_id'] ?? null) ? trim((string)$oauth['client_id']) : '';
         $clientSecret = is_string($oauth['client_secret'] ?? null) ? trim((string)$oauth['client_secret']) : '';

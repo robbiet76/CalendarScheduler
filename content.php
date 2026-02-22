@@ -1078,23 +1078,28 @@
           var clientSecretInput = byId("csOutlookClientSecret");
           var redirectInput = byId("csOutlookRedirectUri");
           var scopesInput = byId("csOutlookScopes");
+          var oauth = (providerData && typeof providerData.oauth === "object" && providerData.oauth)
+            ? providerData.oauth
+            : {};
           if (tenantInput && !tenantInput.value) {
-            tenantInput.value = "common";
+            tenantInput.value = (oauth.tenant_id || "common");
           }
           if (calendarInput && !calendarInput.value) {
             calendarInput.value = providerData.selectedCalendarId || "primary";
           }
           if (clientIdInput && !clientIdInput.value) {
-            clientIdInput.value = "";
+            clientIdInput.value = oauth.client_id || "";
+          }
+          if (clientSecretInput && !clientSecretInput.value) {
+            clientSecretInput.value = oauth.client_secret || "";
           }
           if (redirectInput && !redirectInput.value) {
-            redirectInput.value = "http://127.0.0.1:8765/oauth2callback";
+            redirectInput.value = oauth.redirect_uri || "http://localhost:8765/oauth2callback";
           }
           if (scopesInput && !scopesInput.value) {
-            scopesInput.value = "offline_access openid profile User.Read Calendars.ReadWrite";
-          }
-          if (clientSecretInput && providerConnected) {
-            clientSecretInput.value = "";
+            scopesInput.value = Array.isArray(oauth.scopes) && oauth.scopes.length > 0
+              ? oauth.scopes.join(" ")
+              : "offline_access openid profile User.Read Calendars.ReadWrite";
           }
         }
         return refreshDiagnostics();
