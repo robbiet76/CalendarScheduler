@@ -378,6 +378,12 @@ final class Reconciler
             $winningCorrelation['sourceEventUid'] = $currentSourceUid;
         }
 
+        $winningProviderUid = $winningCorrelation['sourceProviderUid'] ?? null;
+        $currentProviderUid = $currentCorrelation['sourceProviderUid'] ?? null;
+        if ((!is_string($winningProviderUid) || $winningProviderUid === '') && is_string($currentProviderUid) && $currentProviderUid !== '') {
+            $winningCorrelation['sourceProviderUid'] = $currentProviderUid;
+        }
+
         $winningGoogleIds = $winningCorrelation['googleEventIds'] ?? null;
         $currentGoogleIds = $currentCorrelation['googleEventIds'] ?? null;
         if (!is_array($winningGoogleIds) && is_array($currentGoogleIds) && $currentGoogleIds !== []) {
@@ -424,6 +430,12 @@ final class Reconciler
         $calendarSourceUid = $calendarCorrelation['sourceEventUid'] ?? null;
         if ((!is_string($winningSourceUid) || $winningSourceUid === '') && is_string($calendarSourceUid) && $calendarSourceUid !== '') {
             $winningCorrelation['sourceEventUid'] = $calendarSourceUid;
+        }
+
+        $winningProviderUid = $winningCorrelation['sourceProviderUid'] ?? null;
+        $calendarProviderUid = $calendarCorrelation['sourceProviderUid'] ?? null;
+        if ((!is_string($winningProviderUid) || $winningProviderUid === '') && is_string($calendarProviderUid) && $calendarProviderUid !== '') {
+            $winningCorrelation['sourceProviderUid'] = $calendarProviderUid;
         }
 
         $winningGoogleIds = $winningCorrelation['googleEventIds'] ?? null;

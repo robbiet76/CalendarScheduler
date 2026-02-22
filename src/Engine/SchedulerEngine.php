@@ -641,6 +641,12 @@ final class SchedulerEngine
                     $manifestEvent,
                     $context
                 );
+                $metadataForIdentity = is_array($anchorPayload['metadata'] ?? null) ? $anchorPayload['metadata'] : [];
+                $manifestEventIdForIdentity = $metadataForIdentity['manifestEventId'] ?? null;
+                if (is_string($manifestEventIdForIdentity) && trim($manifestEventIdForIdentity) !== '') {
+                    // Managed calendar rows should round-trip back to their originating manifest identity.
+                    $normalizedIntent->identityHash = trim($manifestEventIdForIdentity);
+                }
 
                 $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
                 $computedCalendarUpdatedAtById[$normalizedIntent->identityHash] =
