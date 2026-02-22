@@ -20,6 +20,16 @@ final class OutlookEventMetadataSchema
     public const KEY_PROVIDER = 'cs.provider';
     public const KEY_SCHEMA_VERSION = 'cs.schemaVersion';
     public const KEY_FORMAT_VERSION = 'cs.formatVersion';
+    public const KEY_TYPE = 'cs.type';
+    public const KEY_ENABLED = 'cs.enabled';
+    public const KEY_REPEAT = 'cs.repeat';
+    public const KEY_STOP_TYPE = 'cs.stopType';
+    public const KEY_EXECUTION_ORDER = 'cs.executionOrder';
+    public const KEY_EXECUTION_ORDER_MANUAL = 'cs.executionOrderManual';
+    public const KEY_SYMBOLIC_START = 'cs.symbolicStart';
+    public const KEY_SYMBOLIC_START_OFFSET = 'cs.symbolicStartOffset';
+    public const KEY_SYMBOLIC_END = 'cs.symbolicEnd';
+    public const KEY_SYMBOLIC_END_OFFSET = 'cs.symbolicEndOffset';
 
     private function __construct()
     {
@@ -30,7 +40,17 @@ final class OutlookEventMetadataSchema
         string $manifestEventId,
         string $subEventHash,
         string $provider = 'outlook',
-        ?string $formatVersion = null
+        ?string $formatVersion = null,
+        ?string $type = null,
+        ?bool $enabled = null,
+        ?string $repeat = null,
+        ?string $stopType = null,
+        ?int $executionOrder = null,
+        ?bool $executionOrderManual = null,
+        ?string $symbolicStart = null,
+        ?int $symbolicStartOffset = null,
+        ?string $symbolicEnd = null,
+        ?int $symbolicEndOffset = null
     ): array {
         $out = [
             self::KEY_MANIFEST_EVENT_ID => $manifestEventId,
@@ -41,6 +61,33 @@ final class OutlookEventMetadataSchema
 
         if (is_string($formatVersion) && trim($formatVersion) !== '') {
             $out[self::KEY_FORMAT_VERSION] = trim($formatVersion);
+        }
+
+        if (is_string($type) && trim($type) !== '') {
+            $out[self::KEY_TYPE] = trim($type);
+        }
+        if (is_bool($enabled)) {
+            $out[self::KEY_ENABLED] = $enabled ? 'true' : 'false';
+        }
+        if (is_string($repeat) && trim($repeat) !== '') {
+            $out[self::KEY_REPEAT] = trim($repeat);
+        }
+        if (is_string($stopType) && trim($stopType) !== '') {
+            $out[self::KEY_STOP_TYPE] = trim($stopType);
+        }
+        if (is_int($executionOrder) && $executionOrder >= 0) {
+            $out[self::KEY_EXECUTION_ORDER] = (string)$executionOrder;
+        }
+        if (is_bool($executionOrderManual)) {
+            $out[self::KEY_EXECUTION_ORDER_MANUAL] = $executionOrderManual ? 'true' : 'false';
+        }
+        if (is_string($symbolicStart) && trim($symbolicStart) !== '') {
+            $out[self::KEY_SYMBOLIC_START] = trim($symbolicStart);
+            $out[self::KEY_SYMBOLIC_START_OFFSET] = (string)($symbolicStartOffset ?? 0);
+        }
+        if (is_string($symbolicEnd) && trim($symbolicEnd) !== '') {
+            $out[self::KEY_SYMBOLIC_END] = trim($symbolicEnd);
+            $out[self::KEY_SYMBOLIC_END_OFFSET] = (string)($symbolicEndOffset ?? 0);
         }
 
         return $out;
@@ -62,6 +109,16 @@ final class OutlookEventMetadataSchema
             self::graphPropertyId(self::KEY_PROVIDER),
             self::graphPropertyId(self::KEY_SCHEMA_VERSION),
             self::graphPropertyId(self::KEY_FORMAT_VERSION),
+            self::graphPropertyId(self::KEY_TYPE),
+            self::graphPropertyId(self::KEY_ENABLED),
+            self::graphPropertyId(self::KEY_REPEAT),
+            self::graphPropertyId(self::KEY_STOP_TYPE),
+            self::graphPropertyId(self::KEY_EXECUTION_ORDER),
+            self::graphPropertyId(self::KEY_EXECUTION_ORDER_MANUAL),
+            self::graphPropertyId(self::KEY_SYMBOLIC_START),
+            self::graphPropertyId(self::KEY_SYMBOLIC_START_OFFSET),
+            self::graphPropertyId(self::KEY_SYMBOLIC_END),
+            self::graphPropertyId(self::KEY_SYMBOLIC_END_OFFSET),
         ];
     }
 
@@ -105,13 +162,52 @@ final class OutlookEventMetadataSchema
      */
     public static function decodePrivateMetadata(array $private): array
     {
+        $settings = [];
+
+        $type = self::readString($private, self::KEY_TYPE);
+        if ($type !== null) {
+            $settings['type'] = $type;
+        }
+
+        $enabled = self::readBool($private, self::KEY_ENABLED);
+        if ($enabled !== null) {
+            $settings['enabled'] = $enabled;
+        }
+
+        $repeat = self::readString($private, self::KEY_REPEAT);
+        if ($repeat !== null) {
+            $settings['repeat'] = $repeat;
+        }
+
+        $stopType = self::readString($private, self::KEY_STOP_TYPE);
+        if ($stopType !== null) {
+            $settings['stopType'] = $stopType;
+        }
+
+        $executionOrder = self::readInt($private, self::KEY_EXECUTION_ORDER);
+        $executionOrderManual = self::readBool($private, self::KEY_EXECUTION_ORDER_MANUAL);
+
+        $symbolicStart = self::readString($private, self::KEY_SYMBOLIC_START);
+        if ($symbolicStart !== null) {
+            $settings['start'] = $symbolicStart;
+            $settings['start_offset'] = self::readInt($private, self::KEY_SYMBOLIC_START_OFFSET) ?? 0;
+        }
+
+        $symbolicEnd = self::readString($private, self::KEY_SYMBOLIC_END);
+        if ($symbolicEnd !== null) {
+            $settings['end'] = $symbolicEnd;
+            $settings['end_offset'] = self::readInt($private, self::KEY_SYMBOLIC_END_OFFSET) ?? 0;
+        }
+
         return [
             'manifestEventId' => self::readString($private, self::KEY_MANIFEST_EVENT_ID),
             'subEventHash' => self::readString($private, self::KEY_SUB_EVENT_HASH),
             'provider' => self::readString($private, self::KEY_PROVIDER),
             'schemaVersion' => self::readString($private, self::KEY_SCHEMA_VERSION),
             'formatVersion' => self::readString($private, self::KEY_FORMAT_VERSION),
-            'settings' => [],
+            'executionOrder' => $executionOrder,
+            'executionOrderManual' => $executionOrderManual,
+            'settings' => $settings,
         ];
     }
 
@@ -129,6 +225,8 @@ final class OutlookEventMetadataSchema
                 'provider' => null,
                 'schemaVersion' => null,
                 'formatVersion' => null,
+                'executionOrder' => null,
+                'executionOrderManual' => null,
                 'settings' => [],
             ];
         }
@@ -180,5 +278,36 @@ final class OutlookEventMetadataSchema
         }
         $v = trim($v);
         return $v === '' ? null : $v;
+    }
+
+    /**
+     * @param array<string,mixed> $arr
+     */
+    private static function readBool(array $arr, string $key): ?bool
+    {
+        $v = $arr[$key] ?? null;
+        if (is_bool($v)) {
+            return $v;
+        }
+        if (!is_string($v)) {
+            return null;
+        }
+        $parsed = filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        return is_bool($parsed) ? $parsed : null;
+    }
+
+    /**
+     * @param array<string,mixed> $arr
+     */
+    private static function readInt(array $arr, string $key): ?int
+    {
+        $v = $arr[$key] ?? null;
+        if (is_int($v)) {
+            return $v;
+        }
+        if (is_string($v) && is_numeric($v)) {
+            return (int)$v;
+        }
+        return null;
     }
 }

@@ -282,11 +282,45 @@ final class OutlookEventMapper
         }
 
         $subEventHash = $this->deriveSubEventHash($subEvent);
+        $payloadIn = is_array($subEvent['payload'] ?? null) ? $subEvent['payload'] : [];
+        $behaviorIn = is_array($subEvent['behavior'] ?? null) ? $subEvent['behavior'] : [];
+        $identity = is_array($action->event['identity'] ?? null) ? $action->event['identity'] : [];
+        $identityType = is_string($identity['type'] ?? null) ? trim((string)$identity['type']) : null;
+        if ($identityType === '') {
+            $identityType = null;
+        }
+        $enabled = (bool)($behaviorIn['enabled'] ?? ($payloadIn['enabled'] ?? true));
+        $repeat = is_string($behaviorIn['repeat'] ?? null)
+            ? trim((string)$behaviorIn['repeat'])
+            : (is_string($payloadIn['repeat'] ?? null) ? trim((string)$payloadIn['repeat']) : null);
+        if ($repeat === '') {
+            $repeat = null;
+        }
+        $stopType = is_string($behaviorIn['stopType'] ?? null)
+            ? trim((string)$behaviorIn['stopType'])
+            : (is_string($payloadIn['stopType'] ?? null) ? trim((string)$payloadIn['stopType']) : null);
+        if ($stopType === '') {
+            $stopType = null;
+        }
         $privateMetadata = OutlookEventMetadataSchema::privateMetadata(
             manifestEventId: $action->identityHash,
             subEventHash: $subEventHash,
             provider: 'outlook',
-            formatVersion: self::MANAGED_FORMAT_VERSION
+            formatVersion: self::MANAGED_FORMAT_VERSION,
+            type: $identityType,
+            enabled: $enabled,
+            repeat: $repeat,
+            stopType: $stopType,
+            executionOrder: $this->extractExecutionOrder($subEvent),
+            executionOrderManual: $this->extractExecutionOrderManual($subEvent),
+            symbolicStart: is_string($timing['start_time']['symbolic'] ?? null)
+                ? trim((string)$timing['start_time']['symbolic'])
+                : null,
+            symbolicStartOffset: isset($timing['start_time']['offset']) ? (int)$timing['start_time']['offset'] : null,
+            symbolicEnd: is_string($timing['end_time']['symbolic'] ?? null)
+                ? trim((string)$timing['end_time']['symbolic'])
+                : null,
+            symbolicEndOffset: isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : null
         );
         $singleValueExtendedProperties = OutlookEventMetadataSchema::toSingleValueExtendedProperties($privateMetadata);
 
@@ -532,6 +566,41 @@ final class OutlookEventMapper
             $startDate . 'T' . $startTime,
             $instanceEndDate . 'T' . $endTime,
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $subEvent
+     */
+    private function extractExecutionOrder(array $subEvent): ?int
+    {
+        $value = $subEvent['executionOrder'] ?? null;
+        if (is_int($value)) {
+            return $value >= 0 ? $value : 0;
+        }
+        if (is_string($value) && is_numeric($value)) {
+            $n = (int)$value;
+            return $n >= 0 ? $n : 0;
+        }
+        return null;
+    }
+
+    /**
+     * @param array<string,mixed> $subEvent
+     */
+    private function extractExecutionOrderManual(array $subEvent): ?bool
+    {
+        $value = $subEvent['executionOrderManual'] ?? null;
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            return $value !== 0;
+        }
+        if (is_string($value)) {
+            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            return is_bool($parsed) ? $parsed : null;
+        }
+        return null;
     }
 
     /**
