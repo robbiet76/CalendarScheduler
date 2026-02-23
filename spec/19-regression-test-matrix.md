@@ -154,10 +154,42 @@ bin/cs-provider-parity-regression --json
 - Expectation:
   - Tombstones are scoped by calendar; no cross-calendar delete leakage.
 
+### R13. Time Boundary Combination Sweep
+- Setup:
+  - Run RR time-combo cases (`RR-01`, `RR-12`, `RR-13`, `RR-30`).
+- Expectation:
+  - All four hard/symbolic start/end time combinations converge and preserve intended symbolic tokens.
+
+### R14. Date Boundary Combination Sweep
+- Setup:
+  - Validate hard/hard date via automated RR baseline.
+  - Validate symbolic-date combinations in live provider scenarios (holiday/date symbolic flows).
+- Expectation:
+  - No drift in resolved start/end date boundaries; symbolic date behavior remains stable across sync/apply.
+
+### R15. Day Mask Sweep
+- Setup:
+  - Run multiple weekly masks (`RR-15`, `RR-31`, `RR-32`).
+- Expectation:
+  - BYDAY masks are preserved exactly and remain deterministic after round-trip.
+
+### R16. Multi-Entry Expansion Scenarios
+- Setup:
+  - Run segment-rich one-event scenarios (`RR-10`, `RR-20`, `RR-33`).
+- Expectation:
+  - Single calendar events can expand into multi-subevent/multi-FPP row outputs without convergence drift.
+
+### R17. Command Variants
+- Setup:
+  - Run command-centric scenarios (`RR-11`, `RR-33`).
+- Expectation:
+  - Command type, override behavior, and segmentation remain stable and converge on second pass.
+
 ## Fast Regression Pass (Recommended Daily)
 Run this subset after each patch:
 - `R1`, `R3`, `R4`, `R6`, `R10`
 - Provider parity runner (`bin/cs-provider-parity-regression`)
+- RR combination sweep: `RR-12`, `RR-13`, `RR-30`, `RR-31`, `RR-33`
 
 This catches the majority of high-risk regressions while staying fast.
 
