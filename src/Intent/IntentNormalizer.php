@@ -157,21 +157,14 @@ final class IntentNormalizer
                 'executionOrderManual' => $this->normalizeExecutionOrderManual($rawSubEvent['executionOrderManual'] ?? null),
             ];
 
-            $stateHashInput = $this->canonicalizeForStateHash($subEvent);
-            $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
-            $computedStateHash = hash('sha256', $stateHashJson);
-
-            $managedStateHash = null;
-            if (is_array($statePayload['metadata'] ?? null)) {
-                $managedStateHash = $statePayload['metadata']['subEventHash'] ?? null;
-            }
-            if (!is_string($managedStateHash) || trim($managedStateHash) === '') {
-                $managedStateHash = $statePayload['subEventHash'] ?? null;
-            }
-            if (is_string($managedStateHash) && preg_match('/^[a-f0-9]{64}$/i', trim($managedStateHash)) === 1) {
-                $subEvent['stateHash'] = strtolower(trim($managedStateHash));
+            $precomputedStateHash = $rawSubEvent['stateHash'] ?? null;
+            if (is_string($precomputedStateHash) && preg_match('/^[a-f0-9]{64}$/i', trim($precomputedStateHash)) === 1) {
+                // Upstream adapters may provide a canonical state hash for provider-managed rows.
+                $subEvent['stateHash'] = strtolower(trim($precomputedStateHash));
             } else {
-                $subEvent['stateHash'] = $computedStateHash;
+                $stateHashInput = $this->canonicalizeForStateHash($subEvent);
+                $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
+                $subEvent['stateHash'] = hash('sha256', $stateHashJson);
             }
 
             $normalizedSubEvents[] = $subEvent;

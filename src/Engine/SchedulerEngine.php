@@ -535,7 +535,18 @@ final class SchedulerEngine
                         }
                     }
 
-                    $subEvents[] = [
+                    $precomputedStateHash = null;
+                    if ($calendarProvider === 'outlook') {
+                        $metadataSubEventHash = $metadata['subEventHash'] ?? null;
+                        if (
+                            is_string($metadataSubEventHash)
+                            && preg_match('/^[a-f0-9]{64}$/i', trim($metadataSubEventHash)) === 1
+                        ) {
+                            $precomputedStateHash = strtolower(trim($metadataSubEventHash));
+                        }
+                    }
+
+                    $subEventRow = [
                         'type'   => $eventType,
                         'target' => $eventTarget,
                         // Preserve explicit provider-managed ordering when present.
@@ -616,6 +627,10 @@ final class SchedulerEngine
                             ]
                         ),
                     ];
+                    if (is_string($precomputedStateHash) && $precomputedStateHash !== '') {
+                        $subEventRow['stateHash'] = $precomputedStateHash;
+                    }
+                    $subEvents[] = $subEventRow;
                 }
 
                 if ($subEvents === []) {
