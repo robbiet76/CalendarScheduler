@@ -81,16 +81,33 @@ final class OutlookCalendarTranslator
                 $timeZone = null;
             }
 
-            [$rrule, $exDates] = $this->translateRecurrence($ev, $type);
-            $isOverride = ($type === 'exception' || $type === 'occurrence') && is_string($seriesMasterId) && $seriesMasterId !== '';
-            $parentUid = $isOverride ? $seriesMasterId : null;
-            $originalStartTime = $this->extractOriginalStartTime($ev, $timeZone);
-
             $schedulerMetadata = $this->reconcileSchedulerMetadata(
                 OutlookEventMetadataSchema::decodeFromOutlookEvent($ev),
                 $subject,
                 $description
             );
+            $metadataTimeZone = is_string($schedulerMetadata['timezone'] ?? null)
+                ? trim((string)$schedulerMetadata['timezone'])
+                : '';
+            if ($metadataTimeZone !== '') {
+                $effectiveSourceTimeZone = is_string($timeZone) && $timeZone !== '' ? $timeZone : 'UTC';
+                $startDateTime = $this->convertDateTimeTimezone($startDateTime, $effectiveSourceTimeZone, $metadataTimeZone);
+                $endDateTime = $this->convertDateTimeTimezone($endDateTime, $effectiveSourceTimeZone, $metadataTimeZone);
+                $timeZone = $metadataTimeZone;
+                if (is_array($start)) {
+                    $start['dateTime'] = $startDateTime;
+                    $start['timeZone'] = $metadataTimeZone;
+                }
+                if (is_array($end)) {
+                    $end['dateTime'] = $endDateTime;
+                    $end['timeZone'] = $metadataTimeZone;
+                }
+            }
+
+            [$rrule, $exDates] = $this->translateRecurrence($ev, $type);
+            $isOverride = ($type === 'exception' || $type === 'occurrence') && is_string($seriesMasterId) && $seriesMasterId !== '';
+            $parentUid = $isOverride ? $seriesMasterId : null;
+            $originalStartTime = $this->extractOriginalStartTime($ev, $timeZone);
             $uid = $id;
 
             $out[] = [
@@ -262,6 +279,23 @@ final class OutlookCalendarTranslator
         }
     }
 
+    private function convertDateTimeTimezone(string $dateTime, string $fromTimeZone, string $toTimeZone): string
+    {
+        $dateTime = trim($dateTime);
+        if ($dateTime === '' || $fromTimeZone === '' || $toTimeZone === '' || $fromTimeZone === $toTimeZone) {
+            return $dateTime;
+        }
+
+        try {
+            $from = new \DateTimeZone($fromTimeZone);
+            $to = new \DateTimeZone($toTimeZone);
+            $dt = new \DateTimeImmutable($dateTime, $from);
+            return $dt->setTimezone($to)->format('Y-m-d\\TH:i:s');
+        } catch (\Throwable) {
+            return $dateTime;
+        }
+    }
+
     /**
      * Description is treated as user input and overrides per-key metadata.
      *
@@ -352,6 +386,9 @@ final class OutlookCalendarTranslator
             'needsFormatRefresh' => ($currentFormatVersion !== self::MANAGED_FORMAT_VERSION),
             'executionOrder' => $this->normalizeExecutionOrder($metadata['executionOrder'] ?? null),
             'executionOrderManual' => $this->normalizeExecutionOrderManual($metadata['executionOrderManual'] ?? null),
+            'timezone' => is_string($metadata['timezone'] ?? null) && trim((string)$metadata['timezone']) !== ''
+                ? trim((string)$metadata['timezone'])
+                : null,
             'settings' => $settings,
         ];
     }

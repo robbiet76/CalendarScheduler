@@ -30,6 +30,7 @@ final class OutlookEventMetadataSchema
     public const KEY_SYMBOLIC_START_OFFSET = 'cs.symbolicStartOffset';
     public const KEY_SYMBOLIC_END = 'cs.symbolicEnd';
     public const KEY_SYMBOLIC_END_OFFSET = 'cs.symbolicEndOffset';
+    public const KEY_TIMEZONE = 'cs.timezone';
 
     private function __construct()
     {
@@ -50,7 +51,8 @@ final class OutlookEventMetadataSchema
         ?string $symbolicStart = null,
         ?int $symbolicStartOffset = null,
         ?string $symbolicEnd = null,
-        ?int $symbolicEndOffset = null
+        ?int $symbolicEndOffset = null,
+        ?string $timezone = null
     ): array {
         $out = [
             self::KEY_MANIFEST_EVENT_ID => $manifestEventId,
@@ -89,6 +91,9 @@ final class OutlookEventMetadataSchema
             $out[self::KEY_SYMBOLIC_END] = trim($symbolicEnd);
             $out[self::KEY_SYMBOLIC_END_OFFSET] = (string)($symbolicEndOffset ?? 0);
         }
+        if (is_string($timezone) && trim($timezone) !== '') {
+            $out[self::KEY_TIMEZONE] = trim($timezone);
+        }
 
         return $out;
     }
@@ -119,6 +124,7 @@ final class OutlookEventMetadataSchema
             self::graphPropertyId(self::KEY_SYMBOLIC_START_OFFSET),
             self::graphPropertyId(self::KEY_SYMBOLIC_END),
             self::graphPropertyId(self::KEY_SYMBOLIC_END_OFFSET),
+            self::graphPropertyId(self::KEY_TIMEZONE),
         ];
     }
 
@@ -207,6 +213,7 @@ final class OutlookEventMetadataSchema
             'formatVersion' => self::readString($private, self::KEY_FORMAT_VERSION),
             'executionOrder' => $executionOrder,
             'executionOrderManual' => $executionOrderManual,
+            'timezone' => self::readString($private, self::KEY_TIMEZONE),
             'settings' => $settings,
         ];
     }
@@ -227,6 +234,7 @@ final class OutlookEventMetadataSchema
                 'formatVersion' => null,
                 'executionOrder' => null,
                 'executionOrderManual' => null,
+                'timezone' => null,
                 'settings' => [],
             ];
         }

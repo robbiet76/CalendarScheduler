@@ -373,7 +373,8 @@ final class OutlookEventMapper
             symbolicEnd: is_string($timing['end_time']['symbolic'] ?? null)
                 ? trim((string)$timing['end_time']['symbolic'])
                 : null,
-            symbolicEndOffset: isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : null
+            symbolicEndOffset: isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : null,
+            timezone: $timezone
         );
         $singleValueExtendedProperties = OutlookEventMetadataSchema::toSingleValueExtendedProperties($privateMetadata);
 
