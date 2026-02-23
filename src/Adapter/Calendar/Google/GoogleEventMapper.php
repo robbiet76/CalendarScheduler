@@ -656,8 +656,8 @@ final class GoogleEventMapper
 
         // Primary correlation id (calendar-originated events)
         $sourceEventUid = $event['correlation']['sourceEventUid'] ?? null;
-        if (is_string($sourceEventUid) && $sourceEventUid !== '') {
-            $ids[$sourceEventUid] = true;
+        if ($this->isResolvableGoogleEventId($sourceEventUid)) {
+            $ids[trim((string)$sourceEventUid)] = true;
         }
 
         foreach ($subEvents as $subEvent) {
@@ -673,8 +673,8 @@ final class GoogleEventMapper
         $corrIds = $event['correlation']['googleEventIds'] ?? null;
         if (is_array($corrIds)) {
             foreach ($corrIds as $id) {
-                if (is_string($id) && $id !== '') {
-                    $ids[$id] = true;
+                if ($this->isResolvableGoogleEventId($id)) {
+                    $ids[trim((string)$id)] = true;
                 }
             }
         }
@@ -916,22 +916,31 @@ final class GoogleEventMapper
     private function extractGoogleEventId(ReconciliationAction $action, array $subEvent): ?string
     {
         $id = $subEvent['payload']['googleEventId'] ?? null;
-        if (is_string($id) && $id !== '') {
-            return $id;
+        if ($this->isResolvableGoogleEventId($id)) {
+            return trim((string)$id);
         }
 
         $subEventHash = $this->deriveSubEventHash($subEvent);
         $corrIds = $action->event['correlation']['googleEventIds'] ?? null;
         if (is_array($corrIds)) {
             $corrId = $corrIds[$subEventHash] ?? null;
-            if (is_string($corrId) && $corrId !== '') {
-                return $corrId;
+            if ($this->isResolvableGoogleEventId($corrId)) {
+                return trim((string)$corrId);
+            }
+
+            // For single-subevent events, correlation map may still be valid even
+            // when subEventHash drifted due provider-local shaping.
+            if (count($corrIds) === 1) {
+                $only = reset($corrIds);
+                if ($this->isResolvableGoogleEventId($only)) {
+                    return trim((string)$only);
+                }
             }
         }
 
         $corrId = $action->event['correlation']['sourceEventUid'] ?? null;
-        if (is_string($corrId) && $corrId !== '') {
-            return $corrId;
+        if ($this->isResolvableGoogleEventId($corrId)) {
+            return trim((string)$corrId);
         }
 
         return null;
@@ -1237,5 +1246,23 @@ final class GoogleEventMapper
     private function loadCoordinates(): array
     {
         return MapperShared::loadCoordinates();
+    }
+
+    private function isResolvableGoogleEventId(mixed $value): bool
+    {
+        if (!is_string($value)) {
+            return false;
+        }
+        $value = trim($value);
+        if ($value === '') {
+            return false;
+        }
+
+        // Internal manifest identity hashes are sha256 and never valid Google ids.
+        if (preg_match('/^[a-f0-9]{64}$/i', $value) === 1) {
+            return false;
+        }
+
+        return true;
     }
 }
