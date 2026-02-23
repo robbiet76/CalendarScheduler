@@ -9,23 +9,104 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleMutation;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleMutationResult;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleSnapshotRuntime;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApplyExecutor;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookCalendarTranslator;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMapper;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookMutation;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookMutationResult;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookSnapshotRuntime;
 
 final class ProviderRuntimeFactory
 {
     public static function createSnapshot(string $provider): ProviderSnapshotRuntime
     {
         $provider = self::normalizeProvider($provider);
-        return match ($provider) {
-            'outlook' => new OutlookSnapshotRuntime(),
-            default => new GoogleSnapshotRuntime(),
+        if ($provider === 'outlook') {
+            $config = new OutlookConfig('/home/fpp/media/config/calendar-scheduler/calendar/outlook');
+            $client = new OutlookApiClient($config);
+            $translator = new OutlookCalendarTranslator();
+
+            return new class (
+                'outlook',
+                $config->getCalendarId(),
+                static fn() => $translator->ingest(
+                    $client->listEvents($config->getCalendarId()),
+                    $config->getCalendarId()
+                )
+            ) implements ProviderSnapshotRuntime {
+                /** @var callable():array<int,array<string,mixed>> */
+                private $translatedEventsFn;
+
+                /**
+                 * @param callable():array<int,array<string,mixed>> $translatedEventsFn
+                 */
+                public function __construct(
+                    private readonly string $provider,
+                    private readonly string $calendarIdValue,
+                    callable $translatedEventsFn
+                ) {
+                    $this->translatedEventsFn = $translatedEventsFn;
+                }
+
+                public function providerName(): string
+                {
+                    return $this->provider;
+                }
+
+                public function calendarId(): string
+                {
+                    return $this->calendarIdValue;
+                }
+
+                public function translatedEvents(): array
+                {
+                    return ($this->translatedEventsFn)();
+                }
+            };
+        }
+
+        $config = new GoogleConfig('/home/fpp/media/config/calendar-scheduler/calendar/google');
+        $client = new GoogleApiClient($config);
+        $translator = new GoogleCalendarTranslator();
+
+        return new class (
+            'google',
+            $config->getCalendarId(),
+            static fn() => $translator->ingest(
+                $client->listEvents($config->getCalendarId()),
+                $config->getCalendarId()
+            )
+        ) implements ProviderSnapshotRuntime {
+            /** @var callable():array<int,array<string,mixed>> */
+            private $translatedEventsFn;
+
+            /**
+             * @param callable():array<int,array<string,mixed>> $translatedEventsFn
+             */
+            public function __construct(
+                private readonly string $provider,
+                private readonly string $calendarIdValue,
+                callable $translatedEventsFn
+            ) {
+                $this->translatedEventsFn = $translatedEventsFn;
+            }
+
+            public function providerName(): string
+            {
+                return $this->provider;
+            }
+
+            public function calendarId(): string
+            {
+                return $this->calendarIdValue;
+            }
+
+            public function translatedEvents(): array
+            {
+                return ($this->translatedEventsFn)();
+            }
         };
     }
 
