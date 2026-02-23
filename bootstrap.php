@@ -57,10 +57,8 @@ require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApiClient.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarProvider.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMetadataSchema.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutation.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutationResult.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMapper.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApplyExecutor.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApply.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleSnapshotRuntime.php';
 
 // Calendar — Outlook provider (scaffold)
@@ -70,10 +68,8 @@ require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApiClient.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookCalendarProvider.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookCalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookEventMetadataSchema.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookMutation.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookMutationResult.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookEventMapper.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApplyExecutor.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApply.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookSnapshotRuntime.php';
 
 // -----------------------------------------------------------------------------
