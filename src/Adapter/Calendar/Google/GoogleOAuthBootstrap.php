@@ -165,8 +165,8 @@ final class GoogleOAuthBootstrap
 
         $clientId = $client['client_id'] ?? null;
         $clientSecretValue = $client['client_secret'] ?? null;
-        if (!is_string($clientId) || $clientId === '' || !is_string($clientSecretValue) || $clientSecretValue === '') {
-            throw new \RuntimeException("client_id/client_secret missing in OAuth client JSON");
+        if (!is_string($clientId) || $clientId === '') {
+            throw new \RuntimeException("client_id missing in OAuth client JSON");
         }
 
         $redirectUri = $oauth['redirect_uri'] ?? null;
@@ -177,10 +177,12 @@ final class GoogleOAuthBootstrap
         $post = [
             'code' => $code,
             'client_id' => $clientId,
-            'client_secret' => $clientSecretValue,
             'redirect_uri' => $redirectUri,
             'grant_type' => 'authorization_code',
         ];
+        if (is_string($clientSecretValue) && $clientSecretValue !== '') {
+            $post['client_secret'] = $clientSecretValue;
+        }
 
         $resp = $this->curlJson(self::TOKEN_URL, $post);
         if (!is_array($resp)) {

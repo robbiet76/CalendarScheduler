@@ -28,6 +28,7 @@ final class OutlookEventMapper
     private array $diagnostics = [
         'unmappable_skipped' => 0,
         'delete_missing_id' => 0,
+        'update_missing_id_skipped' => 0,
     ];
 
     public function __construct()
@@ -69,16 +70,22 @@ final class OutlookEventMapper
             return;
         }
 
-        if ($this->diagnostics['unmappable_skipped'] > 0 || $this->diagnostics['delete_missing_id'] > 0) {
+        if (
+            $this->diagnostics['unmappable_skipped'] > 0
+            || $this->diagnostics['delete_missing_id'] > 0
+            || $this->diagnostics['update_missing_id_skipped'] > 0
+        ) {
             error_log(
                 'OutlookEventMapper summary: unmappable_skipped=' . $this->diagnostics['unmappable_skipped']
                 . ' delete_missing_id=' . $this->diagnostics['delete_missing_id']
+                . ' update_missing_id_skipped=' . $this->diagnostics['update_missing_id_skipped']
             );
         }
 
         $this->diagnostics = [
             'unmappable_skipped' => 0,
             'delete_missing_id' => 0,
+            'update_missing_id_skipped' => 0,
         ];
     }
 
@@ -151,14 +158,13 @@ final class OutlookEventMapper
             }
 
             if ($eventId === null) {
-                $mutations[] = new OutlookMutation(
-                    op: OutlookMutation::OP_CREATE,
-                    calendarId: $calendarId,
-                    outlookEventId: null,
-                    payload: $payload,
-                    manifestEventId: $action->identityHash,
-                    subEventHash: $subEventHash
-                );
+                $this->diagnostics['update_missing_id_skipped']++;
+                if ($this->debugCalendar) {
+                    error_log(
+                        'OutlookEventMapper: update skipped (missing resolvable event id) identityHash=' .
+                        $action->identityHash . ' subEventHash=' . $subEventHash
+                    );
+                }
                 continue;
             }
 
@@ -260,7 +266,7 @@ final class OutlookEventMapper
         $allDay = (bool)($timing['all_day'] ?? false);
 
         $startDate = $this->readHardDate($timing, 'start_date');
-        $endDate = $this->readHardDate($timing, 'end_date') ?? $startDate;
+        $endDate = $this->readHardDate($timing, 'end_date');
         if ($startDate === null || $endDate === null) {
             [$resolvedStart, $resolvedEnd] = $this->resolveSymbolicDateBounds($timing, $payloadIn);
             if ($startDate === null) {
@@ -269,6 +275,9 @@ final class OutlookEventMapper
             if ($endDate === null) {
                 $endDate = $resolvedEnd;
             }
+        }
+        if ($endDate === null) {
+            $endDate = $startDate;
         }
 
         if ($startDate === null || $endDate === null) {

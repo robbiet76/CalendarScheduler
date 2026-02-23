@@ -83,8 +83,8 @@ final class OutlookOAuthBootstrap
         $redirectUri = is_string($oauth['redirect_uri'] ?? null) ? trim($oauth['redirect_uri']) : '';
         $scopes = is_array($oauth['scopes'] ?? null) ? $oauth['scopes'] : [];
 
-        if ($clientId === '' || $clientSecret === '' || $redirectUri === '') {
-            throw new \RuntimeException('Outlook OAuth config missing client_id/client_secret/redirect_uri.');
+        if ($clientId === '' || $redirectUri === '') {
+            throw new \RuntimeException('Outlook OAuth config missing client_id/redirect_uri.');
         }
 
         $scope = implode(' ', array_values(array_filter($scopes, 'is_string')));
@@ -98,12 +98,14 @@ final class OutlookOAuthBootstrap
 
         $form = [
             'client_id' => $clientId,
-            'client_secret' => $clientSecret,
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $redirectUri,
             'scope' => $scope,
         ];
+        if ($clientSecret !== '') {
+            $form['client_secret'] = $clientSecret;
+        }
 
         return $this->curlFormJson($tokenUrl, $form);
     }

@@ -88,13 +88,6 @@ final class OutlookCalendarTranslator
                 $description
             );
 
-            // Outlook frequently emits exception rows that represent internal
-            // instance reshaping. In our model they duplicate series windows and
-            // cause non-converging pending updates, so ignore exceptions.
-            if ($type === 'exception') {
-                continue;
-            }
-
             $metadataTimeZone = is_string($schedulerMetadata['timezone'] ?? null)
                 ? trim((string)$schedulerMetadata['timezone'])
                 : '';
@@ -113,7 +106,7 @@ final class OutlookCalendarTranslator
                 }
             }
 
-            [$rrule, $exDates] = $this->translateRecurrence($ev, $type);
+            [$rrule, $exDates] = $this->translateRecurrence($ev, $type, $timeZone);
             $isOverride = ($type === 'exception' || $type === 'occurrence') && is_string($seriesMasterId) && $seriesMasterId !== '';
             $parentUid = $isOverride ? $seriesMasterId : null;
             $originalStartTime = $this->extractOriginalStartTime($ev, $timeZone);
@@ -172,19 +165,33 @@ final class OutlookCalendarTranslator
     }
 
     /**
-     * Managed rows are uniquely identified by manifestEventId + subEventHash.
-     * Outlook can surface duplicates for a single logical managed event row.
+     * Managed row dedupe key:
+     * - Prefer manifestEventId + subEventHash when present (authoritative subevent identity).
+     * - Fallback to manifest identity + execution window when subEventHash is unavailable.
      */
     private function managedDedupeKey(array $row): ?string
     {
         $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
         $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
         $manifestEventId = is_string($metadata['manifestEventId'] ?? null) ? trim((string)$metadata['manifestEventId']) : '';
-        $subEventHash = is_string($metadata['subEventHash'] ?? null) ? trim((string)$metadata['subEventHash']) : '';
-        if ($manifestEventId === '' || $subEventHash === '') {
+        if ($manifestEventId === '') {
             return null;
         }
-        return $manifestEventId . '::' . $subEventHash;
+        $subEventHash = is_string($metadata['subEventHash'] ?? null) ? trim((string)$metadata['subEventHash']) : '';
+        if ($subEventHash !== '') {
+            return $manifestEventId . '::' . $subEventHash;
+        }
+
+        $dtstart = is_string($row['dtstart'] ?? null) ? trim((string)$row['dtstart']) : '';
+        $dtend = is_string($row['dtend'] ?? null) ? trim((string)$row['dtend']) : '';
+        $timezone = is_string($row['timezone'] ?? null) ? trim((string)$row['timezone']) : '';
+        $settings = is_array($metadata['settings'] ?? null) ? $metadata['settings'] : [];
+        $type = is_string($settings['type'] ?? null) ? trim((string)$settings['type']) : '';
+        $repeat = is_string($settings['repeat'] ?? null) ? trim((string)$settings['repeat']) : '';
+        $stopType = is_string($settings['stopType'] ?? null) ? trim((string)$settings['stopType']) : '';
+        $enabled = array_key_exists('enabled', $settings) ? (($settings['enabled'] ?? false) ? '1' : '0') : '';
+
+        return implode('::', [$manifestEventId, $dtstart, $dtend, $timezone, $type, $repeat, $stopType, $enabled]);
     }
 
     private function preferManagedRow(array $current, array $candidate): bool
@@ -205,19 +212,24 @@ final class OutlookCalendarTranslator
         $score = 0;
         $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
         $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
-        $metadataTz = is_string($metadata['timezone'] ?? null) ? trim((string)$metadata['timezone']) : '';
-        if ($metadataTz !== '') {
-            $score += 3;
+        $executionOrder = $metadata['executionOrder'] ?? null;
+        $executionOrderManual = $metadata['executionOrderManual'] ?? null;
+        $subEventHash = is_string($metadata['subEventHash'] ?? null) ? trim((string)$metadata['subEventHash']) : '';
+        if (is_int($executionOrder)) {
+            $score += 4;
         }
-
-        $rowTz = is_string($row['timezone'] ?? null) ? trim((string)$row['timezone']) : '';
-        if ($metadataTz !== '' && $rowTz === $metadataTz) {
+        if (is_bool($executionOrderManual)) {
             $score += 2;
         }
-
-        $start = is_array($row['start'] ?? null) ? $row['start'] : [];
-        $startTz = is_string($start['timeZone'] ?? null) ? trim((string)$start['timeZone']) : '';
-        if ($metadataTz !== '' && $startTz === $metadataTz) {
+        if ($subEventHash !== '') {
+            $score += 1;
+        }
+        $metadataTz = is_string($metadata['timezone'] ?? null) ? trim((string)$metadata['timezone']) : '';
+        if ($metadataTz !== '') {
+            $score += 2;
+        }
+        $rowTz = is_string($row['timezone'] ?? null) ? trim((string)$row['timezone']) : '';
+        if ($metadataTz !== '' && $rowTz === $metadataTz) {
             $score += 1;
         }
 
@@ -243,7 +255,7 @@ final class OutlookCalendarTranslator
      * @param array<string,mixed> $ev
      * @return array{0:array<string,mixed>|null,1:array<int,string>}
      */
-    private function translateRecurrence(array $ev, string $eventType): array
+    private function translateRecurrence(array $ev, string $eventType, ?string $fallbackTimeZone): array
     {
         // Overrides/occurrences do not carry the authoritative recurring rule.
         if ($eventType === 'exception' || $eventType === 'occurrence') {
@@ -304,7 +316,11 @@ final class OutlookCalendarTranslator
         if ($rangeType === 'enddate' || $rangeType === 'numbered') {
             $endDate = is_string($range['endDate'] ?? null) ? trim((string)$range['endDate']) : '';
             if ($endDate !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate) === 1) {
-                $rrule['until'] = str_replace('-', '', $endDate);
+                $rangeTimeZone = is_string($range['recurrenceTimeZone'] ?? null)
+                    ? trim((string)$range['recurrenceTimeZone'])
+                    : null;
+                $until = $this->buildUtcUntilFromRangeEndDate($endDate, $fallbackTimeZone, $rangeTimeZone);
+                $rrule['until'] = $until ?? str_replace('-', '', $endDate);
             }
         }
 
@@ -366,6 +382,35 @@ final class OutlookCalendarTranslator
         } catch (\Throwable) {
             return $dateTime;
         }
+    }
+
+    private function buildUtcUntilFromRangeEndDate(
+        string $endDate,
+        ?string $fallbackTimeZone,
+        ?string $rangeTimeZone
+    ): ?string {
+        $zones = [];
+        if (is_string($fallbackTimeZone) && trim($fallbackTimeZone) !== '') {
+            $zones[] = trim($fallbackTimeZone);
+        }
+        if (is_string($rangeTimeZone) && trim($rangeTimeZone) !== '') {
+            $zones[] = trim($rangeTimeZone);
+        }
+        $zones[] = 'UTC';
+
+        foreach ($zones as $zone) {
+            try {
+                $tz = new \DateTimeZone($zone);
+                $untilLocal = new \DateTimeImmutable($endDate . ' 23:59:59', $tz);
+                return $untilLocal
+                    ->setTimezone(new \DateTimeZone('UTC'))
+                    ->format('Ymd\THis\Z');
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return null;
     }
 
     /**
