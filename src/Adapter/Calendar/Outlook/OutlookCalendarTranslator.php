@@ -40,6 +40,8 @@ final class OutlookCalendarTranslator
     public function translateOutlookEvents(array $outlookEvents, string $calendarId): array
     {
         $out = [];
+        /** @var array<string,int> $managedIndexByKey */
+        $managedIndexByKey = [];
 
         foreach ($outlookEvents as $ev) {
             if (!is_array($ev)) {
@@ -118,7 +120,7 @@ final class OutlookCalendarTranslator
             $originalStartTime = $this->extractOriginalStartTime($ev, $timeZone);
             $uid = $id;
 
-            $out[] = [
+            $row = [
                 'provider' => 'outlook',
                 'calendar_id' => $calendarId,
                 'uid' => $uid,
@@ -147,9 +149,80 @@ final class OutlookCalendarTranslator
                 ],
                 'provenance' => $this->buildProvenance($ev, $uid),
             ];
+
+            $managedKey = $this->managedDedupeKey($row);
+            if ($managedKey === null) {
+                $out[] = $row;
+                continue;
+            }
+
+            $existingIndex = $managedIndexByKey[$managedKey] ?? null;
+            if (!is_int($existingIndex) || !isset($out[$existingIndex]) || !is_array($out[$existingIndex])) {
+                $out[] = $row;
+                $managedIndexByKey[$managedKey] = array_key_last($out);
+                continue;
+            }
+
+            $existing = $out[$existingIndex];
+            if ($this->preferManagedRow($existing, $row)) {
+                $out[$existingIndex] = $row;
+            }
         }
 
         return $out;
+    }
+
+    /**
+     * Managed rows are uniquely identified by manifestEventId + subEventHash.
+     * Outlook can surface duplicates for a single logical managed event row.
+     */
+    private function managedDedupeKey(array $row): ?string
+    {
+        $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $manifestEventId = is_string($metadata['manifestEventId'] ?? null) ? trim((string)$metadata['manifestEventId']) : '';
+        $subEventHash = is_string($metadata['subEventHash'] ?? null) ? trim((string)$metadata['subEventHash']) : '';
+        if ($manifestEventId === '' || $subEventHash === '') {
+            return null;
+        }
+        return $manifestEventId . '::' . $subEventHash;
+    }
+
+    private function preferManagedRow(array $current, array $candidate): bool
+    {
+        $currentScore = $this->managedRowScore($current);
+        $candidateScore = $this->managedRowScore($candidate);
+        if ($candidateScore !== $currentScore) {
+            return $candidateScore > $currentScore;
+        }
+
+        $currentUpdated = (int)($current['provenance']['updatedAtEpoch'] ?? 0);
+        $candidateUpdated = (int)($candidate['provenance']['updatedAtEpoch'] ?? 0);
+        return $candidateUpdated > $currentUpdated;
+    }
+
+    private function managedRowScore(array $row): int
+    {
+        $score = 0;
+        $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $metadataTz = is_string($metadata['timezone'] ?? null) ? trim((string)$metadata['timezone']) : '';
+        if ($metadataTz !== '') {
+            $score += 3;
+        }
+
+        $rowTz = is_string($row['timezone'] ?? null) ? trim((string)$row['timezone']) : '';
+        if ($metadataTz !== '' && $rowTz === $metadataTz) {
+            $score += 2;
+        }
+
+        $start = is_array($row['start'] ?? null) ? $row['start'] : [];
+        $startTz = is_string($start['timeZone'] ?? null) ? trim((string)$start['timeZone']) : '';
+        if ($metadataTz !== '' && $startTz === $metadataTz) {
+            $score += 1;
+        }
+
+        return $score;
     }
 
     /**
