@@ -660,6 +660,11 @@ final class GoogleEventMapper
             $ids[trim((string)$sourceEventUid)] = true;
         }
 
+        $sourceProviderUid = $event['correlation']['sourceProviderUid'] ?? null;
+        if ($this->isResolvableGoogleEventId($sourceProviderUid)) {
+            $ids[trim((string)$sourceProviderUid)] = true;
+        }
+
         foreach ($subEvents as $subEvent) {
             if (!is_array($subEvent)) {
                 continue;

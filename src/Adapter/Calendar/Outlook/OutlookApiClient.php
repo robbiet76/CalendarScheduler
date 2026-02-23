@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Calendar Scheduler — Source Component
  *
  * File: Adapter/Calendar/Outlook/OutlookApiClient.php
- * Purpose: Outlook API client surface mirroring the Google client contract.
+ * Purpose: Outlook API client for provider-side calendar and OAuth operations.
  */
 
 namespace CalendarScheduler\Adapter\Calendar\Outlook;
