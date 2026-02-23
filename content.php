@@ -1061,12 +1061,15 @@
         var setup = providerData.setup || {};
         var connectReady = allSetupChecksOk(setup);
         if (!providerConnected && activeProvider === "outlook") {
-          var localReady = outlookFormReady();
+          var oauthClientId = (providerData && providerData.oauth && providerData.oauth.client_id)
+            ? String(providerData.oauth.client_id).trim()
+            : "";
+          var localReady = outlookFormReady() || !!oauthClientId;
           connectBtn.dataset.locked = localReady ? "0" : "1";
           connectBtn.disabled = !localReady;
           var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
           if (!localReady) {
-            setSetupStatus("Enter Outlook client ID, client secret, and redirect URI to enable Connect.");
+            setSetupStatus("Enter Outlook client ID to enable Connect.");
           } else if (outlookHints.length > 0) {
             setSetupStatus(outlookHints.join(" | "));
           } else {
