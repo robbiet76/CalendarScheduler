@@ -14,14 +14,9 @@ use CalendarScheduler\Apply\ApplyRunner;
 use CalendarScheduler\Apply\ApplyTargets;
 use CalendarScheduler\Apply\FppScheduleWriter;
 use CalendarScheduler\Apply\ManifestWriter;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
+use CalendarScheduler\Adapter\Calendar\CalendarApplyRuntimeFactory;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApplyExecutor;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMapper;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookOAuthBootstrap;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Engine\SchedulerEngine;
@@ -1668,32 +1663,13 @@ function cs_apply(SchedulerRunResult $result, ?string $syncMode = null): array
     $options = ApplyOptions::apply($targets, false);
 
     $provider = cs_get_calendar_provider();
-    $googleExecutor = null;
-    $outlookExecutor = null;
-
-    if ($provider === 'outlook') {
-        if (is_dir(CS_OUTLOOK_CONFIG_DIR) || is_file(CS_OUTLOOK_CONFIG_DIR)) {
-            $outlookConfig = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
-            $outlookClient = new OutlookApiClient($outlookConfig);
-            $outlookMapper = new OutlookEventMapper();
-            $outlookExecutor = new OutlookApplyExecutor($outlookClient, $outlookMapper);
-        }
-    } else {
-        if (is_dir(CS_GOOGLE_CONFIG_DIR) || is_file(CS_GOOGLE_CONFIG_DIR)) {
-            $googleConfig = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
-            $googleClient = new GoogleApiClient($googleConfig);
-            $googleMapper = new GoogleEventMapper();
-            $googleExecutor = new GoogleApplyExecutor($googleClient, $googleMapper);
-        }
-    }
+    $calendarRuntime = CalendarApplyRuntimeFactory::create($provider);
 
     $applier = new ApplyRunner(
         new ManifestWriter(CS_MANIFEST_PATH),
         new FppScheduleAdapter(CS_SCHEDULE_PATH),
         new FppScheduleWriter(CS_SCHEDULE_PATH, CS_FPP_STAGE_DIR),
-        $googleExecutor,
-        $outlookExecutor,
-        $provider
+        $calendarRuntime
     );
 
     $applier->apply($result->reconciliationResult(), $options);

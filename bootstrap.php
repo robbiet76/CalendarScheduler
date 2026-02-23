@@ -42,6 +42,9 @@ require_once __DIR__ . '/src/Adapter/FppScheduleAdapter.php';
 require_once __DIR__ . '/src/Adapter/Calendar/OverrideIntent.php';
 require_once __DIR__ . '/src/Adapter/Calendar/SnapshotEvent.php';
 require_once __DIR__ . '/src/Adapter/Calendar/CalendarSnapshot.php';
+require_once __DIR__ . '/src/Adapter/Calendar/CalendarMutationLink.php';
+require_once __DIR__ . '/src/Adapter/Calendar/CalendarApplyRuntime.php';
+require_once __DIR__ . '/src/Adapter/Calendar/CalendarApplyRuntimeFactory.php';
 require_once __DIR__ . '/src/Adapter/Calendar/ProviderSnapshotRuntime.php';
 require_once __DIR__ . '/src/Adapter/Calendar/ProviderSnapshotRuntimeFactory.php';
 
@@ -56,6 +59,7 @@ require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutation.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutationResult.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMapper.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApplyExecutor.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApplyRuntime.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleSnapshotRuntime.php';
 
 // Calendar — Outlook provider (scaffold)
@@ -69,6 +73,7 @@ require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookMutation.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookMutationResult.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookEventMapper.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApplyExecutor.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApplyRuntime.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookSnapshotRuntime.php';
 
 // -----------------------------------------------------------------------------

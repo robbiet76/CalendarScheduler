@@ -384,17 +384,7 @@ final class Reconciler
             $winningCorrelation['sourceProviderUid'] = $currentProviderUid;
         }
 
-        $winningGoogleIds = $winningCorrelation['googleEventIds'] ?? null;
-        $currentGoogleIds = $currentCorrelation['googleEventIds'] ?? null;
-        if (!is_array($winningGoogleIds) && is_array($currentGoogleIds) && $currentGoogleIds !== []) {
-            $winningCorrelation['googleEventIds'] = $currentGoogleIds;
-        }
-
-        $winningOutlookIds = $winningCorrelation['outlookEventIds'] ?? null;
-        $currentOutlookIds = $currentCorrelation['outlookEventIds'] ?? null;
-        if (!is_array($winningOutlookIds) && is_array($currentOutlookIds) && $currentOutlookIds !== []) {
-            $winningCorrelation['outlookEventIds'] = $currentOutlookIds;
-        }
+        $winningCorrelation = $this->mergeProviderEventIdMaps($winningCorrelation, $currentCorrelation);
 
         $winningCalendarId = $winningCorrelation['sourceCalendarId'] ?? null;
         $currentCalendarId = $currentCorrelation['sourceCalendarId'] ?? null;
@@ -438,17 +428,7 @@ final class Reconciler
             $winningCorrelation['sourceProviderUid'] = $calendarProviderUid;
         }
 
-        $winningGoogleIds = $winningCorrelation['googleEventIds'] ?? null;
-        $calendarGoogleIds = $calendarCorrelation['googleEventIds'] ?? null;
-        if (!is_array($winningGoogleIds) && is_array($calendarGoogleIds) && $calendarGoogleIds !== []) {
-            $winningCorrelation['googleEventIds'] = $calendarGoogleIds;
-        }
-
-        $winningOutlookIds = $winningCorrelation['outlookEventIds'] ?? null;
-        $calendarOutlookIds = $calendarCorrelation['outlookEventIds'] ?? null;
-        if (!is_array($winningOutlookIds) && is_array($calendarOutlookIds) && $calendarOutlookIds !== []) {
-            $winningCorrelation['outlookEventIds'] = $calendarOutlookIds;
-        }
+        $winningCorrelation = $this->mergeProviderEventIdMaps($winningCorrelation, $calendarCorrelation);
 
         $winningCalendarId = $winningCorrelation['sourceCalendarId'] ?? null;
         $calendarCalendarId = $calendarCorrelation['sourceCalendarId'] ?? null;
@@ -693,6 +673,33 @@ final class Reconciler
         $event['correlation'] = $correlation;
 
         return $event;
+    }
+
+    /**
+     * Copy provider event-id maps (for example, googleEventIds/outlookEventIds)
+     * from source correlation when winner lacks them.
+     *
+     * @param array<string,mixed> $winning
+     * @param array<string,mixed> $source
+     * @return array<string,mixed>
+     */
+    private function mergeProviderEventIdMaps(array $winning, array $source): array
+    {
+        foreach ($source as $key => $value) {
+            if (!is_string($key) || !is_array($value) || $value === []) {
+                continue;
+            }
+            if (!str_ends_with($key, 'EventIds')) {
+                continue;
+            }
+
+            $winningValue = $winning[$key] ?? null;
+            if (!is_array($winningValue) || $winningValue === []) {
+                $winning[$key] = $value;
+            }
+        }
+
+        return $winning;
     }
 
     /**

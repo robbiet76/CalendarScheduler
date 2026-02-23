@@ -21,13 +21,8 @@ use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyTargets;
 use CalendarScheduler\Apply\FppScheduleWriter;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
+use CalendarScheduler\Adapter\Calendar\CalendarApplyRuntimeFactory;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApplyExecutor;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMapper;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
 
 // -----------------------------------------------------------------------------
@@ -295,34 +290,7 @@ if ($apply) {
         }
     }
 
-    $googleExecutor = null;
-    $outlookExecutor = null;
-
-    // Calendar writes are optional and only required if calendar actions exist.
-    if ($calendarProvider === 'outlook') {
-        $outlookConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
-        if (is_dir($outlookConfigPath) || is_file($outlookConfigPath)) {
-            $outlookConfig = new OutlookConfig($outlookConfigPath);
-            $outlookClient = new OutlookApiClient($outlookConfig);
-            $outlookMapper = new OutlookEventMapper();
-            $outlookExecutor = new OutlookApplyExecutor(
-                $outlookClient,
-                $outlookMapper
-            );
-        }
-    } else {
-        $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-        if (is_dir($googleConfigPath) || is_file($googleConfigPath)) {
-            $googleConfig = new GoogleConfig($googleConfigPath);
-            $googleClient = new GoogleApiClient($googleConfig);
-            $googleMapper = new GoogleEventMapper();
-
-            $googleExecutor = new GoogleApplyExecutor(
-                $googleClient,
-                $googleMapper
-            );
-        }
-    }
+    $calendarRuntime = CalendarApplyRuntimeFactory::create($calendarProvider);
 
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath),
@@ -331,9 +299,7 @@ if ($apply) {
             $schedulePath,
             '/home/fpp/media/config/calendar-scheduler/fpp'
         ),
-        $googleExecutor,
-        $outlookExecutor,
-        $calendarProvider
+        $calendarRuntime
     );
 
     $applier->apply($runResult->reconciliationResult(), $options);
