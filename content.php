@@ -387,6 +387,7 @@
     var providerConnected = false;
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
+    var DEVICE_AUTH_STATE_KEY = "cs_device_auth_pending_v1";
     var syncMode = "both";
     var connectionCollapsed = false;
     var connectionCollapsedLoaded = false;
@@ -940,12 +941,15 @@
           setDeviceAuthVisible(false);
           setOutlookAuthVisible(false);
           clearDeviceAuthPoll();
+          clearPendingDeviceAuth();
           byId("csPreviewState").textContent = "Connected";
           byId("csPreviewTime").textContent = "Refreshing preview...";
           setTopBarClass("alert-info");
         } else {
-          setDeviceAuthVisible(false);
           setOutlookAuthVisible(false);
+          if (!resumeDeviceAuthIfNeeded()) {
+            setDeviceAuthVisible(false);
+          }
         }
         renderConnectionHelp(providerData.setup || {}, providerConnected);
         var subtitle = byId("csConnectionSubtitle");
@@ -1111,9 +1115,74 @@
       deviceAuthDeadlineEpoch = 0;
     }
 
+    function savePendingDeviceAuth(state) {
+      try {
+        window.localStorage.setItem(DEVICE_AUTH_STATE_KEY, JSON.stringify(state || {}));
+      } catch (e) {
+        // Ignore storage errors.
+      }
+    }
+
+    function loadPendingDeviceAuth() {
+      try {
+        var raw = window.localStorage.getItem(DEVICE_AUTH_STATE_KEY);
+        if (!raw) {
+          return null;
+        }
+        var parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearPendingDeviceAuth() {
+      try {
+        window.localStorage.removeItem(DEVICE_AUTH_STATE_KEY);
+      } catch (e) {
+        // Ignore storage errors.
+      }
+    }
+
+    function resumeDeviceAuthIfNeeded() {
+      if (providerConnected) {
+        clearPendingDeviceAuth();
+        return false;
+      }
+
+      var pending = loadPendingDeviceAuth();
+      if (!pending) {
+        return false;
+      }
+      if (String(pending.provider || "") !== String(activeProvider || "")) {
+        return false;
+      }
+
+      var deviceCode = String(pending.deviceCode || "").trim();
+      var userCode = String(pending.userCode || "").trim();
+      var verificationUrl = String(pending.verificationUrl || "").trim();
+      var interval = Math.max(parseInt(pending.interval || 5, 10), 3);
+      var expiresAtEpoch = parseInt(pending.expiresAtEpoch || 0, 10);
+
+      if (!deviceCode || expiresAtEpoch <= 0 || Date.now() >= expiresAtEpoch) {
+        clearPendingDeviceAuth();
+        return false;
+      }
+
+      clearDeviceAuthPoll();
+      deviceAuthDeadlineEpoch = expiresAtEpoch;
+      setDeviceAuthVisible(true, userCode || "-", verificationUrl || "");
+      setSetupStatus("Waiting for " + (activeProvider === "outlook" ? "Outlook" : "Google") + " authorization completion.");
+      deviceAuthPollTimer = window.setTimeout(function () {
+        pollDeviceAuth(deviceCode, interval);
+      }, 1000);
+      return true;
+    }
+
     function pollDeviceAuth(deviceCode, intervalSeconds) {
       if (Date.now() >= deviceAuthDeadlineEpoch) {
         clearDeviceAuthPoll();
+        clearPendingDeviceAuth();
         setDeviceAuthVisible(false);
         setError("Device authorization timed out. Click Connect Provider to try again.");
         return;
@@ -1124,6 +1193,7 @@
           var poll = res.poll || {};
           if (poll.status === "connected") {
             clearDeviceAuthPoll();
+            clearPendingDeviceAuth();
             setDeviceAuthVisible(false);
             refreshAll();
             return;
@@ -1131,6 +1201,7 @@
 
           if (poll.status === "failed") {
             clearDeviceAuthPoll();
+            clearPendingDeviceAuth();
             setDeviceAuthVisible(false);
             setError("Device authorization failed (" + (poll.error || "unknown") + ").");
             return;
@@ -1146,6 +1217,7 @@
         })
         .catch(function (err) {
           clearDeviceAuthPoll();
+          clearPendingDeviceAuth();
           setDeviceAuthVisible(false);
           setError("Device authorization polling error: " + err.message + ".");
         });
@@ -1169,6 +1241,14 @@
 
           clearDeviceAuthPoll();
           deviceAuthDeadlineEpoch = Date.now() + (expiresIn * 1000);
+          savePendingDeviceAuth({
+            provider: activeProvider,
+            deviceCode: deviceCode,
+            userCode: userCode,
+            verificationUrl: verificationUrl,
+            interval: interval,
+            expiresAtEpoch: deviceAuthDeadlineEpoch
+          });
           setDeviceAuthVisible(true, userCode, verificationUrl);
 
           deviceAuthPollTimer = window.setTimeout(function () {
@@ -1176,6 +1256,7 @@
           }, interval * 1000);
         })
         .catch(function (err) {
+          clearPendingDeviceAuth();
           setDeviceAuthVisible(false);
           setError("Automatic device authorization could not start: " + err.message);
           throw err;
@@ -1261,6 +1342,7 @@
             setDeviceAuthVisible(false);
             setOutlookAuthVisible(false);
             clearDeviceAuthPoll();
+            clearPendingDeviceAuth();
             return refreshAll();
           })
           .catch(function (err) { setError(err.message); })
@@ -1384,6 +1466,7 @@
 
     byId("csDeviceAuthCancelBtn").addEventListener("click", function () {
       clearDeviceAuthPoll();
+      clearPendingDeviceAuth();
       setDeviceAuthVisible(false);
       setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
     });
