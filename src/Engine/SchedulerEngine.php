@@ -13,17 +13,12 @@ namespace CalendarScheduler\Engine;
 use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Adapter\Calendar\CalendarSnapshot;
+use CalendarScheduler\Adapter\Calendar\ProviderSnapshotRuntimeFactory;
 use CalendarScheduler\Planner\Dto\PlannerIntent;
 use CalendarScheduler\Resolution\ResolutionEngine;
 use CalendarScheduler\Planner\ManifestPlanner;
 use CalendarScheduler\Diff\Diff;
 use CalendarScheduler\Diff\Reconciler;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookCalendarTranslator;
 use CalendarScheduler\Platform\FppEventTimestampStore;
 use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
@@ -535,17 +530,6 @@ final class SchedulerEngine
                         }
                     }
 
-                    $precomputedStateHash = null;
-                    if ($calendarProvider === 'outlook') {
-                        $metadataSubEventHash = $metadata['subEventHash'] ?? null;
-                        if (
-                            is_string($metadataSubEventHash)
-                            && preg_match('/^[a-f0-9]{64}$/i', trim($metadataSubEventHash)) === 1
-                        ) {
-                            $precomputedStateHash = strtolower(trim($metadataSubEventHash));
-                        }
-                    }
-
                     $subEventRow = [
                         'type'   => $eventType,
                         'target' => $eventTarget,
@@ -627,9 +611,6 @@ final class SchedulerEngine
                             ]
                         ),
                     ];
-                    if (is_string($precomputedStateHash) && $precomputedStateHash !== '') {
-                        $subEventRow['stateHash'] = $precomputedStateHash;
-                    }
                     $subEvents[] = $subEventRow;
                 }
 
@@ -669,13 +650,11 @@ final class SchedulerEngine
                     $manifestEvent,
                     $context
                 );
-                if ($calendarProvider === 'outlook') {
-                    $metadataForIdentity = is_array($anchorPayload['metadata'] ?? null) ? $anchorPayload['metadata'] : [];
-                    $manifestEventIdForIdentity = $metadataForIdentity['manifestEventId'] ?? null;
-                    if (is_string($manifestEventIdForIdentity) && trim($manifestEventIdForIdentity) !== '') {
-                        // Outlook-managed rows should round-trip back to their originating manifest identity.
-                        $normalizedIntent->identityHash = trim($manifestEventIdForIdentity);
-                    }
+                $metadataForIdentity = is_array($anchorPayload['metadata'] ?? null) ? $anchorPayload['metadata'] : [];
+                $manifestEventIdForIdentity = $metadataForIdentity['manifestEventId'] ?? null;
+                if (is_string($manifestEventIdForIdentity) && trim($manifestEventIdForIdentity) !== '') {
+                    // Provider-managed rows should round-trip back to their originating manifest identity.
+                    $normalizedIntent->identityHash = trim($manifestEventIdForIdentity);
                 }
 
                 $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
@@ -2345,7 +2324,7 @@ final class SchedulerEngine
     }
 
     /**
-     * Refresh the calendar snapshot by pulling directly from Google Calendar API.
+     * Refresh the calendar snapshot by pulling directly from the configured provider runtime.
      *
      * Writes a deterministic JSON wrapper to $calendarSnapshotPath:
      *   { "calendar_id": "...", "events": [ ...provider-agnostic rows... ] }
@@ -2358,25 +2337,12 @@ final class SchedulerEngine
     ): void {
         $provider = $this->normalizeCalendarProvider($provider);
 
-        if ($provider === 'outlook') {
-            $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
-            $config = new OutlookConfig($configDir);
-            $client = new OutlookApiClient($config);
-            $rawEvents = $client->listEvents($config->getCalendarId());
-            $translator = new OutlookCalendarTranslator();
-            $translatedEvents = $translator->ingest($rawEvents, $config->getCalendarId());
-        } else {
-            $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-            $config = new GoogleConfig($configDir);
-            $client = new GoogleApiClient($config);
-            $rawEvents = $client->listEvents($config->getCalendarId());
-            $translator = new GoogleCalendarTranslator();
-            $translatedEvents = $translator->ingest($rawEvents, $config->getCalendarId());
-        }
+        $runtime = ProviderSnapshotRuntimeFactory::create($provider);
+        $translatedEvents = $runtime->translatedEvents();
 
         $payload = [
-            'provider'     => $provider,
-            'calendar_id'  => $config->getCalendarId(),
+            'provider'     => $runtime->providerName(),
+            'calendar_id'  => $runtime->calendarId(),
             'events'       => $translatedEvents,
             'generated_at' => (new \DateTimeImmutable(
                 'now',

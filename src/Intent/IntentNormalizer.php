@@ -157,15 +157,9 @@ final class IntentNormalizer
                 'executionOrderManual' => $this->normalizeExecutionOrderManual($rawSubEvent['executionOrderManual'] ?? null),
             ];
 
-            $precomputedStateHash = $rawSubEvent['stateHash'] ?? null;
-            if (is_string($precomputedStateHash) && preg_match('/^[a-f0-9]{64}$/i', trim($precomputedStateHash)) === 1) {
-                // Upstream adapters may provide a canonical state hash for provider-managed rows.
-                $subEvent['stateHash'] = strtolower(trim($precomputedStateHash));
-            } else {
-                $stateHashInput = $this->canonicalizeForStateHash($subEvent);
-                $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
-                $subEvent['stateHash'] = hash('sha256', $stateHashJson);
-            }
+            $stateHashInput = $this->canonicalizeForStateHash($subEvent);
+            $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
+            $subEvent['stateHash'] = hash('sha256', $stateHashJson);
 
             $normalizedSubEvents[] = $subEvent;
         }
