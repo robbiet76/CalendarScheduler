@@ -244,35 +244,15 @@
           <div><strong>Outlook OAuth Setup</strong></div>
           <ol class="cs-help-list mt-1 mb-2">
             <li>Create an Azure app registration with delegated Graph scopes including <code>Calendars.ReadWrite</code> and <code>offline_access</code>.</li>
-            <li>Enter tenant/client details below.</li>
-            <li>Click <strong>Connect Provider</strong>, complete consent, then paste the callback URL/code.</li>
+            <li>Enable public client/device flow for the app registration.</li>
+            <li>Enter only the app <strong>Client ID</strong> below, then click <strong>Connect Provider</strong>.</li>
           </ol>
           <div class="mb-1"><strong>Current Setup Checks</strong></div>
           <ul id="csOutlookHelpChecks" class="mb-1"></ul>
           <div class="row g-2">
-            <div class="col-12 col-md-6">
-              <label for="csOutlookTenantId" class="form-label mb-1">Tenant ID</label>
-              <input id="csOutlookTenantId" class="form-control" placeholder="common">
-            </div>
-            <div class="col-12 col-md-6">
-              <label for="csOutlookCalendarId" class="form-label mb-1">Calendar ID</label>
-              <input id="csOutlookCalendarId" class="form-control" placeholder="primary">
-            </div>
-            <div class="col-12 col-md-6">
+            <div class="col-12">
               <label for="csOutlookClientId" class="form-label mb-1">Client ID</label>
               <input id="csOutlookClientId" class="form-control" placeholder="Application (client) ID">
-            </div>
-            <div class="col-12 col-md-6">
-              <label for="csOutlookClientSecret" class="form-label mb-1">Client Secret</label>
-              <input id="csOutlookClientSecret" type="password" class="form-control" placeholder="Client secret">
-            </div>
-            <div class="col-12">
-              <label for="csOutlookRedirectUri" class="form-label mb-1">Redirect URI</label>
-              <input id="csOutlookRedirectUri" class="form-control" placeholder="http://localhost:8765/oauth2callback">
-            </div>
-            <div class="col-12">
-              <label for="csOutlookScopes" class="form-label mb-1">Scopes (space separated)</label>
-              <input id="csOutlookScopes" class="form-control" placeholder="offline_access openid profile User.Read Calendars.ReadWrite">
             </div>
           </div>
           <div class="mb-1 mt-2"><strong>Current Setup Hints</strong></div>
@@ -1076,7 +1056,7 @@
           } else if (outlookHints.length > 0) {
             setSetupStatus(outlookHints.join(" | "));
           } else {
-            setSetupStatus("Enter Outlook OAuth details, then click Connect Provider.");
+            setSetupStatus("Click Connect Provider to start Outlook device sign-in.");
           }
         } else if (!providerConnected && !connectReady) {
           connectBtn.dataset.locked = "1";
@@ -1093,34 +1073,12 @@
         }
 
         if (activeProvider === "outlook") {
-          var tenantInput = byId("csOutlookTenantId");
-          var calendarInput = byId("csOutlookCalendarId");
           var clientIdInput = byId("csOutlookClientId");
-          var clientSecretInput = byId("csOutlookClientSecret");
-          var redirectInput = byId("csOutlookRedirectUri");
-          var scopesInput = byId("csOutlookScopes");
           var oauth = (providerData && typeof providerData.oauth === "object" && providerData.oauth)
             ? providerData.oauth
             : {};
-          if (tenantInput && !tenantInput.value) {
-            tenantInput.value = (oauth.tenant_id || "common");
-          }
-          if (calendarInput && !calendarInput.value) {
-            calendarInput.value = providerData.selectedCalendarId || "primary";
-          }
           if (clientIdInput && !clientIdInput.value) {
             clientIdInput.value = oauth.client_id || "";
-          }
-          if (clientSecretInput && !clientSecretInput.value) {
-            clientSecretInput.value = oauth.client_secret || "";
-          }
-          if (redirectInput && !redirectInput.value) {
-            redirectInput.value = oauth.redirect_uri || "http://localhost:8765/oauth2callback";
-          }
-          if (scopesInput && !scopesInput.value) {
-            scopesInput.value = Array.isArray(oauth.scopes) && oauth.scopes.length > 0
-              ? oauth.scopes.join(" ")
-              : "offline_access openid profile User.Read Calendars.ReadWrite";
           }
         }
         return refreshDiagnostics();
@@ -1225,12 +1183,7 @@
     }
 
     function startOutlookAuthFlow() {
-      var tenantId = (byId("csOutlookTenantId").value || "").trim() || "common";
       var clientId = (byId("csOutlookClientId").value || "").trim();
-      var clientSecret = (byId("csOutlookClientSecret").value || "").trim();
-      var redirectUri = (byId("csOutlookRedirectUri").value || "").trim() || "http://localhost:8765/oauth2callback";
-      var scopes = (byId("csOutlookScopes").value || "").trim() || "offline_access openid profile User.Read Calendars.ReadWrite";
-      var calendarId = (byId("csOutlookCalendarId").value || "").trim() || "primary";
 
       if (!clientId) {
         setOutlookAuthMessage("Outlook client_id is required before connecting.", true);
@@ -1242,12 +1195,7 @@
       setLoadingState();
       return fetchJson({
         action: "auth_outlook_save_config",
-        tenant_id: tenantId,
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: redirectUri,
-        scopes: scopes,
-        calendar_id: calendarId
+        client_id: clientId
       })
         .then(function () {
           setOutlookAuthVisible(false);
@@ -1357,7 +1305,7 @@
       onProviderTagClick("outlook");
     });
 
-    ["csOutlookClientId", "csOutlookClientSecret", "csOutlookRedirectUri"].forEach(function (id) {
+    ["csOutlookClientId"].forEach(function (id) {
       var node = byId(id);
       if (!node) {
         return;

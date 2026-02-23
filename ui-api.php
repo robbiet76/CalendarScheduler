@@ -44,6 +44,7 @@ const CS_GOOGLE_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
 const CS_GOOGLE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/calendar';
 const CS_OUTLOOK_DEFAULT_REDIRECT_URI = 'http://localhost:8765/oauth2callback';
 const CS_OUTLOOK_DEFAULT_SCOPE = 'offline_access openid profile User.Read Calendars.ReadWrite';
+const CS_OUTLOOK_DEFAULT_TENANT = 'consumers';
 const CS_SYNC_MODE_BOTH = 'both';
 const CS_SYNC_MODE_CALENDAR = 'calendar';
 const CS_SYNC_MODE_FPP = 'fpp';
@@ -115,7 +116,7 @@ function cs_hint_for_exception(\Throwable $e, string $action = ''): ?string
         return 'Open Connection Setup checks, upload client secret JSON, and confirm all checks show OK.';
     }
     if (str_contains($message, 'outlook oauth') || str_contains($message, 'microsoftonline')) {
-        return 'Verify Outlook OAuth client_id/client_secret/tenant_id/redirect_uri settings and retry.';
+        return 'Verify Outlook OAuth client_id and Azure app registration settings, then retry.';
     }
     if ($action === 'preview' || $action === 'apply') {
         return 'Open Diagnostics and verify provider connection, selected calendar, and setup checks.';
@@ -600,11 +601,11 @@ function cs_outlook_status(): array
         'selectedCalendarId' => null,
         'authUrl' => null,
         'oauth' => [
-            'tenant_id' => '',
+            'tenant_id' => CS_OUTLOOK_DEFAULT_TENANT,
             'client_id' => '',
             'client_secret' => '',
-            'redirect_uri' => '',
-            'scopes' => [],
+            'redirect_uri' => CS_OUTLOOK_DEFAULT_REDIRECT_URI,
+            'scopes' => explode(' ', CS_OUTLOOK_DEFAULT_SCOPE),
         ],
         'calendars' => [],
         'account' => 'Not configured',
@@ -649,8 +650,7 @@ function cs_outlook_status(): array
         ];
 
         $clientId = is_string($oauth['client_id'] ?? null) ? trim((string)$oauth['client_id']) : '';
-        $scopes = is_array($oauth['scopes'] ?? null) ? $oauth['scopes'] : [];
-        $base['setup']['oauthConfigured'] = $clientId !== '' && $scopes !== [];
+        $base['setup']['oauthConfigured'] = $clientId !== '';
         if ($base['setup']['oauthConfigured']) {
             $base['authUrl'] = (new OutlookOAuthBootstrap($config))->getAuthorizationUrl();
         }
@@ -731,7 +731,7 @@ function cs_bootstrap_outlook_config_if_missing(): bool
         'provider' => 'outlook',
         'calendar_id' => 'primary',
         'oauth' => [
-            'tenant_id' => 'common',
+            'tenant_id' => CS_OUTLOOK_DEFAULT_TENANT,
             'client_id' => '',
             'client_secret' => '',
             'token_file' => 'token.json',
@@ -792,32 +792,14 @@ function cs_outlook_save_oauth_config(array $input): void
     $config = cs_read_outlook_config_json();
     $oauth = is_array($config['oauth'] ?? null) ? $config['oauth'] : [];
 
-    $oauth['tenant_id'] = is_string($input['tenant_id'] ?? null) && trim((string)$input['tenant_id']) !== ''
-        ? trim((string)$input['tenant_id'])
-        : ($oauth['tenant_id'] ?? 'common');
+    $oauth['tenant_id'] = CS_OUTLOOK_DEFAULT_TENANT;
     $oauth['client_id'] = is_string($input['client_id'] ?? null) ? trim((string)$input['client_id']) : ($oauth['client_id'] ?? '');
-    $oauth['client_secret'] = is_string($input['client_secret'] ?? null) ? trim((string)$input['client_secret']) : ($oauth['client_secret'] ?? '');
-    $oauth['redirect_uri'] = is_string($input['redirect_uri'] ?? null) && trim((string)$input['redirect_uri']) !== ''
-        ? trim((string)$input['redirect_uri'])
-        : ($oauth['redirect_uri'] ?? CS_OUTLOOK_DEFAULT_REDIRECT_URI);
+    $oauth['client_secret'] = '';
+    $oauth['redirect_uri'] = CS_OUTLOOK_DEFAULT_REDIRECT_URI;
     $oauth['token_file'] = is_string($input['token_file'] ?? null) && trim((string)$input['token_file']) !== ''
         ? trim((string)$input['token_file'])
         : ($oauth['token_file'] ?? 'token.json');
-
-    $scopes = $input['scopes'] ?? null;
-    if (is_string($scopes)) {
-        $parts = preg_split('/\s+/', trim($scopes)) ?: [];
-        $scopes = array_values(array_filter($parts, static fn ($v): bool => is_string($v) && $v !== ''));
-    }
-    if (is_array($scopes) && $scopes !== []) {
-        $oauth['scopes'] = array_values(array_filter($scopes, static fn ($v): bool => is_string($v) && trim($v) !== ''));
-    } elseif (!is_array($oauth['scopes'] ?? null) || $oauth['scopes'] === []) {
-        $oauth['scopes'] = explode(' ', CS_OUTLOOK_DEFAULT_SCOPE);
-    }
-
-    if (is_string($input['calendar_id'] ?? null) && trim((string)$input['calendar_id']) !== '') {
-        $config['calendar_id'] = trim((string)$input['calendar_id']);
-    }
+    $oauth['scopes'] = explode(' ', CS_OUTLOOK_DEFAULT_SCOPE);
 
     $config['provider'] = 'outlook';
     $config['oauth'] = $oauth;
