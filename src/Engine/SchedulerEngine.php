@@ -480,6 +480,15 @@ final class SchedulerEngine
                         ? $plannerIntent->payload
                         : [];
 
+                    $metadataExecutionOrder = null;
+                    $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+                    $executionOrderFromMetadata = $metadata['executionOrder'] ?? null;
+                    if (is_int($executionOrderFromMetadata)) {
+                        $metadataExecutionOrder = max(0, $executionOrderFromMetadata);
+                    } elseif (is_string($executionOrderFromMetadata) && is_numeric($executionOrderFromMetadata)) {
+                        $metadataExecutionOrder = max(0, (int)$executionOrderFromMetadata);
+                    }
+
                     // Scheduler settings come from reconciled metadata only.
                     $settings = $this->extractSchedulerSettingsFromPayload($payload);
 
@@ -529,7 +538,8 @@ final class SchedulerEngine
                     $subEvents[] = [
                         'type'   => $eventType,
                         'target' => $eventTarget,
-                        'executionOrder' => $globalExecutionRanks[spl_object_id($plannerIntent)] ?? 0,
+                        // Preserve explicit provider-managed ordering when present.
+                        'executionOrder' => $metadataExecutionOrder ?? ($globalExecutionRanks[spl_object_id($plannerIntent)] ?? 0),
                         'executionOrderManual' => $this->extractExecutionOrderManualFromPayload($payload),
                         'timing' => [
                             'all_day'    => $plannerIntent->allDay,
