@@ -86,15 +86,11 @@ final class OutlookCalendarTranslator
                 $subject,
                 $description
             );
-            $hasManagedManifestId = is_string($schedulerMetadata['manifestEventId'] ?? null)
-                && trim((string)$schedulerMetadata['manifestEventId']) !== '';
-            $hasManagedSubEventHash = is_string($schedulerMetadata['subEventHash'] ?? null)
-                && trim((string)$schedulerMetadata['subEventHash']) !== '';
 
-            // Outlook can emit synthetic exception rows (for example DST-shifted
-            // instances) that are not explicitly managed by CalendarScheduler.
-            // Keeping those rows causes non-converging extra subevents on refresh.
-            if ($type === 'exception' && !$hasManagedManifestId && !$hasManagedSubEventHash) {
+            // Outlook frequently emits exception rows that represent internal
+            // instance reshaping. In our model they duplicate series windows and
+            // cause non-converging pending updates, so ignore exceptions.
+            if ($type === 'exception') {
                 continue;
             }
 
