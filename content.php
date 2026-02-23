@@ -960,6 +960,9 @@
           setDeviceAuthVisible(false);
           setOutlookAuthVisible(false);
           clearDeviceAuthPoll();
+          byId("csPreviewState").textContent = "Connected";
+          byId("csPreviewTime").textContent = "Refreshing preview...";
+          setTopBarClass("alert-info");
         } else {
           setDeviceAuthVisible(false);
           setOutlookAuthVisible(false);
