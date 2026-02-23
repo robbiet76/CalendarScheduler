@@ -10,9 +10,9 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter\Calendar\Outlook;
 
+use CalendarScheduler\Adapter\Calendar\MapperShared;
 use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Platform\HolidayResolver;
-use CalendarScheduler\Platform\SunTimeDisplayEstimator;
 
 final class OutlookEventMapper
 {
@@ -583,64 +583,17 @@ final class OutlookEventMapper
 
     private function extractYearFromHardDate(?string $date): ?int
     {
-        if (!is_string($date) || $date === '') {
-            return null;
-        }
-        if (!preg_match('/^(\d{4})-\d{2}-\d{2}$/', $date, $m)) {
-            return null;
-        }
-        $year = (int)$m[1];
-        return $year > 0 ? $year : null;
+        return MapperShared::extractYearFromHardDate($date);
     }
 
     private function resolveLocalTimezone(): \DateTimeZone
     {
-        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
-        if (is_file($envPath)) {
-            $raw = @file_get_contents($envPath);
-            if (is_string($raw) && $raw !== '') {
-                $json = @json_decode($raw, true);
-                $tzName = is_array($json) ? ($json['timezone'] ?? null) : null;
-                if (is_string($tzName) && trim($tzName) !== '') {
-                    try {
-                        return new \DateTimeZone(trim($tzName));
-                    } catch (\Throwable) {
-                        // fall through
-                    }
-                }
-            }
-        }
-
-        try {
-            return new \DateTimeZone(date_default_timezone_get());
-        } catch (\Throwable) {
-            return new \DateTimeZone('UTC');
-        }
+        return MapperShared::resolveLocalTimezone();
     }
 
     private function loadHolidayResolver(): ?HolidayResolver
     {
-        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
-        if (!is_file($envPath)) {
-            return null;
-        }
-
-        $raw = @file_get_contents($envPath);
-        if (!is_string($raw) || $raw === '') {
-            return null;
-        }
-
-        $json = @json_decode($raw, true);
-        if (!is_array($json)) {
-            return null;
-        }
-
-        $holidays = $json['rawLocale']['holidays'] ?? null;
-        if (!is_array($holidays)) {
-            return null;
-        }
-
-        return new HolidayResolver($holidays);
+        return MapperShared::loadHolidayResolver();
     }
 
     /**
@@ -648,66 +601,19 @@ final class OutlookEventMapper
      */
     private function loadCoordinates(): array
     {
-        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
-        if (!is_file($envPath)) {
-            return [null, null];
-        }
-
-        $raw = @file_get_contents($envPath);
-        if (!is_string($raw) || $raw === '') {
-            return [null, null];
-        }
-
-        $json = @json_decode($raw, true);
-        if (!is_array($json)) {
-            return [null, null];
-        }
-
-        $lat = $json['latitude'] ?? null;
-        $lon = $json['longitude'] ?? null;
-        if (!is_numeric($lat) || !is_numeric($lon)) {
-            return [null, null];
-        }
-
-        return [(float)$lat, (float)$lon];
+        return MapperShared::loadCoordinates();
     }
 
     private function resolveSymbolicDisplayTime(string $date, string $symbolic, int $offset): ?string
     {
-        $symbolic = trim($symbolic);
-        if ($symbolic === '') {
-            return null;
-        }
-
-        if ($this->latitude !== null && $this->longitude !== null) {
-            $estimated = SunTimeDisplayEstimator::estimate(
-                $date,
-                $symbolic,
-                $this->latitude,
-                $this->longitude,
-                $this->localTimezone->getName(),
-                $offset,
-                30
-            );
-            if (is_string($estimated) && $estimated !== '') {
-                return $estimated;
-            }
-        }
-
-        $base = match ($symbolic) {
-            'Dawn' => '06:00:00',
-            'SunRise' => '07:00:00',
-            'SunSet' => '18:00:00',
-            'Dusk' => '18:30:00',
-            default => null,
-        };
-        if (!is_string($base)) {
-            return null;
-        }
-
-        $dt = new \DateTimeImmutable($date . ' ' . $base, new \DateTimeZone('UTC'));
-        $dt = $dt->modify(($offset >= 0 ? '+' : '') . (string)$offset . ' minutes');
-        return $dt->format('H:i:s');
+        return MapperShared::resolveSymbolicDisplayTime(
+            $date,
+            $symbolic,
+            $offset,
+            $this->latitude,
+            $this->longitude,
+            $this->localTimezone->getName()
+        );
     }
 
     private function composeManagedDescription(
@@ -719,99 +625,20 @@ final class OutlookEventMapper
         ?array $startTime,
         ?array $endTime
     ): string {
-        $startSym = is_string($startTime['symbolic'] ?? null) ? trim((string)$startTime['symbolic']) : '';
-        $endSym = is_string($endTime['symbolic'] ?? null) ? trim((string)$endTime['symbolic']) : '';
-        $startOffset = isset($startTime['offset']) ? (int)($startTime['offset']) : 0;
-        $endOffset = isset($endTime['offset']) ? (int)($endTime['offset']) : 0;
-
-        $settings = [];
-        $settings[] = '# Managed by Calendar Scheduler';
-        $settings[] = '# Edit values below. Free-form notes can be added at the bottom.';
-        $settings[] = '';
-        $settings[] = '[settings]';
-        $settings[] = '# Edit FPP Scheduler Settings';
-        $settings[] = '# Schedule Type: Playlist | Sequence | Command';
-        $settings[] = '# Enabled: True | False';
-        $settings[] = '# Repeat: None | Immediate | 5 | 10 | 15 | 20 | 30 | 60 (Min.)';
-        $settings[] = '# Stop Type: Graceful | Graceful Loop | Hard Stop';
-        $settings[] = '';
-        $settings[] = 'type = ' . $this->formatTypeForDescription($type);
-        $settings[] = 'enabled = ' . ($enabled ? 'True' : 'False');
-        $settings[] = 'repeat = ' . $this->formatRepeatForDescription($repeat);
-        $settings[] = 'stopType = ' . $this->formatStopTypeForDescription($stopType);
-        $settings[] = '';
-        $settings[] = '[symbolic_time]';
-        $settings[] = '# Edit Symbolic Time Settings';
-        $settings[] = '# Start Time/End Time: Dawn | SunRise | SunSet | Dusk';
-        $settings[] = '# Start Time/End Time Offset Min: (Enter +/- minutes)';
-        $settings[] = '# Leave values blank to use hard clock time from event start/end.';
-        $settings[] = '';
-        $settings[] = 'start = ' . $startSym;
-        $settings[] = 'start_offset = ' . (string)$startOffset;
-        $settings[] = 'end = ' . $endSym;
-        $settings[] = 'end_offset = ' . (string)$endOffset;
-        $settings[] = '';
-        $settings[] = '# Notes:';
-        $settings[] = '# - Calendar Event Title should match Playlist/Sequence/Command name.';
-        $settings[] = '';
-        $settings[] = '# -------------------- USER NOTES BELOW --------------------';
-
-        $sections = [implode("\n", $settings)];
-
-        $existingDescription = trim($this->stripManagedSections($existingDescription));
-        if ($existingDescription !== '') {
-            $sections[] = $existingDescription;
-        }
-
-        return implode("\n\n", $sections);
+        return MapperShared::composeManagedDescription(
+            $existingDescription,
+            $type,
+            $enabled,
+            $repeat,
+            $stopType,
+            $startTime,
+            $endTime
+        );
     }
 
     private function stripManagedSections(string $description): string
     {
-        $divider = '# -------------------- USER NOTES BELOW --------------------';
-        $pos = strpos($description, $divider);
-        if ($pos !== false) {
-            $notes = substr($description, $pos + strlen($divider));
-            return trim((string)$notes);
-        }
-
-        $lines = preg_split('/\r\n|\r|\n/', $description);
-        if (!is_array($lines) || $lines === []) {
-            return trim($description);
-        }
-
-        $out = [];
-        $inManaged = false;
-        $seenMarker = false;
-
-        foreach ($lines as $line) {
-            $trim = trim((string)$line);
-            $lower = strtolower($trim);
-
-            if (!$seenMarker && $lower === '# managed by calendar scheduler') {
-                $seenMarker = true;
-                continue;
-            }
-            if ($seenMarker && $lower === '# edit values below. free-form notes can be added at the bottom.') {
-                continue;
-            }
-
-            if (!$inManaged && ($lower === '[settings]' || $lower === '[symbolic_time]')) {
-                $inManaged = true;
-                continue;
-            }
-
-            if ($inManaged) {
-                if ($trim === '') {
-                    $inManaged = false;
-                }
-                continue;
-            }
-
-            $out[] = (string)$line;
-        }
-
-        return trim(implode("\n", $out));
+        return MapperShared::stripManagedSections($description);
     }
 
     private function formatTypeForDescription(string $type): string
@@ -1000,15 +827,7 @@ final class OutlookEventMapper
      */
     private function extractExecutionOrder(array $subEvent): ?int
     {
-        $value = $subEvent['executionOrder'] ?? null;
-        if (is_int($value)) {
-            return $value >= 0 ? $value : 0;
-        }
-        if (is_string($value) && is_numeric($value)) {
-            $n = (int)$value;
-            return $n >= 0 ? $n : 0;
-        }
-        return null;
+        return MapperShared::extractExecutionOrder($subEvent);
     }
 
     /**
@@ -1016,18 +835,7 @@ final class OutlookEventMapper
      */
     private function extractExecutionOrderManual(array $subEvent): ?bool
     {
-        $value = $subEvent['executionOrderManual'] ?? null;
-        if (is_bool($value)) {
-            return $value;
-        }
-        if (is_int($value)) {
-            return $value !== 0;
-        }
-        if (is_string($value)) {
-            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            return is_bool($parsed) ? $parsed : null;
-        }
-        return null;
+        return MapperShared::extractExecutionOrderManual($subEvent);
     }
 
     /**

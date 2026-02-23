@@ -45,6 +45,7 @@ require_once __DIR__ . '/src/Adapter/Calendar/CalendarSnapshot.php';
 require_once __DIR__ . '/src/Adapter/Calendar/CalendarMutationLink.php';
 require_once __DIR__ . '/src/Adapter/Calendar/CalendarApplyRuntime.php';
 require_once __DIR__ . '/src/Adapter/Calendar/ExecutorApplyRuntime.php';
+require_once __DIR__ . '/src/Adapter/Calendar/MapperShared.php';
 require_once __DIR__ . '/src/Adapter/Calendar/ProviderSnapshotRuntime.php';
 require_once __DIR__ . '/src/Adapter/Calendar/ProviderRuntimeFactory.php';
 
