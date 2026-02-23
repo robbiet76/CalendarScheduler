@@ -219,6 +219,7 @@
 
         <div id="csConnectionHelpGoogle" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Google OAuth Setup</strong></div>
+          <!-- TODO(oauth-ux): Add a dedicated setup help link/popup with full OAuth walkthrough steps from the UI. -->
           <ol class="cs-help-list mt-1 mb-2">
             <li>In Google Cloud Console, enable <strong>Google Calendar API</strong>.</li>
             <li>Create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
@@ -242,6 +243,7 @@
 
         <div id="csConnectionHelpOutlook" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Outlook OAuth Setup</strong></div>
+          <!-- TODO(oauth-ux): Add a dedicated setup help link/popup with full OAuth walkthrough steps from the UI. -->
           <ol class="cs-help-list mt-1 mb-2">
             <li>Create an Azure app registration with delegated Graph scopes including <code>Calendars.ReadWrite</code> and <code>offline_access</code>.</li>
             <li>Enable public client/device flow for the app registration.</li>
