@@ -14,7 +14,7 @@ use CalendarScheduler\Apply\ApplyRunner;
 use CalendarScheduler\Apply\ApplyTargets;
 use CalendarScheduler\Apply\FppScheduleWriter;
 use CalendarScheduler\Apply\ManifestWriter;
-use CalendarScheduler\Adapter\Calendar\CalendarApplyRuntimeFactory;
+use CalendarScheduler\Adapter\Calendar\ProviderRuntimeFactory;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
@@ -1665,7 +1665,7 @@ function cs_apply(SchedulerRunResult $result, ?string $syncMode = null): array
     $options = ApplyOptions::apply($targets, false);
 
     $provider = cs_get_calendar_provider();
-    $calendarRuntime = CalendarApplyRuntimeFactory::create($provider);
+    $calendarRuntime = ProviderRuntimeFactory::createApply($provider);
 
     $applier = new ApplyRunner(
         new ManifestWriter(CS_MANIFEST_PATH),

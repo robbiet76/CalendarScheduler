@@ -13,7 +13,7 @@ namespace CalendarScheduler\Engine;
 use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Adapter\Calendar\CalendarSnapshot;
-use CalendarScheduler\Adapter\Calendar\ProviderSnapshotRuntimeFactory;
+use CalendarScheduler\Adapter\Calendar\ProviderRuntimeFactory;
 use CalendarScheduler\Planner\Dto\PlannerIntent;
 use CalendarScheduler\Resolution\ResolutionEngine;
 use CalendarScheduler\Planner\ManifestPlanner;
@@ -2337,7 +2337,7 @@ final class SchedulerEngine
     ): void {
         $provider = $this->normalizeCalendarProvider($provider);
 
-        $runtime = ProviderSnapshotRuntimeFactory::create($provider);
+        $runtime = ProviderRuntimeFactory::createSnapshot($provider);
         $translatedEvents = $runtime->translatedEvents();
 
         $payload = [

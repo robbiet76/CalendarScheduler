@@ -21,7 +21,7 @@ use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyTargets;
 use CalendarScheduler\Apply\FppScheduleWriter;
-use CalendarScheduler\Adapter\Calendar\CalendarApplyRuntimeFactory;
+use CalendarScheduler\Adapter\Calendar\ProviderRuntimeFactory;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
 
@@ -290,7 +290,7 @@ if ($apply) {
         }
     }
 
-    $calendarRuntime = CalendarApplyRuntimeFactory::create($calendarProvider);
+    $calendarRuntime = ProviderRuntimeFactory::createApply($calendarProvider);
 
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath),
