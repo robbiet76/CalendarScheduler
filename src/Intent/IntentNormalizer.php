@@ -159,7 +159,20 @@ final class IntentNormalizer
 
             $stateHashInput = $this->canonicalizeForStateHash($subEvent);
             $stateHashJson  = json_encode($stateHashInput, JSON_THROW_ON_ERROR);
-            $subEvent['stateHash'] = hash('sha256', $stateHashJson);
+            $computedStateHash = hash('sha256', $stateHashJson);
+
+            $managedStateHash = null;
+            if (is_array($statePayload['metadata'] ?? null)) {
+                $managedStateHash = $statePayload['metadata']['subEventHash'] ?? null;
+            }
+            if (!is_string($managedStateHash) || trim($managedStateHash) === '') {
+                $managedStateHash = $statePayload['subEventHash'] ?? null;
+            }
+            if (is_string($managedStateHash) && preg_match('/^[a-f0-9]{64}$/i', trim($managedStateHash)) === 1) {
+                $subEvent['stateHash'] = strtolower(trim($managedStateHash));
+            } else {
+                $subEvent['stateHash'] = $computedStateHash;
+            }
 
             $normalizedSubEvents[] = $subEvent;
         }
