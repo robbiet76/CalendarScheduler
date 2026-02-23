@@ -15,7 +15,7 @@ $root = dirname(__DIR__);
 $resolutionRunner = $root . '/bin/cs-resolution-regression';
 $liveRunner = $root . '/bin/cs-regression';
 $apiSmokeRunner = $root . '/bin/cs-api-smoke';
-$outlookRunner = $root . '/bin/cs-outlook-regression';
+$providerParityRunner = $root . '/bin/cs-provider-parity-regression';
 
 if (!is_file($resolutionRunner)) {
     fwrite(STDERR, "ERROR: Missing runner: {$resolutionRunner}\n");
@@ -29,8 +29,8 @@ if (!is_file($apiSmokeRunner)) {
     fwrite(STDERR, "ERROR: Missing runner: {$apiSmokeRunner}\n");
     exit(2);
 }
-if (!is_file($outlookRunner)) {
-    fwrite(STDERR, "ERROR: Missing runner: {$outlookRunner}\n");
+if (!is_file($providerParityRunner)) {
+    fwrite(STDERR, "ERROR: Missing runner: {$providerParityRunner}\n");
     exit(2);
 }
 
@@ -42,6 +42,8 @@ $opts = getopt('', [
     'skip-live',
     'resolution-case::',
     'skip-api-smoke',
+    'skip-provider-parity',
+    'skip-google',
     'skip-outlook',
     'api-endpoint::',
     'api-sync-mode::',
@@ -56,8 +58,8 @@ $opts = getopt('', [
 $skipResolution = array_key_exists('skip-resolution', $opts);
 $skipLive = array_key_exists('skip-live', $opts);
 $skipApiSmoke = array_key_exists('skip-api-smoke', $opts);
-$skipOutlook = array_key_exists('skip-outlook', $opts);
-if ($skipResolution && $skipLive && $skipApiSmoke && $skipOutlook) {
+$skipProviderParity = array_key_exists('skip-provider-parity', $opts);
+if ($skipResolution && $skipLive && $skipApiSmoke && $skipProviderParity) {
     fwrite(STDERR, "ERROR: All suites are skipped. Nothing to run.\n");
     exit(2);
 }
@@ -81,7 +83,7 @@ $result = [
     'resolution' => null,
     'live' => null,
     'apiSmoke' => null,
-    'outlook' => null,
+    'providerParity' => null,
 ];
 
 // Resolution fixture suite (in-memory).
@@ -233,22 +235,42 @@ if (!$skipApiSmoke) {
     ];
 }
 
-// Outlook parity regression checks (mapper/metadata/translator roundtrip).
-if (!$skipOutlook) {
-    $outlook = runCommand(
-        buildPhpCommand($outlookRunner, [])
-    );
-    file_put_contents($runDir . '/outlook.raw.txt', $outlook['output']);
+// Provider parity regression checks (Google + Outlook adapter roundtrip checks).
+if (!$skipProviderParity) {
+    $providerParityArgs = ['--json'];
+    if (array_key_exists('skip-google', $opts)) {
+        $providerParityArgs[] = '--skip-google';
+    }
+    if (array_key_exists('skip-outlook', $opts)) {
+        $providerParityArgs[] = '--skip-outlook';
+    }
 
-    $outlookOk = $outlook['exitCode'] === 0;
-    if (!$outlookOk) {
+    $providerParity = runCommand(
+        buildPhpCommand($providerParityRunner, $providerParityArgs)
+    );
+    file_put_contents($runDir . '/provider-parity.raw.txt', $providerParity['output']);
+
+    $providerDecoded = decodeJsonObject($providerParity['output']);
+    if ($providerDecoded !== null) {
+        file_put_contents(
+            $runDir . '/provider-parity.json',
+            json_encode($providerDecoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL
+        );
+    }
+
+    $providerParityOk = $providerParity['exitCode'] === 0
+        && is_array($providerDecoded)
+        && (bool)($providerDecoded['ok'] ?? false) === true;
+    if (!$providerParityOk) {
         $result['ok'] = false;
     }
 
-    $result['outlook'] = [
-        'ok' => $outlookOk,
-        'exitCode' => $outlook['exitCode'],
-        'reportPath' => $runDir . '/outlook.raw.txt',
+    $result['providerParity'] = [
+        'ok' => $providerParityOk,
+        'exitCode' => $providerParity['exitCode'],
+        'reportPath' => is_array($providerDecoded) ? ($runDir . '/provider-parity.json') : null,
+        'googleOk' => is_array($providerDecoded['google'] ?? null) ? (bool)($providerDecoded['google']['ok'] ?? false) : null,
+        'outlookOk' => is_array($providerDecoded['outlook'] ?? null) ? (bool)($providerDecoded['outlook']['ok'] ?? false) : null,
     ];
 }
 
@@ -274,8 +296,15 @@ if ($jsonMode) {
         echo "- API smoke: " . (($result['apiSmoke']['ok'] ?? false) ? 'PASS' : 'FAIL');
         echo " (checks=" . (int)($result['apiSmoke']['checkCount'] ?? 0) . ")" . PHP_EOL;
     }
-    if (is_array($result['outlook'])) {
-        echo "- Outlook parity: " . (($result['outlook']['ok'] ?? false) ? 'PASS' : 'FAIL') . PHP_EOL;
+    if (is_array($result['providerParity'])) {
+        echo "- Provider parity: " . (($result['providerParity']['ok'] ?? false) ? 'PASS' : 'FAIL');
+        $googleOk = $result['providerParity']['googleOk'] ?? null;
+        $outlookOk = $result['providerParity']['outlookOk'] ?? null;
+        if (is_bool($googleOk) || is_bool($outlookOk)) {
+            echo " (google=" . (is_bool($googleOk) ? ($googleOk ? 'PASS' : 'FAIL') : 'SKIP');
+            echo ", outlook=" . (is_bool($outlookOk) ? ($outlookOk ? 'PASS' : 'FAIL') : 'SKIP') . ")";
+        }
+        echo PHP_EOL;
     }
 }
 

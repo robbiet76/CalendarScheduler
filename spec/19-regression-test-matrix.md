@@ -1,11 +1,17 @@
 # 19) Regression Test Matrix
 
 ## Goal
-Provide a repeatable, scenario-based regression pass so behavior can be validated quickly after each patch.
+Provide a repeatable, provider-parity regression matrix so behavior is validated quickly after each patch.
 
 This matrix is intentionally focused on high-value behavior that has regressed during active development: sync direction, tombstones, overrides, ordering, and convergence.
 
-## Runner
+## Runners
+Use the following runners together:
+- `bin/cs-resolution-regression`: deterministic in-memory scenario suite (`RR-01..RR-29`).
+- `bin/cs-regression`: live pre/apply/post convergence.
+- `bin/cs-provider-parity-regression`: adapter parity checks for **Google + Outlook**.
+- `bin/cs-full-regression`: one-command orchestrator for all suites.
+
 Use `bin/cs-regression` for pre/apply/post capture and assertions.
 
 Example:
@@ -20,13 +26,32 @@ bin/cs-regression \
 
 Artifacts are written to `/tmp/cs-regression/<timestamp>-<label>/`.
 
-For one-command automation of the full flow (resolution fixtures + live pre/apply/post):
+For one-command automation of the full flow (resolution + live + provider parity):
 
 ```bash
 bin/cs-full-regression --label=nightly
 ```
 
 Artifacts are written to `/tmp/cs-full-regression/<timestamp>-<label>/`.
+
+## Provider Parity Dimensions (Must Pass)
+For every patch, parity must hold for both providers:
+- `metadata roundtrip`: provider metadata schema read/write is stable.
+- `mapper parity`: recurrence/timezone/managed metadata are emitted correctly.
+- `translator parity`: recurrence + managed metadata normalization are stable.
+- `convergence gate`: apply once, second preview is noop.
+
+Run:
+
+```bash
+bin/cs-provider-parity-regression
+```
+
+Or JSON mode:
+
+```bash
+bin/cs-provider-parity-regression --json
+```
 
 ## Core Scenarios
 ### R1. Baseline Convergence
@@ -132,6 +157,7 @@ Artifacts are written to `/tmp/cs-full-regression/<timestamp>-<label>/`.
 ## Fast Regression Pass (Recommended Daily)
 Run this subset after each patch:
 - `R1`, `R3`, `R4`, `R6`, `R10`
+- Provider parity runner (`bin/cs-provider-parity-regression`)
 
 This catches the majority of high-risk regressions while staying fast.
 
@@ -158,6 +184,12 @@ If you only want live convergence checks:
 
 ```bash
 bin/cs-full-regression --label=live-only --skip-resolution
+```
+
+If you want to isolate provider parity:
+
+```bash
+bin/cs-full-regression --label=provider-only --skip-resolution --skip-live --skip-api-smoke
 ```
 
 ## Notes

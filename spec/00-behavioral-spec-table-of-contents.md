@@ -219,6 +219,7 @@ Defines:
 
 Defines:
 - Repeatable scenario list for regression validation
+- Provider parity gates across Google and Outlook adapters
 - Fast daily regression subset
 - Pre/apply/post assertion workflow via CLI runner
 - Artifact capture expectations for debugging
