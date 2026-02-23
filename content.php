@@ -944,7 +944,7 @@
           clearPendingDeviceAuth();
           byId("csPreviewState").textContent = "Connected";
           byId("csPreviewTime").textContent = "Refreshing preview...";
-          setTopBarClass("alert-info");
+          setTopBarClass("cs-status-loading");
         } else {
           setOutlookAuthVisible(false);
           if (!resumeDeviceAuthIfNeeded()) {
