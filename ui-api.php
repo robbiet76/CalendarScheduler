@@ -99,6 +99,9 @@ function cs_respond_error(
 function cs_hint_for_exception(\Throwable $e, string $action = ''): ?string
 {
     $message = strtolower($e->getMessage());
+    if (str_contains($message, 'outlook device auth start failed: invalid_client')) {
+        return 'Outlook device code is not enabled for this app type. Use the Outlook authorize URL flow (confidential/private app) or enable public client/device flow in Azure.';
+    }
     if (str_contains($message, 'device auth start failed: invalid_client')) {
         return 'Upload a valid TV and Limited Input OAuth client JSON, then try Connect Provider again.';
     }

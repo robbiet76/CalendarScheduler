@@ -694,7 +694,7 @@
           checkRow("OAuth fields configured", !!setup.oauthConfigured),
           checkRow("Token file present", !!setup.tokenFilePresent),
           checkRow("Token directory writable", !!setup.tokenPathWritable),
-          checkRow("Device flow ready", outlookDeviceReady)
+          checkRow("OAuth flow ready", outlookDeviceReady)
         ].join("");
         var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
         if (outlookHints.length === 0) {
@@ -1246,10 +1246,16 @@
         calendar_id: calendarId
       })
         .then(function () {
-          setOutlookAuthVisible(false);
+          return fetchJson({ action: "auth_outlook_authorize_url" });
         })
-        .then(function () {
-          return startDeviceAuthFlow();
+        .then(function (res) {
+          var authUrl = (res && (res.auth_url || res.authUrl)) ? String(res.auth_url || res.authUrl) : "";
+          if (!authUrl) {
+            throw new Error("Outlook authorize URL is unavailable.");
+          }
+          setOutlookAuthVisible(true, authUrl);
+          setOutlookAuthMessage("Open the consent page, complete sign-in, then paste the callback URL/code.", false);
+          setSetupStatus("Outlook sign-in started. Complete consent, then paste callback URL/code.");
         })
         .catch(function (err) {
           setError(err.message);
