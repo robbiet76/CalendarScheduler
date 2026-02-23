@@ -51,6 +51,8 @@ final class GoogleCalendarTranslator
     public function translateGoogleEvents(array $googleEvents, string $calendarId): array
     {
         $out = [];
+        /** @var array<string,int> $managedIndexByKey */
+        $managedIndexByKey = [];
 
         foreach ($googleEvents as $ev) {
             if (!is_array($ev)) {
@@ -129,7 +131,7 @@ final class GoogleCalendarTranslator
                 }
             }
 
-            $out[] = [
+            $row = [
                 // Provider + calendar identity
                 'provider'        => 'google',
                 'calendar_id'     => $calendarId,
@@ -178,9 +180,86 @@ final class GoogleCalendarTranslator
                 // Provenance / raw metadata
                 'provenance'      => $provenance,
             ];
+
+            $managedKey = $this->managedDedupeKey($row);
+            if ($managedKey === null) {
+                $out[] = $row;
+                continue;
+            }
+
+            $existingIndex = $managedIndexByKey[$managedKey] ?? null;
+            if (!is_int($existingIndex) || !isset($out[$existingIndex]) || !is_array($out[$existingIndex])) {
+                $out[] = $row;
+                $managedIndexByKey[$managedKey] = array_key_last($out);
+                continue;
+            }
+
+            $existing = $out[$existingIndex];
+            if ($this->preferManagedRow($existing, $row)) {
+                $out[$existingIndex] = $row;
+            }
         }
 
         return $out;
+    }
+
+    /**
+     * Managed row dedupe key uses manifest identity + execution window so stale
+     * historic rows for the same logical subevent can be collapsed.
+     */
+    private function managedDedupeKey(array $row): ?string
+    {
+        $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $manifestEventId = is_string($metadata['manifestEventId'] ?? null) ? trim((string)$metadata['manifestEventId']) : '';
+        if ($manifestEventId === '') {
+            return null;
+        }
+
+        $dtstart = is_string($row['dtstart'] ?? null) ? trim((string)$row['dtstart']) : '';
+        $dtend = is_string($row['dtend'] ?? null) ? trim((string)$row['dtend']) : '';
+        $timezone = is_string($row['timezone'] ?? null) ? trim((string)$row['timezone']) : '';
+        $settings = is_array($metadata['settings'] ?? null) ? $metadata['settings'] : [];
+        $type = is_string($settings['type'] ?? null) ? trim((string)$settings['type']) : '';
+        $repeat = is_string($settings['repeat'] ?? null) ? trim((string)$settings['repeat']) : '';
+        $stopType = is_string($settings['stopType'] ?? null) ? trim((string)$settings['stopType']) : '';
+        $enabled = array_key_exists('enabled', $settings) ? (($settings['enabled'] ?? false) ? '1' : '0') : '';
+
+        return implode('::', [$manifestEventId, $dtstart, $dtend, $timezone, $type, $repeat, $stopType, $enabled]);
+    }
+
+    private function preferManagedRow(array $current, array $candidate): bool
+    {
+        $currentScore = $this->managedRowScore($current);
+        $candidateScore = $this->managedRowScore($candidate);
+        if ($candidateScore !== $currentScore) {
+            return $candidateScore > $currentScore;
+        }
+
+        $currentUpdated = (int)($current['provenance']['updatedAtEpoch'] ?? 0);
+        $candidateUpdated = (int)($candidate['provenance']['updatedAtEpoch'] ?? 0);
+        return $candidateUpdated > $currentUpdated;
+    }
+
+    private function managedRowScore(array $row): int
+    {
+        $score = 0;
+        $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $executionOrder = $metadata['executionOrder'] ?? null;
+        $executionOrderManual = $metadata['executionOrderManual'] ?? null;
+        $subEventHash = is_string($metadata['subEventHash'] ?? null) ? trim((string)$metadata['subEventHash']) : '';
+        if (is_int($executionOrder)) {
+            $score += 4;
+        }
+        if (is_bool($executionOrderManual)) {
+            $score += 2;
+        }
+        if ($subEventHash !== '') {
+            $score += 1;
+        }
+
+        return $score;
     }
 
     /**

@@ -680,9 +680,11 @@ final class GoogleEventMapper
         }
 
         if ($ids === []) {
-            throw new RuntimeException(
-                'Delete action has no resolvable Google event ids (missing correlation.sourceEventUid and payload googleEventId).'
+            $this->debug(
+                'GoogleEventMapper: skipping delete with no resolvable Google event ids ' .
+                'identityHash=' . $action->identityHash
             );
+            return [];
         }
 
         $mutations = [];
