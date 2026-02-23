@@ -1174,12 +1174,13 @@
       setDeviceAuthVisible(true, userCode || "-", verificationUrl || "");
       setSetupStatus("Waiting for " + (activeProvider === "outlook" ? "Outlook" : "Google") + " authorization completion.");
       deviceAuthPollTimer = window.setTimeout(function () {
-        pollDeviceAuth(deviceCode, interval);
+        pollDeviceAuth(deviceCode, interval, pending.provider || activeProvider || "google");
       }, 1000);
       return true;
     }
 
-    function pollDeviceAuth(deviceCode, intervalSeconds) {
+    function pollDeviceAuth(deviceCode, intervalSeconds, providerOverride) {
+      var authProvider = String(providerOverride || activeProvider || "google").toLowerCase();
       if (Date.now() >= deviceAuthDeadlineEpoch) {
         clearDeviceAuthPoll();
         clearPendingDeviceAuth();
@@ -1188,7 +1189,7 @@
         return;
       }
 
-      fetchJson({ action: "auth_device_poll", device_code: deviceCode })
+      fetchJson({ action: "auth_device_poll", provider: authProvider, device_code: deviceCode })
         .then(function (res) {
           var poll = res.poll || {};
           if (poll.status === "connected") {
@@ -1212,7 +1213,7 @@
             nextInterval = Math.max(intervalSeconds + 2, intervalSeconds);
           }
           deviceAuthPollTimer = window.setTimeout(function () {
-            pollDeviceAuth(deviceCode, nextInterval);
+            pollDeviceAuth(deviceCode, nextInterval, authProvider);
           }, nextInterval * 1000);
         })
         .catch(function (err) {
@@ -1224,8 +1225,9 @@
     }
 
     function startDeviceAuthFlow() {
+      var authProvider = String(activeProvider || "google").toLowerCase();
       setLoadingState();
-      return fetchJson({ action: "auth_device_start" })
+      return fetchJson({ action: "auth_device_start", provider: authProvider })
         .then(function (res) {
           var device = res.device || {};
           var deviceCode = device.device_code || "";
@@ -1242,7 +1244,7 @@
           clearDeviceAuthPoll();
           deviceAuthDeadlineEpoch = Date.now() + (expiresIn * 1000);
           savePendingDeviceAuth({
-            provider: activeProvider,
+            provider: authProvider,
             deviceCode: deviceCode,
             userCode: userCode,
             verificationUrl: verificationUrl,
@@ -1252,7 +1254,7 @@
           setDeviceAuthVisible(true, userCode, verificationUrl);
 
           deviceAuthPollTimer = window.setTimeout(function () {
-            pollDeviceAuth(deviceCode, interval);
+            pollDeviceAuth(deviceCode, interval, authProvider);
           }, interval * 1000);
         })
         .catch(function (err) {
@@ -1469,6 +1471,17 @@
       clearPendingDeviceAuth();
       setDeviceAuthVisible(false);
       setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
+    });
+
+    window.addEventListener("focus", function () {
+      if (!providerConnected) {
+        resumeDeviceAuthIfNeeded();
+      }
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden && !providerConnected) {
+        resumeDeviceAuthIfNeeded();
+      }
     });
 
     byId("csOutlookAuthCancelBtn").addEventListener("click", function () {

@@ -377,6 +377,21 @@ function cs_get_calendar_provider(): string
 }
 
 /**
+ * @param array<string,mixed> $input
+ */
+function cs_resolve_provider_for_auth(array $input): string
+{
+    $explicit = $input['provider'] ?? null;
+    if (is_string($explicit)) {
+        $normalized = strtolower(trim($explicit));
+        if ($normalized === 'google' || $normalized === 'outlook') {
+            return $normalized;
+        }
+    }
+    return cs_get_calendar_provider();
+}
+
+/**
  * @param array<int,array<string,mixed>> $actions
  * @return array<int,array<string,mixed>>
  */
@@ -1811,7 +1826,7 @@ try {
     }
 
     if ($action === 'auth_device_start') {
-        $provider = cs_get_calendar_provider();
+        $provider = cs_resolve_provider_for_auth($input);
         if ($provider === 'outlook') {
             $resp = cs_outlook_device_start();
             $verificationUrl = $resp['verification_uri'] ?? ($resp['verification_url'] ?? 'https://microsoft.com/devicelogin');
@@ -1845,7 +1860,7 @@ try {
                 ['field' => 'device_code']
             );
         }
-        $provider = cs_get_calendar_provider();
+        $provider = cs_resolve_provider_for_auth($input);
         $poll = $provider === 'outlook'
             ? cs_outlook_device_poll(trim($deviceCode))
             : cs_google_device_poll(trim($deviceCode));
