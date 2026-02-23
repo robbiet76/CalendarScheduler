@@ -260,8 +260,8 @@ final class OutlookApiClient
         $clientSecret = is_string($oauth['client_secret'] ?? null) ? trim((string)$oauth['client_secret']) : '';
         $scopes = is_array($oauth['scopes'] ?? null) ? $oauth['scopes'] : [];
 
-        if ($clientId === '' || $clientSecret === '') {
-            throw new \RuntimeException('Outlook OAuth client_id/client_secret missing in config.json oauth block.');
+        if ($clientId === '') {
+            throw new \RuntimeException('Outlook OAuth client_id missing in config.json oauth block.');
         }
 
         $scope = implode(' ', array_values(array_filter($scopes, 'is_string')));
@@ -276,12 +276,28 @@ final class OutlookApiClient
         $form = [
             'grant_type' => 'refresh_token',
             'client_id' => $clientId,
-            'client_secret' => $clientSecret,
             'refresh_token' => $refreshToken,
             'scope' => $scope,
         ];
+        if ($clientSecret !== '') {
+            $form['client_secret'] = $clientSecret;
+        }
 
-        $response = $this->requestFormUrlEncodedJson('POST', $tokenUrl, $form);
+        try {
+            $response = $this->requestFormUrlEncodedJson('POST', $tokenUrl, $form);
+        } catch (\RuntimeException $e) {
+            if (
+                $clientSecret !== ''
+                && str_contains($e->getMessage(), 'AADSTS90023')
+            ) {
+                // Public-client tokens cannot send client_secret on refresh.
+                $retryForm = $form;
+                unset($retryForm['client_secret']);
+                $response = $this->requestFormUrlEncodedJson('POST', $tokenUrl, $retryForm);
+            } else {
+                throw $e;
+            }
+        }
 
         $accessToken = $response['access_token'] ?? null;
         $expiresIn = $response['expires_in'] ?? null;

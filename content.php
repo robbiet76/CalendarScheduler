@@ -268,7 +268,7 @@
             </div>
             <div class="col-12">
               <label for="csOutlookRedirectUri" class="form-label mb-1">Redirect URI</label>
-              <input id="csOutlookRedirectUri" class="form-control" placeholder="http://127.0.0.1:8765/oauth2callback">
+              <input id="csOutlookRedirectUri" class="form-control" placeholder="http://localhost:8765/oauth2callback">
             </div>
             <div class="col-12">
               <label for="csOutlookScopes" class="form-label mb-1">Scopes (space separated)</label>
@@ -694,7 +694,7 @@
           checkRow("OAuth fields configured", !!setup.oauthConfigured),
           checkRow("Token file present", !!setup.tokenFilePresent),
           checkRow("Token directory writable", !!setup.tokenPathWritable),
-          checkRow("OAuth flow ready", outlookDeviceReady)
+          checkRow("Device flow ready", outlookDeviceReady)
         ].join("");
         var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
         if (outlookHints.length === 0) {
@@ -747,9 +747,7 @@
 
     function outlookFormReady() {
       var clientId = (byId("csOutlookClientId").value || "").trim();
-      var clientSecret = (byId("csOutlookClientSecret").value || "").trim();
-      var redirectUri = (byId("csOutlookRedirectUri").value || "").trim();
-      return !!clientId && !!clientSecret && !!redirectUri;
+      return !!clientId;
     }
 
     // -----------------------------------------------------------------------
@@ -1224,13 +1222,13 @@
       var tenantId = (byId("csOutlookTenantId").value || "").trim() || "common";
       var clientId = (byId("csOutlookClientId").value || "").trim();
       var clientSecret = (byId("csOutlookClientSecret").value || "").trim();
-      var redirectUri = (byId("csOutlookRedirectUri").value || "").trim() || "http://127.0.0.1:8765/oauth2callback";
+      var redirectUri = (byId("csOutlookRedirectUri").value || "").trim() || "http://localhost:8765/oauth2callback";
       var scopes = (byId("csOutlookScopes").value || "").trim() || "offline_access openid profile User.Read Calendars.ReadWrite";
       var calendarId = (byId("csOutlookCalendarId").value || "").trim() || "primary";
 
-      if (!clientId || !clientSecret) {
-        setOutlookAuthMessage("Outlook client_id and client_secret are required before connecting.", true);
-        setSetupStatus("Outlook client_id and client_secret are required.");
+      if (!clientId) {
+        setOutlookAuthMessage("Outlook client_id is required before connecting.", true);
+        setSetupStatus("Outlook client_id is required.");
         return;
       }
 
@@ -1246,16 +1244,10 @@
         calendar_id: calendarId
       })
         .then(function () {
-          return fetchJson({ action: "auth_outlook_authorize_url" });
+          setOutlookAuthVisible(false);
         })
-        .then(function (res) {
-          var authUrl = (res && (res.auth_url || res.authUrl)) ? String(res.auth_url || res.authUrl) : "";
-          if (!authUrl) {
-            throw new Error("Outlook authorize URL is unavailable.");
-          }
-          setOutlookAuthVisible(true, authUrl);
-          setOutlookAuthMessage("Open the consent page, complete sign-in, then paste the callback URL/code.", false);
-          setSetupStatus("Outlook sign-in started. Complete consent, then paste callback URL/code.");
+        .then(function () {
+          return startDeviceAuthFlow();
         })
         .catch(function (err) {
           setError(err.message);

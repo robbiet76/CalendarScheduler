@@ -42,7 +42,7 @@ const CS_FPP_ENV_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-e
 const CS_GOOGLE_DEVICE_CLIENT_FILENAME = 'client_secret_device.json';
 const CS_GOOGLE_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
 const CS_GOOGLE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/calendar';
-const CS_OUTLOOK_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
+const CS_OUTLOOK_DEFAULT_REDIRECT_URI = 'http://localhost:8765/oauth2callback';
 const CS_OUTLOOK_DEFAULT_SCOPE = 'offline_access openid profile User.Read Calendars.ReadWrite';
 const CS_SYNC_MODE_BOTH = 'both';
 const CS_SYNC_MODE_CALENDAR = 'calendar';
@@ -649,10 +649,8 @@ function cs_outlook_status(): array
         ];
 
         $clientId = is_string($oauth['client_id'] ?? null) ? trim((string)$oauth['client_id']) : '';
-        $clientSecret = is_string($oauth['client_secret'] ?? null) ? trim((string)$oauth['client_secret']) : '';
-        $redirectUri = is_string($oauth['redirect_uri'] ?? null) ? trim((string)$oauth['redirect_uri']) : '';
         $scopes = is_array($oauth['scopes'] ?? null) ? $oauth['scopes'] : [];
-        $base['setup']['oauthConfigured'] = $clientId !== '' && $clientSecret !== '' && $redirectUri !== '' && $scopes !== [];
+        $base['setup']['oauthConfigured'] = $clientId !== '' && $scopes !== [];
         if ($base['setup']['oauthConfigured']) {
             $base['authUrl'] = (new OutlookOAuthBootstrap($config))->getAuthorizationUrl();
         }
@@ -1483,8 +1481,8 @@ function cs_outlook_device_auth_config(): array
     $scopes = is_array($oauth['scopes'] ?? null) ? $oauth['scopes'] : [];
     $scope = implode(' ', array_values(array_filter($scopes, static fn ($v): bool => is_string($v) && trim($v) !== '')));
 
-    if ($clientId === '' || $clientSecret === '') {
-        throw new \RuntimeException('Outlook OAuth client_id/client_secret missing');
+    if ($clientId === '') {
+        throw new \RuntimeException('Outlook OAuth client_id missing');
     }
     if ($scope === '') {
         $scope = CS_OUTLOOK_DEFAULT_SCOPE;
@@ -1572,14 +1570,17 @@ function cs_outlook_device_poll(string $deviceCode): array
 {
     $auth = cs_outlook_device_auth_config();
     $tenantId = rawurlencode($auth['tenant_id']);
+    $form = [
+        'client_id' => $auth['client_id'],
+        'device_code' => $deviceCode,
+        'grant_type' => 'urn:ietf:params:oauth:grant-type:device_code',
+    ];
+    if (is_string($auth['client_secret']) && trim($auth['client_secret']) !== '') {
+        $form['client_secret'] = trim($auth['client_secret']);
+    }
     $resp = cs_http_post_form_json(
         "https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token",
-        [
-            'client_id' => $auth['client_id'],
-            'client_secret' => $auth['client_secret'],
-            'device_code' => $deviceCode,
-            'grant_type' => 'urn:ietf:params:oauth:grant-type:device_code',
-        ]
+        $form
     );
 
     if (isset($resp['error'])) {
