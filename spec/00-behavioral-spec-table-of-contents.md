@@ -2,7 +2,7 @@
 > **Change Policy:** Intentional, versioned revisions only  
 > **Authority:** Behavioral Specification v2
 
-# 📘 Google Calendar Scheduler — Behavioral Specification
+# 📘 Calendar Scheduler — Behavioral Specification
 ## Master Table of Contents
 
 > **Status:** Authoritative  
@@ -59,10 +59,11 @@ Defines:
 ## 5. Calendar Ingestion Layer  
 📄 **File:** `spec/05-calendar-io.md`
 📄 **File:** `spec/05-calendar-io-Google.md`
+📄 **File:** `spec/05-calendar-io-Outlook.md`
 
 Defines:
 - Calendar-agnostic ingestion contract
-- Provider-specific adapters (e.g., Google ICS)
+- Provider-specific adapters (Google Calendar API, Microsoft Graph Outlook)
 
 ---
 

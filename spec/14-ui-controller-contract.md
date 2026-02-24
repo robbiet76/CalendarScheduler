@@ -19,8 +19,10 @@ UI is presentation and user-intent capture only.
 
 UI MUST:
 - Show provider connection/setup state
-- Allow client-secret upload and provider connect/disconnect
+- Allow provider selection (Google/Outlook) and provider connect/disconnect
+- Allow Google OAuth client JSON upload and Outlook client ID entry
 - Allow selecting active calendar and sync mode
+- Allow managed-color preference toggles via UI prefs
 - Trigger `status`, `diagnostics`, `preview`, and `apply`
 - Render pending actions and diagnostics payloads
 - Display backend errors without rewriting semantics
@@ -51,15 +53,19 @@ Controller MUST NOT:
 Current UI-facing actions are:
 - `status`
 - `diagnostics`
+- `set_provider`
 - `set_calendar`
 - `set_sync_mode`
 - `set_ui_pref`
+- `reset_managed_colors`
 - `preview`
 - `apply`
 - `auth_device_start`
 - `auth_device_poll`
 - `auth_upload_device_client`
 - `auth_disconnect`
+- `auth_outlook_save_config`
+- `auth_outlook_authorize_url`
 - `auth_exchange_code` (manual fallback path)
 
 Unknown actions MUST return:
@@ -103,6 +109,7 @@ Behavior:
 ## Diagnostics Contract
 
 `diagnostics` action MUST return a stable object containing:
+- `provider`
 - `syncMode`
 - `selectedCalendarId`
 - `counts`

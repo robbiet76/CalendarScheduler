@@ -46,7 +46,7 @@ appears to function.
 This principle enforces a strict, ordered flow:
 
 1. **Source Acquisition**  
-   External systems provide raw facts only (e.g., ICS data, schedule.json entries). Calendar sources include both file-based ingestion and API/OAuth-based providers.
+   External systems provide raw facts only (e.g., provider API event data, schedule.json entries). Current production calendar sources are API/OAuth-based providers.
 
 2. **Source Translation**  
    Provider-specific formats are normalized into *raw boundary objects* (e.g., CalendarRawEvent, FppRawEvent).  
@@ -147,9 +147,9 @@ Resolution compares Intent derived from different sources, never raw data.
 ## High-Level Data Flow
 
 ```
-Calendar Provider (ICS/API/OAuth)         FPP Scheduler (schedule.json)
+Calendar Provider (API/OAuth)             FPP Scheduler (schedule.json)
         ↓                                         ↓
-Provider Adapter (ICS/API → Raw Events)   FPP Adapter (schedule.json → Raw Events)
+Provider Adapter (API → Raw Events)       FPP Adapter (schedule.json → Raw Events)
         ↓                                         ↓
                     IntentNormalizer (Raw Events → Intent)
                                   ↓
@@ -176,7 +176,7 @@ Outbound provider adapters perform the inverse transformation during the Apply p
 
 **Responsibility**
 - Fetch calendar data
-- Parse provider-specific formats (ICS quirks, timezone rules)
+- Parse provider-specific API payloads and timezone conventions
 - Emit canonical calendar events as provider-agnostic raw boundary objects
 
 **Key Rules**
@@ -185,8 +185,9 @@ Outbound provider adapters perform the inverse transformation during the Apply p
 - No identity decisions
 
 **Examples**
-- Google Calendar ICS adapter
-- Future: generic CalDAV, Outlook ICS
+- Google Calendar API adapter
+- Outlook (Microsoft Graph) adapter
+- Future: CalDAV/ICS adapters
 
 ---
 

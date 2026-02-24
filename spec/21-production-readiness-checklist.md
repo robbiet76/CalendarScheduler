@@ -56,7 +56,8 @@ Phase 3 gate:
 - [x] Errors can be traced from UI symptom to log entry.
 
 ## Phase 4: OAuth and Secret Lifecycle Safety
-- [x] Verify client secret upload overwrite behavior (no secret file accumulation).
+- [x] Verify Google client JSON upload overwrite behavior (no stale file accumulation).
+- [x] Verify Outlook client ID persistence and reconnect behavior.
 - [x] Verify token file lifecycle for connect/disconnect/reconnect.
 - [x] Verify setup checks and Connect button gating behavior.
 - [x] Confirm disconnect always leaves system in predictable disconnected state.
