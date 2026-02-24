@@ -54,6 +54,15 @@ final class SchedulerEngine
     private string $orderingTimezone = 'UTC';
     /** @var array<string,int|null> */
     private array $symbolicDisplaySecondsCache = [];
+    /**
+     * Optional FPP validation catalog loaded from runtime snapshot.
+     * When null, calendar target validation is skipped (dev/test fallback).
+     *
+     * @var array{playlists:array<string,bool>,sequences:array<string,bool>,commands:array<string,bool>}|null
+     */
+    private ?array $fppValidationCatalog = null;
+    /** @var array{skipped:int,reasons:array<string,int>} */
+    private array $calendarValidationDiagnostics = ['skipped' => 0, 'reasons' => []];
 
     private IntentNormalizer $normalizer;
     private ManifestPlanner $manifestPlanner;
@@ -218,6 +227,9 @@ final class SchedulerEngine
         $fppEvents = $fppAdapter->loadManifestEvents($context, $schedulePath);
 
         $fppSnapshotEpoch = $runEpoch;
+        $runtimeCatalogPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
+        $this->fppValidationCatalog = $this->loadFppValidationCatalog($runtimeCatalogPath);
+        $this->calendarValidationDiagnostics = ['skipped' => 0, 'reasons' => []];
 
         $fppEventTimestampPath = '/home/fpp/media/config/calendar-scheduler/fpp/event-timestamps.json';
         $timestampStore = new FppEventTimestampStore();
@@ -430,6 +442,14 @@ final class SchedulerEngine
                     ? $plannerIntent->payload
                     : [];
                 $derived = $this->deriveTypeAndTargetFromPayload($plannerPayload);
+                [$validTarget, $validationReason] = $this->validateCalendarTypeTargetAgainstCatalog(
+                    (string)($derived['type'] ?? ''),
+                    (string)($derived['target'] ?? '')
+                );
+                if (!$validTarget) {
+                    $this->recordCalendarValidationSkip($validationReason);
+                    continue;
+                }
                 $bucketKey = $derived['type'] . '|' . $derived['target'];
                 if (!isset($bucketedByTarget[$bucketKey])) {
                     $bucketedByTarget[$bucketKey] = [
@@ -738,6 +758,7 @@ final class SchedulerEngine
             $syncMode,
             $calendarScope
         );
+        $this->emitCalendarValidationDiagnostics();
 
         // ------------------------------------------------------------
         // Produce canonical run result
@@ -2271,6 +2292,132 @@ final class SchedulerEngine
         }
 
         return $out;
+    }
+
+    /**
+     * @return array{playlists:array<string,bool>,sequences:array<string,bool>,commands:array<string,bool>}|null
+     */
+    private function loadFppValidationCatalog(string $path): ?array
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        $raw = @file_get_contents($path);
+        if (!is_string($raw) || trim($raw) === '') {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded) || (($decoded['ok'] ?? false) !== true)) {
+            return null;
+        }
+
+        $catalog = is_array($decoded['catalog'] ?? null) ? $decoded['catalog'] : [];
+        $playlists = $this->indexCatalogList($catalog['playlists'] ?? null);
+        $sequences = $this->indexCatalogList($catalog['sequencesNormalized'] ?? ($catalog['sequences'] ?? null), true);
+        $commands = $this->indexCatalogList($catalog['commandNames'] ?? null);
+
+        if ($playlists === [] && $sequences === [] && $commands === []) {
+            return null;
+        }
+
+        return [
+            'playlists' => $playlists,
+            'sequences' => $sequences,
+            'commands' => $commands,
+        ];
+    }
+
+    /**
+     * @return array<string,bool>
+     */
+    private function indexCatalogList(mixed $values, bool $stripSequenceSuffix = false): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+        $out = [];
+        foreach ($values as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+            $normalized = strtolower(trim($value));
+            if ($stripSequenceSuffix) {
+                $normalized = preg_replace('/\.fseq$/i', '', $normalized) ?? $normalized;
+            }
+            if ($normalized === '') {
+                continue;
+            }
+            $out[$normalized] = true;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array{0:bool,1:string}
+     */
+    private function validateCalendarTypeTargetAgainstCatalog(string $type, string $target): array
+    {
+        if ($this->fppValidationCatalog === null) {
+            return [true, 'catalog_unavailable'];
+        }
+
+        $typeNorm = strtolower(trim($type));
+        $targetNorm = strtolower(trim($target));
+        if ($targetNorm === '' || $targetNorm === 'unknown') {
+            return [false, 'target_missing'];
+        }
+
+        if ($typeNorm === 'playlist') {
+            return [isset($this->fppValidationCatalog['playlists'][$targetNorm]), 'playlist_not_found'];
+        }
+        if ($typeNorm === 'sequence') {
+            $targetNorm = preg_replace('/\.fseq$/i', '', $targetNorm) ?? $targetNorm;
+            return [isset($this->fppValidationCatalog['sequences'][$targetNorm]), 'sequence_not_found'];
+        }
+        if ($typeNorm === 'command') {
+            return [isset($this->fppValidationCatalog['commands'][$targetNorm]), 'command_not_found'];
+        }
+
+        return [false, 'type_invalid'];
+    }
+
+    private function recordCalendarValidationSkip(string $reason): void
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            $reason = 'unknown';
+        }
+        $this->calendarValidationDiagnostics['skipped']++;
+        if (!isset($this->calendarValidationDiagnostics['reasons'][$reason])) {
+            $this->calendarValidationDiagnostics['reasons'][$reason] = 0;
+        }
+        $this->calendarValidationDiagnostics['reasons'][$reason]++;
+    }
+
+    private function emitCalendarValidationDiagnostics(): void
+    {
+        if ((int)($this->calendarValidationDiagnostics['skipped'] ?? 0) <= 0) {
+            return;
+        }
+        $reasons = is_array($this->calendarValidationDiagnostics['reasons'] ?? null)
+            ? $this->calendarValidationDiagnostics['reasons']
+            : [];
+        ksort($reasons, SORT_STRING);
+        $parts = [];
+        foreach ($reasons as $reason => $count) {
+            if (!is_string($reason)) {
+                continue;
+            }
+            $parts[] = $reason . '=' . (int)$count;
+        }
+        error_log(
+            'SchedulerEngine calendar validation: skipped='
+            . (int)$this->calendarValidationDiagnostics['skipped']
+            . ' reasons={' . implode(', ', $parts) . '}'
+        );
     }
 
     private function settingToBool(mixed $value, bool $default): bool
