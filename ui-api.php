@@ -686,13 +686,26 @@ function cs_outlook_status(): array
         try {
             $me = $client->getMe();
             $accountName = null;
+            $accountAddresses = [];
             if (is_string($me['displayName'] ?? null) && trim((string)$me['displayName']) !== '') {
                 $accountName = trim((string)$me['displayName']);
-            } elseif (is_string($me['mail'] ?? null) && trim((string)$me['mail']) !== '') {
-                $accountName = trim((string)$me['mail']);
-            } elseif (is_string($me['userPrincipalName'] ?? null) && trim((string)$me['userPrincipalName']) !== '') {
-                $accountName = trim((string)$me['userPrincipalName']);
             }
+            if (is_string($me['mail'] ?? null) && trim((string)$me['mail']) !== '') {
+                $accountAddresses[] = strtolower(trim((string)$me['mail']));
+                if ($accountName === null) {
+                    $accountName = trim((string)$me['mail']);
+                }
+            }
+            if (is_string($me['userPrincipalName'] ?? null) && trim((string)$me['userPrincipalName']) !== '') {
+                $accountAddresses[] = strtolower(trim((string)$me['userPrincipalName']));
+                if ($accountName === null) {
+                    $accountName = trim((string)$me['userPrincipalName']);
+                }
+            }
+            if ($accountName === null && is_string($me['mail'] ?? null) && trim((string)$me['mail']) !== '') {
+                $accountName = trim((string)$me['mail']);
+            }
+            $accountAddresses = array_values(array_unique(array_filter($accountAddresses, static fn ($v): bool => $v !== '')));
 
             $calendarsRaw = $client->listCalendars();
             $calendars = [];
@@ -705,10 +718,34 @@ function cs_outlook_status(): array
                 if ($id === null || $name === null) {
                     continue;
                 }
+
+                $nameNorm = strtolower(trim($name));
+                $isSpecialSystem = (
+                    str_contains($nameNorm, 'birthday')
+                    || str_contains($nameNorm, 'holidays')
+                    || str_contains($nameNorm, 'holiday')
+                );
+
+                $isDefaultCalendar = (bool)($item['isDefaultCalendar'] ?? false);
+                $canEdit = (bool)($item['canEdit'] ?? false);
+                $ownerAddress = '';
+                if (
+                    is_array($item['owner'] ?? null)
+                    && is_array($item['owner']['emailAddress'] ?? null)
+                    && is_string($item['owner']['emailAddress']['address'] ?? null)
+                ) {
+                    $ownerAddress = strtolower(trim((string)$item['owner']['emailAddress']['address']));
+                }
+                $ownedByCurrentUser = $ownerAddress !== '' && in_array($ownerAddress, $accountAddresses, true);
+
+                if (!($isDefaultCalendar || ($canEdit && $ownedByCurrentUser && !$isSpecialSystem))) {
+                    continue;
+                }
+
                 $calendars[] = [
                     'id' => $id,
                     'summary' => $name,
-                    'primary' => false,
+                    'primary' => $isDefaultCalendar,
                 ];
             }
             $base['connected'] = true;
