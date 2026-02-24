@@ -48,7 +48,6 @@ Branch: `feature/production-readiness`
 | `spec/20-resolution-regression-suite.md` | `bin/cs-resolution-regression` RR cases | Aligned | Command examples updated to current runner invocation style. |
 | `spec/21-production-readiness-checklist.md` | current branch state | Aligned | Reflects completed Phases 1–6. |
 | `spec/22-release-runbook.md` | `bin/cs-*`, GitHub PR flow, FPP deploy workflow | Aligned | Updated to PR/master flow and root-owned FPP update commands. |
-| `spec/resolution_layer_design.md` | `src/Resolution/*` + planning integration | Aligned | Design still maps to runtime data model. |
 
 ## High-Priority Drift (Fix First)
 - None open from this pass.
