@@ -16,7 +16,6 @@ if (PHP_SAPI === 'cli') {
 
 $pluginRoot = __DIR__;
 $runtimeDir = $pluginRoot . '/runtime';
-$envFile = $runtimeDir . '/fpp-env.json';
 $runtimeFile = $runtimeDir . '/fpp-runtime.json';
 
 if (!is_dir($runtimeDir)) {
@@ -27,15 +26,7 @@ if (!is_dir($runtimeDir)) {
 }
 
 require_once $pluginRoot . '/bootstrap.php';
-require_once $pluginRoot . '/src/Platform/FppEnvExporter.php';
 require_once $pluginRoot . '/src/Platform/FppRuntimeExporter.php';
-
-// Export current FPP environment snapshot for scheduler components.
-try {
-    Platform\exportFppEnv($envFile);
-} catch (\Throwable $e) {
-    error_log('[CS] FPP environment export failed: ' . $e->getMessage());
-}
 
 // Export FPP runtime catalog snapshot (REST-sourced) for validation layers.
 try {

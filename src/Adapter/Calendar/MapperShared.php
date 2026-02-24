@@ -9,7 +9,6 @@ use CalendarScheduler\Platform\SunTimeDisplayEstimator;
 final class MapperShared
 {
     private const FPP_RUNTIME_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
-    private const FPP_ENV_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 
     public static function extractExecutionOrder(array $subEvent): ?int
     {
@@ -299,23 +298,17 @@ final class MapperShared
      */
     private static function readEnvJson(): ?array
     {
-        foreach ([self::FPP_RUNTIME_PATH, self::FPP_ENV_PATH] as $path) {
-            if (!is_file($path)) {
-                continue;
-            }
-
-            $raw = @file_get_contents($path);
-            if (!is_string($raw) || $raw === '') {
-                continue;
-            }
-
-            $json = @json_decode($raw, true);
-            if (is_array($json)) {
-                return $json;
-            }
+        if (!is_file(self::FPP_RUNTIME_PATH)) {
+            return null;
         }
 
-        return null;
+        $raw = @file_get_contents(self::FPP_RUNTIME_PATH);
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        $json = @json_decode($raw, true);
+        return is_array($json) ? $json : null;
     }
 
     private static function extractTimezoneName(?array $json): ?string

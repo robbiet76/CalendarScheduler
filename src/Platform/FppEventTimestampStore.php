@@ -200,17 +200,12 @@ final class FppEventTimestampStore
     private function buildNormalizationContext(): NormalizationContext
     {
         $runtimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
-        $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
         $holidays = [];
 
-        foreach ([$runtimePath, $fppEnvPath] as $path) {
-            if (!is_file($path)) {
-                continue;
-            }
-
+        if (is_file($runtimePath)) {
             try {
                 $fppEnvRaw = json_decode(
-                    (string)file_get_contents($path),
+                    (string)file_get_contents($runtimePath),
                     true,
                     512,
                     JSON_THROW_ON_ERROR
@@ -218,15 +213,9 @@ final class FppEventTimestampStore
 
                 if (is_array($fppEnvRaw) && isset($fppEnvRaw['holidays']) && is_array($fppEnvRaw['holidays'])) {
                     $holidays = $fppEnvRaw['holidays'];
-                    break;
-                }
-
-                if (is_array($fppEnvRaw) && isset($fppEnvRaw['rawLocale']['holidays']) && is_array($fppEnvRaw['rawLocale']['holidays'])) {
-                    $holidays = $fppEnvRaw['rawLocale']['holidays'];
-                    break;
                 }
             } catch (\Throwable) {
-                // Continue to fallback snapshot path.
+                $holidays = [];
             }
         }
 

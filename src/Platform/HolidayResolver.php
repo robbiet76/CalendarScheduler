@@ -16,7 +16,7 @@ use DateTimeImmutable;
  * HolidayResolver (V2)
  *
  * Resolves FPP holiday identifiers <-> concrete dates using
- * holiday definitions provided by FPP (via fpp-env.json).
+ * holiday definitions provided by FPP runtime export (fpp-runtime.json).
  *
  * RESPONSIBILITIES:
  * - Resolve symbolic holiday names to hard dates

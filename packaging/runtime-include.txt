@@ -1,7 +1,6 @@
 # Calendar Scheduler runtime payload (ships to end users)
 bootstrap.php
 content.php
-fpp-env-export.php
 fpp-schedule-save-hook.php
 menu.inc
 oauth-callback.php

@@ -108,12 +108,11 @@ final class SchedulerEngine
         $tombstonesBySource = $this->loadTombstones($tombstonesPath, $calendarScope);
 
         // -----------------------------------------------------------------
-        // Build NormalizationContext from runtime snapshot (fallback to legacy env snapshot)
+        // Build NormalizationContext from runtime snapshot
         // -----------------------------------------------------------------
 
         $fppRuntimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
-        $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
-        $fppContextRaw = $this->loadRuntimeContextSnapshot($fppRuntimePath, $fppEnvPath);
+        $fppContextRaw = $this->loadRuntimeContextSnapshot($fppRuntimePath);
         $holidays = [];
         $contextTimezone = new \DateTimeZone('UTC');
 
@@ -2330,25 +2329,19 @@ final class SchedulerEngine
     /**
      * @return array<string,mixed>
      */
-    private function loadRuntimeContextSnapshot(string $runtimePath, string $legacyEnvPath): array
+    private function loadRuntimeContextSnapshot(string $runtimePath): array
     {
-        foreach ([$runtimePath, $legacyEnvPath] as $path) {
-            if (!is_file($path)) {
-                continue;
-            }
-
-            $raw = @file_get_contents($path);
-            if (!is_string($raw) || trim($raw) === '') {
-                continue;
-            }
-
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded)) {
-                return $decoded;
-            }
+        if (!is_file($runtimePath)) {
+            return [];
         }
 
-        return [];
+        $raw = @file_get_contents($runtimePath);
+        if (!is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function extractRuntimeTimezoneName(array $runtime): ?string

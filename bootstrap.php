@@ -28,7 +28,6 @@ require_once __DIR__ . '/src/Platform/IniMetadata.php';
 require_once __DIR__ . '/src/Platform/FppSemantics.php';
 require_once __DIR__ . '/src/Platform/HolidayResolver.php';
 require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
-require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
 require_once __DIR__ . '/src/Platform/FppEventTimestampStore.php';
 
 // -----------------------------------------------------------------------------

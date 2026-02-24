@@ -155,35 +155,26 @@ final class TranslatorShared
 
     public static function resolveLocalTimezone(): DateTimeZone
     {
-        $paths = [
-            '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json',
-            '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json',
-        ];
-        foreach ($paths as $path) {
-            if (!is_file($path)) {
-                continue;
-            }
-            $raw = @file_get_contents($path);
-            if (!is_string($raw) || $raw === '') {
-                continue;
-            }
-            $json = @json_decode($raw, true);
-            if (!is_array($json)) {
-                continue;
-            }
-
-            $candidates = [
-                $json['timezone'] ?? null,
-                $json['settings']['TimeZone'] ?? null,
-                $json['settings']['TimeZoneName'] ?? null,
-                $json['settings']['timezone'] ?? null,
-            ];
-            foreach ($candidates as $tzName) {
-                if (is_string($tzName) && trim($tzName) !== '') {
-                    try {
-                        return new DateTimeZone(trim($tzName));
-                    } catch (\Throwable) {
-                        // continue candidate scan
+        $runtimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
+        if (is_file($runtimePath)) {
+            $raw = @file_get_contents($runtimePath);
+            if (is_string($raw) && $raw !== '') {
+                $json = @json_decode($raw, true);
+                if (is_array($json)) {
+                    $candidates = [
+                        $json['timezone'] ?? null,
+                        $json['settings']['TimeZone'] ?? null,
+                        $json['settings']['TimeZoneName'] ?? null,
+                        $json['settings']['timezone'] ?? null,
+                    ];
+                    foreach ($candidates as $tzName) {
+                        if (is_string($tzName) && trim($tzName) !== '') {
+                            try {
+                                return new DateTimeZone(trim($tzName));
+                            } catch (\Throwable) {
+                                // continue candidate scan
+                            }
+                        }
                     }
                 }
             }
