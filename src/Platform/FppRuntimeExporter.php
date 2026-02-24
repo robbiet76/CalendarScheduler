@@ -121,24 +121,10 @@ function fppRuntimeFetchJson(string $url): array
         throw new \RuntimeException('FPP API request failed: ' . $url);
     }
 
-    $code = 0;
-    $responseHeaders = function_exists('http_get_last_response_headers')
-        ? http_get_last_response_headers()
-        : null;
-    if (is_array($responseHeaders) && isset($responseHeaders[0])) {
-        if (preg_match('/\s(\d{3})\s/', (string)$responseHeaders[0], $m) === 1) {
-            $code = (int)$m[1];
-        }
-    }
-
-    if ($code < 200 || $code >= 300) {
-        throw new \RuntimeException('FPP API request returned HTTP ' . $code . ': ' . $url);
-    }
-
     $decoded = json_decode($raw, true);
     if ($decoded === null && trim($raw) !== 'null') {
         throw new \RuntimeException('FPP API response is not valid JSON: ' . $url);
     }
 
-    return ['code' => $code, 'json' => $decoded];
+    return ['code' => 200, 'json' => $decoded];
 }
