@@ -686,18 +686,15 @@ function cs_outlook_status(): array
         try {
             $me = $client->getMe();
             $accountName = null;
-            $accountAddresses = [];
             if (is_string($me['displayName'] ?? null) && trim((string)$me['displayName']) !== '') {
                 $accountName = trim((string)$me['displayName']);
             }
             if (is_string($me['mail'] ?? null) && trim((string)$me['mail']) !== '') {
-                $accountAddresses[] = strtolower(trim((string)$me['mail']));
                 if ($accountName === null) {
                     $accountName = trim((string)$me['mail']);
                 }
             }
             if (is_string($me['userPrincipalName'] ?? null) && trim((string)$me['userPrincipalName']) !== '') {
-                $accountAddresses[] = strtolower(trim((string)$me['userPrincipalName']));
                 if ($accountName === null) {
                     $accountName = trim((string)$me['userPrincipalName']);
                 }
@@ -705,7 +702,6 @@ function cs_outlook_status(): array
             if ($accountName === null && is_string($me['mail'] ?? null) && trim((string)$me['mail']) !== '') {
                 $accountName = trim((string)$me['mail']);
             }
-            $accountAddresses = array_values(array_unique(array_filter($accountAddresses, static fn ($v): bool => $v !== '')));
 
             $calendarsRaw = $client->listCalendars();
             $calendars = [];
@@ -728,17 +724,10 @@ function cs_outlook_status(): array
 
                 $isDefaultCalendar = (bool)($item['isDefaultCalendar'] ?? false);
                 $canEdit = (bool)($item['canEdit'] ?? false);
-                $ownerAddress = '';
-                if (
-                    is_array($item['owner'] ?? null)
-                    && is_array($item['owner']['emailAddress'] ?? null)
-                    && is_string($item['owner']['emailAddress']['address'] ?? null)
-                ) {
-                    $ownerAddress = strtolower(trim((string)$item['owner']['emailAddress']['address']));
-                }
-                $ownedByCurrentUser = $ownerAddress !== '' && in_array($ownerAddress, $accountAddresses, true);
 
-                if (!($isDefaultCalendar || ($canEdit && $ownedByCurrentUser && !$isSpecialSystem))) {
+                // Show primary calendar plus any editable non-system calendars.
+                // This keeps user-created calendars while excluding birthdays/holidays/subscribed read-only calendars.
+                if (!($isDefaultCalendar || ($canEdit && !$isSpecialSystem))) {
                     continue;
                 }
 
