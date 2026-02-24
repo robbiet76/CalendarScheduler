@@ -1518,6 +1518,22 @@ function cs_outlook_device_poll(string $deviceCode): array
                 'error' => $error,
             ];
         }
+        if ($error === 'invalid_grant') {
+            // Microsoft may return invalid_grant after device code redemption if a
+            // follow-up poll races with token write. If the token is already valid,
+            // treat this as connected to avoid false UI failures.
+            try {
+                cs_bootstrap_outlook_config_if_missing();
+                $config = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
+                if (is_file($config->getTokenPath())) {
+                    $client = new OutlookApiClient($config);
+                    $client->getMe();
+                    return ['status' => 'connected'];
+                }
+            } catch (\Throwable) {
+                // Fall through to standard error handling when token/session is not valid.
+            }
+        }
         if (in_array($error, ['access_denied', 'expired_token', 'authorization_declined', 'bad_verification_code'], true)) {
             return [
                 'status' => 'failed',
