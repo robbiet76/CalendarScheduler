@@ -474,6 +474,9 @@ final class IntentNormalizer
         }
 
         $executionOrder = $this->normalizeExecutionOrder($subEvent['executionOrder'] ?? null);
+        $styleToken = isset($payload['styleToken']) && is_string($payload['styleToken']) && trim((string)$payload['styleToken']) !== ''
+            ? strtolower(trim((string)$payload['styleToken']))
+            : $this->deriveManagedStyleToken((string)($subEvent['type'] ?? ''), (bool)$enabled);
 
         return [
             'type'   => (string)($subEvent['type'] ?? ''),
@@ -494,8 +497,23 @@ final class IntentNormalizer
             ],
             'payload' => [
                 'command' => $command,
+                'styleToken' => $styleToken,
             ],
         ];
+    }
+
+    private function deriveManagedStyleToken(string $type, bool $enabled): string
+    {
+        if (!$enabled) {
+            return 'disabled';
+        }
+
+        $type = strtolower(trim($type));
+        return match ($type) {
+            'sequence' => 'sequence',
+            'command' => 'command',
+            default => 'playlist',
+        };
     }
 
     private function normalizeExecutionOrder(mixed $value): int

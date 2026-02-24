@@ -6,7 +6,7 @@
 
 ## Purpose
 
-The **Calendar I/O Layer** defines the system boundary between the scheduler domain and external calendar systems (e.g. calendar providers via API or ICS).
+The **Calendar I/O Layer** defines the system boundary between the scheduler domain and external calendar systems (e.g. calendar providers via API/OAuth).
 
 This layer is responsible for **all communication with calendar providers**, regardless of direction or transport mechanism.
 
@@ -34,7 +34,7 @@ Manifest → Calendar is a projection of execution geometry. Calendar → System
 This abstraction allows flexibility across:
 
 - Pull vs push models
-- File-based ICS vs API-based providers (OAuth)
+- API-based providers (OAuth)
 - Batch vs streaming updates
 
 ---
@@ -43,7 +43,7 @@ This abstraction allows flexibility across:
 
 The Calendar I/O Layer **must**:
 
-- Communicate with calendar providers (ICS or API)
+- Communicate with calendar providers (API/OAuth)
 - Parse provider data into provider-neutral records
 - Serialize provider-neutral records back into provider formats
 - Preserve symbolic and structural intent
@@ -416,7 +416,7 @@ interface CalendarProvider {
 Examples:
 
 - Google Calendar API
-- Generic ICS feed
+- Outlook / Microsoft 365 (Graph)
 - Future API-based providers
 
 ---
@@ -580,4 +580,3 @@ Users are expected to:
 - Rely on it
 
 If a value cannot be safely edited by a user, it does not belong in the metadata.
-

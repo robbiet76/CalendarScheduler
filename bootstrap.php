@@ -28,7 +28,6 @@ require_once __DIR__ . '/src/Platform/IniMetadata.php';
 require_once __DIR__ . '/src/Platform/FppSemantics.php';
 require_once __DIR__ . '/src/Platform/HolidayResolver.php';
 require_once __DIR__ . '/src/Platform/SunTimeDisplayEstimator.php';
-require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
 require_once __DIR__ . '/src/Platform/FppEventTimestampStore.php';
 
 // -----------------------------------------------------------------------------
@@ -42,18 +41,27 @@ require_once __DIR__ . '/src/Adapter/FppScheduleAdapter.php';
 require_once __DIR__ . '/src/Adapter/Calendar/OverrideIntent.php';
 require_once __DIR__ . '/src/Adapter/Calendar/SnapshotEvent.php';
 require_once __DIR__ . '/src/Adapter/Calendar/CalendarSnapshot.php';
+require_once __DIR__ . '/src/Adapter/Calendar/CalendarContracts.php';
+require_once __DIR__ . '/src/Adapter/Calendar/ExecutorApplyRuntime.php';
+require_once __DIR__ . '/src/Adapter/Calendar/MapperShared.php';
+require_once __DIR__ . '/src/Adapter/Calendar/TranslatorShared.php';
+require_once __DIR__ . '/src/Adapter/Calendar/ProviderRuntimeFactory.php';
 
 // Calendar — Google provider
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleConfig.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleOAuthBootstrap.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApiClient.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarProvider.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMetadataSchema.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutation.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleMutationResult.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMapper.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApplyExecutor.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApply.php';
+
+// Calendar — Outlook provider (scaffold)
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookConfig.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApiClient.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookCalendarTranslator.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookEventMetadataSchema.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookEventMapper.php';
+require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApply.php';
 
 // -----------------------------------------------------------------------------
 // Intent

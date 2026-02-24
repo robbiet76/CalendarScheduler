@@ -10,8 +10,8 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
-use CalendarScheduler\Platform\FPPSemantics;
-use CalendarScheduler\Platform\IniMetadata;
+use CalendarScheduler\Adapter\Calendar\MapperShared;
+use CalendarScheduler\Adapter\Calendar\TranslatorShared;
 use DateTimeImmutable;
 use DateTimeZone;
 
@@ -52,6 +52,8 @@ final class GoogleCalendarTranslator
     public function translateGoogleEvents(array $googleEvents, string $calendarId): array
     {
         $out = [];
+        /** @var array<string,int> $managedIndexByKey */
+        $managedIndexByKey = [];
 
         foreach ($googleEvents as $ev) {
             if (!is_array($ev)) {
@@ -83,8 +85,18 @@ final class GoogleCalendarTranslator
                 $description = null;
             }
             $status = is_string($ev['status'] ?? null) ? $ev['status'] : 'confirmed';
+            $decodedMetadata = GoogleEventMetadataSchema::decodeFromGoogleEvent($ev);
+            $observedStyleToken = MapperShared::googleColorIdToStyleToken(
+                is_string($ev['colorId'] ?? null) ? (string)$ev['colorId'] : null
+            );
+            if (is_string($observedStyleToken) && $observedStyleToken !== '') {
+                $decodedSettings = is_array($decodedMetadata['settings'] ?? null) ? $decodedMetadata['settings'] : [];
+                $decodedSettings['styleToken'] = $observedStyleToken;
+                $decodedMetadata['settings'] = $decodedSettings;
+            }
+
             $schedulerMetadata = $this->reconcileSchedulerMetadata(
-                GoogleEventMetadataSchema::decodeFromGoogleEvent($ev),
+                $decodedMetadata,
                 $summary,
                 $description
             );
@@ -130,7 +142,7 @@ final class GoogleCalendarTranslator
                 }
             }
 
-            $out[] = [
+            $row = [
                 // Provider + calendar identity
                 'provider'        => 'google',
                 'calendar_id'     => $calendarId,
@@ -179,9 +191,86 @@ final class GoogleCalendarTranslator
                 // Provenance / raw metadata
                 'provenance'      => $provenance,
             ];
+
+            $managedKey = $this->managedDedupeKey($row);
+            if ($managedKey === null) {
+                $out[] = $row;
+                continue;
+            }
+
+            $existingIndex = $managedIndexByKey[$managedKey] ?? null;
+            if (!is_int($existingIndex) || !isset($out[$existingIndex]) || !is_array($out[$existingIndex])) {
+                $out[] = $row;
+                $managedIndexByKey[$managedKey] = array_key_last($out);
+                continue;
+            }
+
+            $existing = $out[$existingIndex];
+            if ($this->preferManagedRow($existing, $row)) {
+                $out[$existingIndex] = $row;
+            }
         }
 
         return $out;
+    }
+
+    /**
+     * Managed row dedupe key uses manifest identity + execution window so stale
+     * historic rows for the same logical subevent can be collapsed.
+     */
+    private function managedDedupeKey(array $row): ?string
+    {
+        $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $manifestEventId = is_string($metadata['manifestEventId'] ?? null) ? trim((string)$metadata['manifestEventId']) : '';
+        if ($manifestEventId === '') {
+            return null;
+        }
+
+        $dtstart = is_string($row['dtstart'] ?? null) ? trim((string)$row['dtstart']) : '';
+        $dtend = is_string($row['dtend'] ?? null) ? trim((string)$row['dtend']) : '';
+        $timezone = is_string($row['timezone'] ?? null) ? trim((string)$row['timezone']) : '';
+        $settings = is_array($metadata['settings'] ?? null) ? $metadata['settings'] : [];
+        $type = is_string($settings['type'] ?? null) ? trim((string)$settings['type']) : '';
+        $repeat = is_string($settings['repeat'] ?? null) ? trim((string)$settings['repeat']) : '';
+        $stopType = is_string($settings['stopType'] ?? null) ? trim((string)$settings['stopType']) : '';
+        $enabled = array_key_exists('enabled', $settings) ? (($settings['enabled'] ?? false) ? '1' : '0') : '';
+
+        return implode('::', [$manifestEventId, $dtstart, $dtend, $timezone, $type, $repeat, $stopType, $enabled]);
+    }
+
+    private function preferManagedRow(array $current, array $candidate): bool
+    {
+        $currentScore = $this->managedRowScore($current);
+        $candidateScore = $this->managedRowScore($candidate);
+        if ($candidateScore !== $currentScore) {
+            return $candidateScore > $currentScore;
+        }
+
+        $currentUpdated = (int)($current['provenance']['updatedAtEpoch'] ?? 0);
+        $candidateUpdated = (int)($candidate['provenance']['updatedAtEpoch'] ?? 0);
+        return $candidateUpdated > $currentUpdated;
+    }
+
+    private function managedRowScore(array $row): int
+    {
+        $score = 0;
+        $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+        $executionOrder = $metadata['executionOrder'] ?? null;
+        $executionOrderManual = $metadata['executionOrderManual'] ?? null;
+        $subEventHash = is_string($metadata['subEventHash'] ?? null) ? trim((string)$metadata['subEventHash']) : '';
+        if (is_int($executionOrder)) {
+            $score += 4;
+        }
+        if (is_bool($executionOrderManual)) {
+            $score += 2;
+        }
+        if ($subEventHash !== '') {
+            $score += 1;
+        }
+
+        return $score;
     }
 
     /**
@@ -344,16 +433,7 @@ final class GoogleCalendarTranslator
 
     private function isoToEpoch(mixed $iso): ?int
     {
-        if (!is_string($iso) || $iso === '') {
-            return null;
-        }
-
-        try {
-            $dt = new DateTimeImmutable($iso);
-            return $dt->getTimestamp();
-        } catch (\Throwable) {
-            return null;
-        }
+        return TranslatorShared::isoToEpoch($iso);
     }
 
     /**
@@ -561,100 +641,14 @@ final class GoogleCalendarTranslator
      */
     private function reconcileSchedulerMetadata(array $metadata, string $summary, ?string $description): array
     {
-        $settings = $this->normalizeSettings(
-            is_array($metadata['settings'] ?? null) ? $metadata['settings'] : []
+        return TranslatorShared::reconcileSchedulerMetadata(
+            $metadata,
+            $description,
+            'google',
+            GoogleEventMetadataSchema::VERSION,
+            self::MANAGED_FORMAT_VERSION,
+            false
         );
-
-        $descIni = IniMetadata::fromDescription($description);
-
-        $descSettings = $this->normalizeSettings(
-            is_array($descIni['settings'] ?? null) ? $descIni['settings'] : []
-        );
-        $descSymbolics = $this->normalizeSymbolicSettings(
-            is_array($descIni['symbolic_time'] ?? null) ? $descIni['symbolic_time'] : []
-        );
-
-        // Description is user input channel; it wins over existing metadata per-key.
-        $settings = array_merge($settings, $descSettings, $descSymbolics);
-
-        if (!isset($settings['type']) || !is_string($settings['type']) || trim($settings['type']) === '') {
-            $settings['type'] = FPPSemantics::TYPE_PLAYLIST;
-        } else {
-            $settings['type'] = $this->normalizeTypeValue((string)$settings['type']);
-        }
-
-        unset($settings['target']);
-
-        if (!array_key_exists('enabled', $settings)) {
-            $settings['enabled'] = FPPSemantics::defaultBehavior()['enabled'];
-        } else {
-            $settings['enabled'] = FPPSemantics::normalizeEnabled($settings['enabled']);
-        }
-
-        if (!isset($settings['repeat']) || !is_string($settings['repeat']) || trim($settings['repeat']) === '') {
-            $settings['repeat'] = FPPSemantics::repeatToSemantic(
-                FPPSemantics::defaultBehavior()['repeat']
-            );
-        } else {
-            $settings['repeat'] = $this->normalizeRepeatValue((string)$settings['repeat']);
-        }
-
-        if (!isset($settings['stopType']) || !is_string($settings['stopType']) || trim($settings['stopType']) === '') {
-            $settings['stopType'] = FPPSemantics::stopTypeToSemantic(
-                FPPSemantics::defaultBehavior()['stopType']
-            );
-        } else {
-            $settings['stopType'] = $this->normalizeStopTypeValue((string)$settings['stopType']);
-        }
-
-        if (isset($settings['start']) && is_string($settings['start'])) {
-            $settings['start'] = FPPSemantics::normalizeSymbolicTimeToken(trim($settings['start']));
-            if ($settings['start'] === '' || $settings['start'] === null) {
-                unset($settings['start'], $settings['start_offset']);
-            } else {
-                $settings['start_offset'] = FPPSemantics::normalizeTimeOffset($settings['start_offset'] ?? 0);
-            }
-        } else {
-            unset($settings['start'], $settings['start_offset']);
-        }
-
-        if (isset($settings['end']) && is_string($settings['end'])) {
-            $settings['end'] = FPPSemantics::normalizeSymbolicTimeToken(trim($settings['end']));
-            if ($settings['end'] === '' || $settings['end'] === null) {
-                unset($settings['end'], $settings['end_offset']);
-            } else {
-                $settings['end_offset'] = FPPSemantics::normalizeTimeOffset($settings['end_offset'] ?? 0);
-            }
-        } else {
-            unset($settings['end'], $settings['end_offset']);
-        }
-
-        ksort($settings);
-
-        $currentFormatVersion = is_string($metadata['formatVersion'] ?? null)
-            ? trim((string)$metadata['formatVersion'])
-            : '';
-        $needsFormatRefresh = ($currentFormatVersion !== self::MANAGED_FORMAT_VERSION);
-        $executionOrder = $this->normalizeExecutionOrder($metadata['executionOrder'] ?? null);
-        $executionOrderManual = $this->normalizeExecutionOrderManual($metadata['executionOrderManual'] ?? null);
-
-        return [
-            'manifestEventId' => is_string($metadata['manifestEventId'] ?? null)
-                ? $metadata['manifestEventId']
-                : null,
-            'subEventHash' => is_string($metadata['subEventHash'] ?? null)
-                ? $metadata['subEventHash']
-                : null,
-            'provider' => is_string($metadata['provider'] ?? null)
-                ? $metadata['provider']
-                : 'google',
-            'schemaVersion' => GoogleEventMetadataSchema::VERSION,
-            'formatVersion' => self::MANAGED_FORMAT_VERSION,
-            'needsFormatRefresh' => $needsFormatRefresh,
-            'executionOrder' => $executionOrder,
-            'executionOrderManual' => $executionOrderManual,
-            'settings' => $settings,
-        ];
     }
 
     /**
@@ -663,31 +657,7 @@ final class GoogleCalendarTranslator
      */
     private function normalizeSettings(array $settings): array
     {
-        $out = [];
-        foreach ($settings as $k => $v) {
-            if (!is_string($k) || trim($k) === '') {
-                continue;
-            }
-
-            $key = strtolower(trim($k));
-            $compact = preg_replace('/[^a-z0-9]/', '', $key);
-            if (!is_string($compact)) {
-                $compact = $key;
-            }
-
-            $key = match ($compact) {
-                'scheduletype' => 'type',
-                'stoptype' => 'stopType',
-                'enabled' => 'enabled',
-                'repeat' => 'repeat',
-                'type' => 'type',
-                default => $key,
-            };
-
-            $out[$key] = $v;
-        }
-
-        return $out;
+        return TranslatorShared::normalizeSettings($settings);
     }
 
     /**
@@ -696,132 +666,36 @@ final class GoogleCalendarTranslator
      */
     private function normalizeSymbolicSettings(array $symbolics): array
     {
-        $out = [];
-        foreach ($symbolics as $k => $v) {
-            if (!is_string($k) || trim($k) === '') {
-                continue;
-            }
-
-            $key = strtolower(trim($k));
-            $compact = preg_replace('/[^a-z0-9]/', '', $key);
-            if (!is_string($compact)) {
-                $compact = $key;
-            }
-
-            $normalized = match ($compact) {
-                'start', 'starttime' => 'start',
-                'end', 'endtime' => 'end',
-                'startoffset', 'startoffsetmin', 'starttimeoffset', 'starttimeoffsetmin' => 'start_offset',
-                'endoffset', 'endoffsetmin', 'endtimeoffset', 'endtimeoffsetmin' => 'end_offset',
-                default => null,
-            };
-
-            if (is_string($normalized)) {
-                $out[$normalized] = $v;
-            }
-        }
-
-        return $out;
+        return TranslatorShared::normalizeSymbolicSettings($symbolics);
     }
 
     private function normalizeTypeValue(string $value): string
     {
-        $v = strtolower(trim($value));
-        return match ($v) {
-            'sequence' => FPPSemantics::TYPE_SEQUENCE,
-            'command' => FPPSemantics::TYPE_COMMAND,
-            default => FPPSemantics::TYPE_PLAYLIST,
-        };
+        return TranslatorShared::normalizeTypeValue($value);
     }
 
     private function normalizeRepeatValue(string $value): string
     {
-        $v = strtolower(trim($value));
-        $v = str_replace(['.', ' '], '', $v);
-
-        if ($v === '' || $v === 'none') {
-            return 'none';
-        }
-        if ($v === 'immediate') {
-            return 'immediate';
-        }
-
-        if (preg_match('/^(\d+)min$/', $v, $m) === 1) {
-            return $m[1] . 'min';
-        }
-        if (ctype_digit($v)) {
-            $n = (int)$v;
-            return $n > 0 ? (string)$n . 'min' : 'none';
-        }
-
-        return 'none';
+        return TranslatorShared::normalizeRepeatValue($value);
     }
 
     private function normalizeStopTypeValue(string $value): string
     {
-        $v = strtolower(trim($value));
-        $v = str_replace(['-', '_'], ' ', $v);
-        $v = preg_replace('/\s+/', ' ', $v);
-        if (!is_string($v)) {
-            return 'graceful';
-        }
-
-        return match ($v) {
-            'hard', 'hard stop' => 'hard',
-            'graceful loop' => 'graceful_loop',
-            default => 'graceful',
-        };
+        return TranslatorShared::normalizeStopTypeValue($value);
     }
 
     private function normalizeExecutionOrder(mixed $value): ?int
     {
-        if (is_int($value)) {
-            return $value >= 0 ? $value : 0;
-        }
-        if (is_string($value) && is_numeric($value)) {
-            $n = (int)$value;
-            return $n >= 0 ? $n : 0;
-        }
-        return null;
+        return TranslatorShared::normalizeExecutionOrder($value);
     }
 
     private function normalizeExecutionOrderManual(mixed $value): ?bool
     {
-        if (is_bool($value)) {
-            return $value;
-        }
-        if (is_int($value)) {
-            return $value !== 0;
-        }
-        if (is_string($value)) {
-            $parsed = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            return is_bool($parsed) ? $parsed : null;
-        }
-        return null;
+        return TranslatorShared::normalizeExecutionOrderManual($value);
     }
 
     private function resolveLocalTimezone(): DateTimeZone
     {
-        $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
-        if (is_file($envPath)) {
-            $raw = @file_get_contents($envPath);
-            if (is_string($raw) && $raw !== '') {
-                $json = @json_decode($raw, true);
-                $tzName = is_array($json) ? ($json['timezone'] ?? null) : null;
-                if (is_string($tzName) && trim($tzName) !== '') {
-                    try {
-                        return new DateTimeZone(trim($tzName));
-                    } catch (\Throwable) {
-                        // fall through
-                    }
-                }
-            }
-        }
-
-        try {
-            return new DateTimeZone(date_default_timezone_get());
-        } catch (\Throwable) {
-            return new DateTimeZone('UTC');
-        }
+        return TranslatorShared::resolveLocalTimezone();
     }
 }

@@ -1,94 +1,143 @@
-# 21) Production Readiness Checklist
+# 21) Production Readiness Checklist (v1.0)
 
 ## Purpose
-Lock a single, ordered execution plan to move Calendar Scheduler from current state to production-ready state.
+Define the formal go/no-go process for releasing Calendar Scheduler `v1.0.0`.
 
-This checklist is intentionally sequential. If a bug/fix detour is needed, complete the detour, then resume the next unchecked item.
+This checklist is sequential and blocking. A failed gate blocks release until fixed and re-validated.
 
 ## Process Rules
-1. Work top-to-bottom by phase and checklist item.
-2. If an issue is discovered mid-phase:
-3. Capture the issue briefly.
-4. Apply the minimal fix needed.
-5. Re-run the phase gate for that phase.
-6. Resume the next checklist item.
-7. Do not reorder phases unless explicitly approved.
-8. A phase is complete only when its gate criteria are met.
+1. Freeze a candidate commit/branch before running the full checklist.
+2. Run phases in order; do not skip ahead.
+3. If a phase fails, capture evidence, apply minimal fix, and re-run that phase.
+4. Any fix after Phase 2 requires rerunning Phases 2-8.
+5. Do not tag `v1.0.0` until all gates pass on the same frozen commit.
 
-## Phase 1: Release Hardening
-- [x] Define release checklist doc with preflight, deploy, rollback, and post-verify steps.
-- [x] Confirm minimum supported environment versions (FPP image, PHP runtime, plugin dependencies).
-- [x] Ensure all UI API actions return stable error shape (`ok=false`, `error`, actionable hint when possible).
-- [x] Validate config/bootstrap behavior from clean install (no SSH required path).
+## Release Candidate Metadata
+- Candidate branch: `________________`
+- Candidate commit: `________________`
+- Test operator: `________________`
+- Start UTC: `________________`
+- End UTC: `________________`
+
+## Phase 1: Code/Spec/Docs Parity Audit
+- [ ] Confirm behavioral specs in `spec/` match current runtime behavior (`content.php`, `ui-api.php`, `src/*`).
+- [ ] Confirm provider coverage is explicit and consistent for Google + Outlook.
+- [ ] Confirm no stale references to removed flows/files remain in specs/docs.
+- [ ] Confirm release runbook (`spec/22-release-runbook.md`) matches current commands and branch flow.
 
 Phase 1 gate:
-- [x] Clean install bootstrap succeeds.
-- [x] All critical API actions fail safely with clear error messages.
+- [ ] No unresolved parity drift items.
+- [ ] Any drift found is fixed in the candidate commit.
 
-## Phase 2: Regression and E2E Test Coverage
-- [x] Keep `bin/cs-resolution-regression` as baseline gate.
-- [x] Add API smoke checks for `status`, `preview`, `apply`, auth start/poll/disconnect.
-- [x] Add one golden-calendar E2E script for FPP host validation.
-- [x] Define release gate command set (local + FPP host).
+Evidence:
+- `docs/release-evidence/v1.0.0/spec-parity-audit.md`
 
-Suggested gate commands:
-- `bin/cs-resolution-regression --json`
-- `bin/cs-api-smoke --json`
-- `bin/cs-full-regression --json --api-include-apply-noop`
+## Phase 2: Automated Regression Gates
+- [ ] Run `bin/cs-resolution-regression --json`.
+- [ ] Run `bin/cs-provider-parity-regression --json`.
+- [ ] Run `bin/cs-api-smoke --json`.
+- [ ] Run `bin/cs-full-regression --json --api-include-apply-noop`.
 
 Phase 2 gate:
-- [x] Resolution regression passes.
-- [x] API smoke checks pass.
-- [x] Golden-calendar E2E pass is green on FPP host.
+- [ ] All automated suites pass with no unexpected failures.
 
-## Phase 3: Observability and Diagnostics
-- [x] Standardize diagnostics payload sections:
-- [x] `syncMode`
-- [x] `selectedCalendarId`
-- [x] `counts`
-- [x] `pendingSummary`
-- [x] `lastError` (if any)
-- [x] Keep diagnostics sourced from authoritative manifest where possible.
-- [x] Add lightweight apply/auth error correlation IDs in logs.
+Evidence:
+- `docs/release-evidence/v1.0.0/regression/`
+
+## Phase 3: Live E2E Validation on FPP (Google + Outlook)
+- [ ] Validate full connect/preview/apply/converge path on Google.
+- [ ] Validate full connect/preview/apply/converge path on Outlook.
+- [ ] Validate all sync modes (`Calendar -> FPP`, `FPP -> Calendar`, `Both`) on both providers.
+- [ ] Confirm post-apply convergence (`follow-up preview noop`) for each validated scenario.
 
 Phase 3 gate:
-- [x] Diagnostics output is complete and stable across sync modes.
-- [x] Errors can be traced from UI symptom to log entry.
+- [ ] No unresolved pending-action loops in validated scenarios.
 
-## Phase 4: OAuth and Secret Lifecycle Safety
-- [x] Verify client secret upload overwrite behavior (no secret file accumulation).
-- [x] Verify token file lifecycle for connect/disconnect/reconnect.
-- [x] Verify setup checks and Connect button gating behavior.
-- [x] Confirm disconnect always leaves system in predictable disconnected state.
+Evidence:
+- `docs/release-evidence/v1.0.0/e2e-fpp.md`
+- Screenshots/video references for both providers
+
+## Phase 4: Convergence Matrix Validation
+- [ ] Validate all hard/symbolic start/end date combinations.
+- [ ] Validate all hard/symbolic start/end time combinations.
+- [ ] Validate non-1:1 calendar-event-to-FPP-entry scenarios.
+- [ ] Validate day mask combinations.
+- [ ] Validate command scenarios.
 
 Phase 4 gate:
-- [x] Repeated connect/disconnect cycles produce no stale secret/token artifacts.
-- [x] OAuth recovery path works without SSH intervention.
+- [ ] Matrix scenarios converge after expected apply cycle(s) with no unexplained drift.
 
-## Phase 5: Packaging and Upgrade Safety
-- [x] Validate upgrade from existing installs with prior config formats.
-- [x] Ensure migrations are idempotent and non-destructive.
-- [x] Confirm no duplicate/legacy runtime files are required.
+Evidence:
+- `docs/release-evidence/v1.0.0/convergence-matrix.md`
+
+## Phase 5: OAuth/Token Lifecycle and Session Stability
+- [ ] Verify repeated connect/disconnect/reconnect cycles on Google.
+- [ ] Verify repeated connect/disconnect/reconnect cycles on Outlook.
+- [ ] Verify token persistence across plugin refresh and FPP reboot.
+- [ ] Verify no recurring false-disconnect behavior during normal operation windows.
 
 Phase 5 gate:
-- [x] Upgrade test matrix passes for at least one old config snapshot and one fresh install.
+- [ ] OAuth/token lifecycle is stable on both providers.
 
-## Phase 6: User Documentation and Supportability
-- [x] Publish quick start (OAuth setup + first sync).
-- [x] Publish troubleshooting guide mapped to diagnostics keys.
-- [x] Publish sync mode behavior guide (`Calendar -> FPP`, `FPP -> Calendar`, `Both`).
-- [x] Publish known limitations and expected behavior notes.
+Evidence:
+- `docs/release-evidence/v1.0.0/oauth-lifecycle.md`
+
+## Phase 6: Upgrade, Migration, and Packaging Safety
+- [ ] Validate upgrade from prior known plugin version(s) to candidate.
+- [ ] Validate clean install behavior.
+- [ ] Run package build: `bin/cs-package --out-dir /tmp/cs-release`.
+- [ ] Run package verify: `bin/cs-verify-package --dir <staged-plugin-dir>`.
+- [ ] Confirm runtime package excludes development-only assets.
 
 Phase 6 gate:
-- [x] A new user can complete setup and first apply using docs only.
-- [x] Common troubleshooting paths are documented and reproducible.
+- [ ] Upgrade and clean install both succeed without manual repair.
+- [ ] Package verifies cleanly.
 
-## Production Exit Criteria
-- [x] All phase gates passed.
-- [x] Final release branch tagged.
-- [x] FPP-host validation run archived with command outputs and commit hashes.
-- [x] Rollback procedure verified.
+Evidence:
+- `docs/release-evidence/v1.0.0/upgrade-packaging.md`
 
-Exit evidence:
-- Tag: `v0.30.0-production-readiness-exit` (commit `01e74c9`)
-- Archive: `docs/release-evidence/2026-02-19-production-readiness-exit.md`
+## Phase 7: Observability, Error Handling, and Security Review
+- [ ] Verify diagnostics payload keys remain stable (`provider`, `syncMode`, `selectedCalendarId`, `counts`, `pendingSummary`, `lastError`).
+- [ ] Verify correlation IDs for apply/auth runtime failures are present and traceable in logs.
+- [ ] Verify OAuth secrets/tokens are never emitted in logs or diagnostics.
+- [ ] Verify expected file permissions and token/config handling on FPP runtime paths.
+
+Phase 7 gate:
+- [ ] No high-severity observability/security findings remain.
+
+Evidence:
+- `docs/release-evidence/v1.0.0/observability-security.md`
+
+## Phase 8: Rollback and Operational Readiness
+- [ ] Execute rollback drill to previous known-good commit/tag on FPP.
+- [ ] Verify plugin recovery via `status` + `preview` post-rollback.
+- [ ] Verify forward redeploy back to candidate commit/tag.
+- [ ] Confirm operator steps in `spec/22-release-runbook.md` are complete and accurate.
+
+Phase 8 gate:
+- [ ] Rollback and forward redeploy both succeed.
+
+Evidence:
+- `docs/release-evidence/v1.0.0/rollback-drill.md`
+
+## Final Go/No-Go Decision
+- [ ] All phase gates passed on the same candidate commit.
+- [ ] Evidence artifacts are complete and archived.
+- [ ] Release tag created: `v1.0.0`
+- [ ] Release notes published.
+
+Decision:
+- [ ] GO
+- [ ] NO-GO
+
+Approvals:
+- Engineering: `________________`
+- Product/Owner: `________________`
+- Operations (if applicable): `________________`
+
+## Blocking Criteria (Automatic No-Go)
+- Any unresolved regression in automated suites.
+- Any unresolved cross-provider parity failure.
+- Any unresolved convergence loop in validated core scenarios.
+- Any high-severity OAuth/security/secret-handling issue.
+- Inability to perform rollback successfully.

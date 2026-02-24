@@ -1,12 +1,20 @@
 # Known Limitations And Expected Behavior
 
-## OAuth Device Flow Dependency
-- Initial connect requires access to Google device authorization.
+## OAuth Dependency
+- Initial connect requires interactive provider OAuth authorization.
 - If token is revoked/expired, reconnect is required.
 
 Expected behavior:
-- Disconnect removes local token file.
-- Reconnect recreates token via device flow.
+- Disconnect removes local provider token.
+- Reconnect recreates token via provider auth flow.
+
+## Provider Setup Requirements Differ
+- Google requires uploaded client JSON (`TV and Limited Input`).
+- Outlook requires valid Azure app `client_id` and matching Graph/device-flow settings.
+
+Expected behavior:
+- Setup checks/hints are provider-specific.
+- `Connect Provider` is gated by selected provider setup readiness.
 
 ## Sync Direction Is Mode-Scoped
 - In one-way modes, opposite-direction writes are intentionally blocked.
@@ -31,6 +39,7 @@ Expected behavior:
 
 ## Calendar API/Permissions Boundaries
 - Calendar visibility and writable operations depend on OAuth account scopes and permissions.
+- Provider APIs may return different metadata and category/color capabilities.
 
 Expected behavior:
 - Missing permissions surface as API/runtime errors with hints.

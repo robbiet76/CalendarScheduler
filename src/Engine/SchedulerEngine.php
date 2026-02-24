@@ -13,14 +13,13 @@ namespace CalendarScheduler\Engine;
 use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Adapter\Calendar\CalendarSnapshot;
+use CalendarScheduler\Adapter\Calendar\MapperShared;
+use CalendarScheduler\Adapter\Calendar\ProviderRuntimeFactory;
 use CalendarScheduler\Planner\Dto\PlannerIntent;
 use CalendarScheduler\Resolution\ResolutionEngine;
 use CalendarScheduler\Planner\ManifestPlanner;
 use CalendarScheduler\Diff\Diff;
 use CalendarScheduler\Diff\Reconciler;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleCalendarTranslator;
 use CalendarScheduler\Platform\FppEventTimestampStore;
 use CalendarScheduler\Platform\FPPSemantics;
 use CalendarScheduler\Platform\HolidayResolver;
@@ -54,8 +53,18 @@ final class SchedulerEngine
     private ?float $orderingLatitude = null;
     private ?float $orderingLongitude = null;
     private string $orderingTimezone = 'UTC';
+    private bool $managedColorEnforced = false;
     /** @var array<string,int|null> */
     private array $symbolicDisplaySecondsCache = [];
+    /**
+     * Optional FPP validation catalog loaded from runtime snapshot.
+     * When null, calendar target validation is skipped (dev/test fallback).
+     *
+     * @var array{playlists:array<string,bool>,sequences:array<string,bool>,commands:array<string,bool>}|null
+     */
+    private ?array $fppValidationCatalog = null;
+    /** @var array{skipped:int,reasons:array<string,int>} */
+    private array $calendarValidationDiagnostics = ['skipped' => 0, 'reasons' => []];
 
     private IntentNormalizer $normalizer;
     private ManifestPlanner $manifestPlanner;
@@ -86,6 +95,7 @@ final class SchedulerEngine
     {
         $runEpoch = time();
         $syncMode = $this->normalizeSyncMode($opts['sync-mode'] ?? $opts['sync_mode'] ?? null);
+        $this->managedColorEnforced = MapperShared::isManagedColorEnforced();
 
         // -----------------------------------------------------------------
         // Resolve paths
@@ -101,39 +111,36 @@ final class SchedulerEngine
         $tombstonesBySource = $this->loadTombstones($tombstonesPath, $calendarScope);
 
         // -----------------------------------------------------------------
-        // Build NormalizationContext (inject holidays from fpp-env.json)
+        // Build NormalizationContext from runtime snapshot
         // -----------------------------------------------------------------
 
-        $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        $fppRuntimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
+        $fppContextRaw = $this->loadRuntimeContextSnapshot($fppRuntimePath);
         $holidays = [];
         $contextTimezone = new \DateTimeZone('UTC');
 
-        if (is_file($fppEnvPath)) {
-            $fppEnvRaw = json_decode(
-                file_get_contents($fppEnvPath),
-                true
-            );
+        if (isset($fppContextRaw['holidays']) && is_array($fppContextRaw['holidays'])) {
+            $holidays = $fppContextRaw['holidays'];
+        } elseif (isset($fppContextRaw['rawLocale']['holidays']) && is_array($fppContextRaw['rawLocale']['holidays'])) {
+            $holidays = $fppContextRaw['rawLocale']['holidays'];
+        }
 
-            if (is_array($fppEnvRaw)
-                && isset($fppEnvRaw['rawLocale']['holidays'])
-                && is_array($fppEnvRaw['rawLocale']['holidays'])
-            ) {
-                $holidays = $fppEnvRaw['rawLocale']['holidays'];
-            }
-
-            $tzName = $fppEnvRaw['timezone'] ?? null;
-            if (is_string($tzName) && trim($tzName) !== '') {
-                try {
-                    $contextTimezone = new \DateTimeZone(trim($tzName));
-                } catch (\Throwable) {
-                    // Keep UTC fallback when fpp-env timezone is invalid.
-                }
+        $tzName = $this->extractRuntimeTimezoneName($fppContextRaw);
+        if (is_string($tzName) && trim($tzName) !== '') {
+            try {
+                $contextTimezone = new \DateTimeZone(trim($tzName));
+            } catch (\Throwable) {
+                // Keep UTC fallback when runtime timezone is invalid.
             }
         }
 
         // Symbolic ordering heuristics use the same environment context as FPP.
-        $this->orderingLatitude = $this->optionalFloat($fppEnvRaw['latitude'] ?? null);
-        $this->orderingLongitude = $this->optionalFloat($fppEnvRaw['longitude'] ?? null);
+        $this->orderingLatitude = $this->optionalFloat(
+            $fppContextRaw['latitude'] ?? ($fppContextRaw['settings']['Latitude'] ?? null)
+        );
+        $this->orderingLongitude = $this->optionalFloat(
+            $fppContextRaw['longitude'] ?? ($fppContextRaw['settings']['Longitude'] ?? null)
+        );
         $this->orderingTimezone = $contextTimezone->getName();
         $this->symbolicDisplaySecondsCache = [];
 
@@ -160,8 +167,12 @@ final class SchedulerEngine
         $refreshCalendar = array_key_exists('refresh-calendar', $opts);
         $applyRequested  = array_key_exists('apply', $opts);
 
+        $calendarProvider = $this->normalizeCalendarProvider(
+            $opts['calendar-provider'] ?? $opts['calendar_provider'] ?? null
+        );
+
         if ($refreshCalendar || $applyRequested) {
-            $this->refreshCalendarSnapshotFromGoogle($calendarSnapshotPath);
+            $this->refreshCalendarSnapshotFromProvider($calendarSnapshotPath, $calendarProvider);
         }
 
         $calendarSnapshotRaw = [];
@@ -216,6 +227,9 @@ final class SchedulerEngine
         $fppEvents = $fppAdapter->loadManifestEvents($context, $schedulePath);
 
         $fppSnapshotEpoch = $runEpoch;
+        $runtimeCatalogPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
+        $this->fppValidationCatalog = $this->loadFppValidationCatalog($runtimeCatalogPath);
+        $this->calendarValidationDiagnostics = ['skipped' => 0, 'reasons' => []];
 
         $fppEventTimestampPath = '/home/fpp/media/config/calendar-scheduler/fpp/event-timestamps.json';
         $timestampStore = new FppEventTimestampStore();
@@ -250,7 +264,8 @@ final class SchedulerEngine
             $calendarSnapshotEpoch,
             $fppSnapshotEpoch,
             $syncMode,
-            $calendarId
+            $calendarId,
+            $calendarProvider
         );
 
         $this->saveTombstones($tombstonesPath, $this->lastTombstonesBySource, $calendarId);
@@ -281,10 +296,12 @@ final class SchedulerEngine
         int $calendarSnapshotEpoch,
         int $fppSnapshotEpoch,
         string $syncMode = self::SYNC_MODE_BOTH,
-        string $calendarScope = 'default'
+        string $calendarScope = 'default',
+        string $calendarProvider = 'google'
     ): SchedulerRunResult {
         $syncMode = $this->normalizeSyncMode($syncMode);
         $calendarScope = trim($calendarScope) !== '' ? trim($calendarScope) : 'default';
+        $calendarProvider = $this->normalizeCalendarProvider($calendarProvider);
         $this->orderingTimezone = $context->timezone->getName();
         $computedCalendarUpdatedAtById = $calendarUpdatedAtById;
         $computedFppUpdatedAtById = $fppUpdatedAtById;
@@ -425,6 +442,14 @@ final class SchedulerEngine
                     ? $plannerIntent->payload
                     : [];
                 $derived = $this->deriveTypeAndTargetFromPayload($plannerPayload);
+                [$validTarget, $validationReason] = $this->validateCalendarTypeTargetAgainstCatalog(
+                    (string)($derived['type'] ?? ''),
+                    (string)($derived['target'] ?? '')
+                );
+                if (!$validTarget) {
+                    $this->recordCalendarValidationSkip($validationReason);
+                    continue;
+                }
                 $bucketKey = $derived['type'] . '|' . $derived['target'];
                 if (!isset($bucketedByTarget[$bucketKey])) {
                     $bucketedByTarget[$bucketKey] = [
@@ -469,6 +494,15 @@ final class SchedulerEngine
                     $payload = is_array($plannerIntent->payload ?? null)
                         ? $plannerIntent->payload
                         : [];
+
+                    $metadataExecutionOrder = null;
+                    $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+                    $executionOrderFromMetadata = $metadata['executionOrder'] ?? null;
+                    if (is_int($executionOrderFromMetadata)) {
+                        $metadataExecutionOrder = max(0, $executionOrderFromMetadata);
+                    } elseif (is_string($executionOrderFromMetadata) && is_numeric($executionOrderFromMetadata)) {
+                        $metadataExecutionOrder = max(0, (int)$executionOrderFromMetadata);
+                    }
 
                     // Scheduler settings come from reconciled metadata only.
                     $settings = $this->extractSchedulerSettingsFromPayload($payload);
@@ -516,10 +550,11 @@ final class SchedulerEngine
                         }
                     }
 
-                    $subEvents[] = [
+                    $subEventRow = [
                         'type'   => $eventType,
                         'target' => $eventTarget,
-                        'executionOrder' => $globalExecutionRanks[spl_object_id($plannerIntent)] ?? 0,
+                        // Preserve explicit provider-managed ordering when present.
+                        'executionOrder' => $metadataExecutionOrder ?? ($globalExecutionRanks[spl_object_id($plannerIntent)] ?? 0),
                         'executionOrderManual' => $this->extractExecutionOrderManualFromPayload($payload),
                         'timing' => [
                             'all_day'    => $plannerIntent->allDay,
@@ -593,9 +628,18 @@ final class SchedulerEngine
                                 'enabled'  => $enabled,
                                 'repeat'   => $repeat ?? 'none',
                                 'stopType' => $stopType ?? 'graceful',
+                                'styleToken' => (
+                                    $this->managedColorEnforced
+                                    && isset($settings['styletoken'])
+                                    && is_string($settings['styletoken'])
+                                    && trim((string)$settings['styletoken']) !== ''
+                                )
+                                    ? trim((string)$settings['styletoken'])
+                                    : null,
                             ]
                         ),
                     ];
+                    $subEvents[] = $subEventRow;
                 }
 
                 if ($subEvents === []) {
@@ -621,6 +665,9 @@ final class SchedulerEngine
                     'ownership' => ['managed' => true],
                     'correlation' => [
                         'sourceEventUid' => $parentUid,
+                        // Preserve provider-native UID even when sourceEventUid is replaced
+                        // by manifestEventId linkage for stable identity grouping.
+                        'sourceProviderUid' => $anchor->sourceEventUid,
                         'sourceCalendarId' => $calendarScope,
                     ],
 
@@ -631,6 +678,12 @@ final class SchedulerEngine
                     $manifestEvent,
                     $context
                 );
+                $metadataForIdentity = is_array($anchorPayload['metadata'] ?? null) ? $anchorPayload['metadata'] : [];
+                $manifestEventIdForIdentity = $metadataForIdentity['manifestEventId'] ?? null;
+                if (is_string($manifestEventIdForIdentity) && trim($manifestEventIdForIdentity) !== '') {
+                    // Provider-managed rows should round-trip back to their originating manifest identity.
+                    $normalizedIntent->identityHash = trim($manifestEventIdForIdentity);
+                }
 
                 $calendarIntents[$normalizedIntent->identityHash] = $normalizedIntent;
                 $computedCalendarUpdatedAtById[$normalizedIntent->identityHash] =
@@ -713,6 +766,7 @@ final class SchedulerEngine
             $syncMode,
             $calendarScope
         );
+        $this->emitCalendarValidationDiagnostics();
 
         // ------------------------------------------------------------
         // Produce canonical run result
@@ -2248,6 +2302,168 @@ final class SchedulerEngine
         return $out;
     }
 
+    /**
+     * @return array{playlists:array<string,bool>,sequences:array<string,bool>,commands:array<string,bool>}|null
+     */
+    private function loadFppValidationCatalog(string $path): ?array
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        $raw = @file_get_contents($path);
+        if (!is_string($raw) || trim($raw) === '') {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded) || (($decoded['ok'] ?? false) !== true)) {
+            return null;
+        }
+
+        $catalog = is_array($decoded['catalog'] ?? null) ? $decoded['catalog'] : [];
+        $playlists = $this->indexCatalogList($catalog['playlists'] ?? null);
+        $sequences = $this->indexCatalogList($catalog['sequencesNormalized'] ?? ($catalog['sequences'] ?? null), true);
+        $commands = $this->indexCatalogList($catalog['commandNames'] ?? null);
+
+        if ($playlists === [] && $sequences === [] && $commands === []) {
+            return null;
+        }
+
+        return [
+            'playlists' => $playlists,
+            'sequences' => $sequences,
+            'commands' => $commands,
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function loadRuntimeContextSnapshot(string $runtimePath): array
+    {
+        if (!is_file($runtimePath)) {
+            return [];
+        }
+
+        $raw = @file_get_contents($runtimePath);
+        if (!is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function extractRuntimeTimezoneName(array $runtime): ?string
+    {
+        $candidates = [
+            $runtime['timezone'] ?? null,
+            $runtime['settings']['TimeZone'] ?? null,
+            $runtime['settings']['TimeZoneName'] ?? null,
+            $runtime['settings']['timezone'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string,bool>
+     */
+    private function indexCatalogList(mixed $values, bool $stripSequenceSuffix = false): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+        $out = [];
+        foreach ($values as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+            $normalized = strtolower(trim($value));
+            if ($stripSequenceSuffix) {
+                $normalized = preg_replace('/\.fseq$/i', '', $normalized) ?? $normalized;
+            }
+            if ($normalized === '') {
+                continue;
+            }
+            $out[$normalized] = true;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array{0:bool,1:string}
+     */
+    private function validateCalendarTypeTargetAgainstCatalog(string $type, string $target): array
+    {
+        if ($this->fppValidationCatalog === null) {
+            return [true, 'catalog_unavailable'];
+        }
+
+        $typeNorm = strtolower(trim($type));
+        $targetNorm = strtolower(trim($target));
+        if ($targetNorm === '' || $targetNorm === 'unknown') {
+            return [false, 'target_missing'];
+        }
+
+        if ($typeNorm === 'playlist') {
+            return [isset($this->fppValidationCatalog['playlists'][$targetNorm]), 'playlist_not_found'];
+        }
+        if ($typeNorm === 'sequence') {
+            $targetNorm = preg_replace('/\.fseq$/i', '', $targetNorm) ?? $targetNorm;
+            return [isset($this->fppValidationCatalog['sequences'][$targetNorm]), 'sequence_not_found'];
+        }
+        if ($typeNorm === 'command') {
+            return [isset($this->fppValidationCatalog['commands'][$targetNorm]), 'command_not_found'];
+        }
+
+        return [false, 'type_invalid'];
+    }
+
+    private function recordCalendarValidationSkip(string $reason): void
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            $reason = 'unknown';
+        }
+        $this->calendarValidationDiagnostics['skipped']++;
+        if (!isset($this->calendarValidationDiagnostics['reasons'][$reason])) {
+            $this->calendarValidationDiagnostics['reasons'][$reason] = 0;
+        }
+        $this->calendarValidationDiagnostics['reasons'][$reason]++;
+    }
+
+    private function emitCalendarValidationDiagnostics(): void
+    {
+        if ((int)($this->calendarValidationDiagnostics['skipped'] ?? 0) <= 0) {
+            return;
+        }
+        $reasons = is_array($this->calendarValidationDiagnostics['reasons'] ?? null)
+            ? $this->calendarValidationDiagnostics['reasons']
+            : [];
+        ksort($reasons, SORT_STRING);
+        $parts = [];
+        foreach ($reasons as $reason => $count) {
+            if (!is_string($reason)) {
+                continue;
+            }
+            $parts[] = $reason . '=' . (int)$count;
+        }
+        error_log(
+            'SchedulerEngine calendar validation: skipped='
+            . (int)$this->calendarValidationDiagnostics['skipped']
+            . ' reasons={' . implode(', ', $parts) . '}'
+        );
+    }
+
     private function settingToBool(mixed $value, bool $default): bool
     {
         if (is_bool($value)) {
@@ -2299,28 +2515,25 @@ final class SchedulerEngine
     }
 
     /**
-     * Refresh the calendar snapshot by pulling directly from Google Calendar API.
+     * Refresh the calendar snapshot by pulling directly from the configured provider runtime.
      *
      * Writes a deterministic JSON wrapper to $calendarSnapshotPath:
      *   { "calendar_id": "...", "events": [ ...provider-agnostic rows... ] }
      *
      * @throws \RuntimeException on any failure.
      */
-    private function refreshCalendarSnapshotFromGoogle(
-        string $calendarSnapshotPath
+    private function refreshCalendarSnapshotFromProvider(
+        string $calendarSnapshotPath,
+        string $provider
     ): void {
-        $configDir = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-        $config = new GoogleConfig($configDir);
+        $provider = $this->normalizeCalendarProvider($provider);
 
-        $client = new GoogleApiClient($config);
-        $rawEvents = $client->listEvents($config->getCalendarId());
-
-        // Translate provider-specific events into snapshot rows
-        $translator = new GoogleCalendarTranslator();
-        $translatedEvents = $translator->ingest($rawEvents, $config->getCalendarId());
+        $runtime = ProviderRuntimeFactory::createSnapshot($provider);
+        $translatedEvents = $runtime->translatedEvents();
 
         $payload = [
-            'calendar_id'  => $config->getCalendarId(),
+            'provider'     => $runtime->providerName(),
+            'calendar_id'  => $runtime->calendarId(),
             'events'       => $translatedEvents,
             'generated_at' => (new \DateTimeImmutable(
                 'now',
@@ -2349,5 +2562,44 @@ final class SchedulerEngine
             @unlink($tmp);
             throw new \RuntimeException("Failed to replace calendar snapshot: {$calendarSnapshotPath}");
         }
+    }
+
+    private function normalizeCalendarProvider(mixed $provider): string
+    {
+        if (is_string($provider)) {
+            $provider = strtolower(trim($provider));
+            if ($provider === 'google' || $provider === 'outlook') {
+                return $provider;
+            }
+        }
+
+        $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+        $outlookConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook/config.json';
+
+        if (is_file($googleConfigPath)) {
+            $raw = @file_get_contents($googleConfigPath);
+            if (is_string($raw) && trim($raw) !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $selected = strtolower((string)($decoded['provider'] ?? 'google'));
+                    if ($selected === 'google' || $selected === 'outlook') {
+                        return $selected;
+                    }
+                }
+            }
+            return 'google';
+        }
+
+        if (is_file($outlookConfigPath)) {
+            $raw = @file_get_contents($outlookConfigPath);
+            if (is_string($raw) && trim($raw) !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && strtolower((string)($decoded['provider'] ?? 'outlook')) === 'outlook') {
+                    return 'outlook';
+                }
+            }
+        }
+
+        return 'google';
     }
 }

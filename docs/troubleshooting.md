@@ -3,24 +3,24 @@
 Use this guide together with the `Diagnostics` panel in the UI.
 
 ## Diagnostics Key Map
+- `provider`: active provider (`google`, `outlook`)
 - `syncMode`: active mode (`both`, `calendar`, `fpp`)
-- `selectedCalendarId`: currently selected Google calendar
+- `selectedCalendarId`: currently selected calendar ID for the active provider
 - `counts`: preview action totals by target/type
 - `pendingSummary`: condensed pending actions view
 - `lastError`: most recent meaningful runtime/setup error
 
 ## Symptom: Cannot Connect Provider
 Check:
-1. In `Connection Setup`, confirm setup checks are all `OK`.
+1. In `Connection Setup`, confirm setup checks are all `OK` for the selected provider.
 2. Verify `Diagnostics.lastError` and setup hints.
 
 Common causes:
-- Missing or invalid client JSON
-- Token/config directory not writable
-- OAuth credential type not suitable for device flow
+- Google: missing/invalid client JSON, wrong OAuth credential type, unwritable token/config path
+- Outlook: missing/invalid client ID, app registration not configured for delegated Graph/device flow
 
 Fix:
-1. Re-upload OAuth client JSON (`TV and Limited Input`).
+1. Reconfigure provider OAuth settings in the provider setup card.
 2. Retry `Connect Provider`.
 
 ## Symptom: Device Auth Poll Fails
@@ -34,7 +34,7 @@ Check:
 
 Fix:
 1. Restart device flow (`Connect Provider`).
-2. Enter latest code at `google.com/device`.
+2. Enter latest code at the provider verification URL shown in the modal.
 
 ## Symptom: Apply Button Disabled
 Check:
@@ -64,8 +64,8 @@ Mode behavior summary:
 
 ## Symptom: Status Shows Disconnected After Previously Connected
 Check:
-1. `Diagnostics.lastError`
-2. `Connection Setup` checks (`tokenFilePresent`, `deviceFlowReady`)
+1. `Diagnostics.lastError`.
+2. `Connection Setup` checks for active provider.
 
 Likely cause:
 - Token removed via disconnect or expired/revoked OAuth grant.
@@ -76,9 +76,9 @@ Fix:
 
 ## Symptom: Repeated Pending Actions After Apply
 Check:
-1. `Diagnostics.counts`
-2. `pendingSummary.sample`
-3. Sync mode and target direction
+1. `Diagnostics.counts`.
+2. `pendingSummary.sample`.
+3. Sync mode and target direction.
 
 Fix:
 1. Ensure authoritative side has stable data.
@@ -88,10 +88,18 @@ Fix:
    - Correlation IDs from recent errors
    - FPP log excerpt
 
+## Symptom: Outlook Calendar Missing From Dropdown
+Check:
+1. You are connected to Outlook and account is shown.
+2. Calendar is owned by your mailbox (not a subscribed/birthdays/holiday/system calendar).
+
+Expected:
+- Dropdown includes user calendars supported for write/sync operations.
+
 ## Escalation Bundle
 When opening an issue, include:
 1. `Diagnostics` JSON
-2. Current sync mode
+2. Active provider and sync mode
 3. Steps performed
 4. `correlationId` (if present)
 5. Relevant lines from `/home/fpp/media/logs/CalendarScheduler.log`

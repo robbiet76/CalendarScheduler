@@ -199,22 +199,20 @@ final class FppEventTimestampStore
 
     private function buildNormalizationContext(): NormalizationContext
     {
-        $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        $runtimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
         $holidays = [];
 
-        if (is_file($fppEnvPath)) {
+        if (is_file($runtimePath)) {
             try {
                 $fppEnvRaw = json_decode(
-                    (string)file_get_contents($fppEnvPath),
+                    (string)file_get_contents($runtimePath),
                     true,
                     512,
                     JSON_THROW_ON_ERROR
                 );
-                if (is_array($fppEnvRaw)
-                    && isset($fppEnvRaw['rawLocale']['holidays'])
-                    && is_array($fppEnvRaw['rawLocale']['holidays'])
-                ) {
-                    $holidays = $fppEnvRaw['rawLocale']['holidays'];
+
+                if (is_array($fppEnvRaw) && isset($fppEnvRaw['holidays']) && is_array($fppEnvRaw['holidays'])) {
+                    $holidays = $fppEnvRaw['holidays'];
                 }
             } catch (\Throwable) {
                 $holidays = [];

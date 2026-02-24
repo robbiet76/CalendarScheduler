@@ -168,6 +168,35 @@ For each case, capture:
 - Pattern: Broad static layer overlaps a later-start show window on intersecting days.
 - Expected: Later-start show executes above overlapping static layer.
 
+### RR-30 Symbolic Start+End Time Combination
+- Pattern: Base event with both start and end symbolic (`SunSet` / `Dusk`) including offsets.
+- Expected: Both symbolic tokens preserved in resolved timing; no hard-time overwrite.
+
+### RR-31 Weekend Day Mask
+- Pattern: Weekly recurrence constrained to `SA/SU`.
+- Expected: Day mask remains canonical and stable in resolved output.
+
+### RR-32 Mixed Day Mask
+- Pattern: Weekly recurrence constrained to non-adjacent mixed days (`TU/TH/SA`).
+- Expected: Mixed day set preserved with no day-loss or normalization drift.
+
+### RR-33 Command Variants + Segmentation
+- Pattern: Command base row with cancellation and two command overrides carrying different command metadata.
+- Expected: Splits and overrides produce multiple command subevents; all remain command type and ordering converges.
+
+## Combinatorial Coverage Grid
+This suite explicitly tracks hard/symbolic boundary combinations.
+
+### Time Boundaries
+- `hard start + hard end`: RR-01 (baseline)
+- `symbolic start + hard end`: RR-12
+- `hard start + symbolic end`: RR-13
+- `symbolic start + symbolic end`: RR-30
+
+### Date Boundaries
+- `hard start + hard end`: covered broadly (`RR-01`, `RR-02`, etc.)
+- `symbolic date combinations`: tracked in live matrix scenarios due provider/calendar expansion rules and holiday mapping constraints; validate via `spec/19-regression-test-matrix.md` live scenarios.
+
 ## Minimum Regression Gate (Per Patch)
 Run at least:
 - RR-02
@@ -182,9 +211,13 @@ Run at least:
 - RR-26
 - RR-27
 - RR-29
+- RR-30
+- RR-31
+- RR-33
 
 ## Full Regression Gate (Before Release)
 Run all RR-01 through RR-29.
+Run all RR-01 through RR-33.
 
 Automated command:
 

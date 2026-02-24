@@ -5,8 +5,8 @@ Keep end-user plugin installs lightweight while preserving full developer toolin
 
 ## Runtime Payload (ships to users)
 The runtime payload is controlled by `packaging/runtime-include.txt` and currently includes:
-- Plugin entrypoints and UI API (`plugin.php`, `content.php`, `ui-api.php`, `oauth-callback.php`)
-- Bootstrap and hooks (`bootstrap.php`, `fpp-env-export.php`, `fpp-schedule-save-hook.php`)
+- Plugin entrypoints and UI API (`plugin.php`, `content.php`, `ui-api.php`)
+- Bootstrap and hooks (`bootstrap.php`, `fpp-schedule-save-hook.php`)
 - Menu and metadata (`menu.inc`, `pluginInfo.json`)
 - Runtime CLI (`bin/calendar-scheduler`)
 - Core engine code (`src/`)

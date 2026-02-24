@@ -28,9 +28,8 @@ capabilities** for Google Calendar.
 This specification governs interaction with:
 
 - Google Calendar via **OAuth‑authenticated REST API**
-- (Legacy) Google Calendar via **ICS import/export**
 
-Both transports MUST emit and consume the same canonical `CalendarEvent` representation.
+Current production runtime uses API/OAuth transport.
 
 ---
 
@@ -50,22 +49,14 @@ Both transports MUST emit and consume the same canonical `CalendarEvent` represe
 
 ## Transport Model
 
-Google Calendar is implemented using **pluggable transports**:
-
-```
-GoogleCalendarProvider
-├── IcsTransport
-└── ApiTransport (OAuth)
-```
-
-Transport choice MUST NOT affect:
+Google Calendar adapter behavior MUST NOT affect:
 - Canonical event shape
 - Intent normalization behavior
 - Hashing
 - Diff logic
 - Authority decisions
 
-Transport differences are isolated entirely within Calendar I/O.
+Provider-specific differences are isolated entirely within Calendar I/O.
 
 ---
 
@@ -169,7 +160,7 @@ managed = true
 ```
 
 - User‑editable
-- Survives ICS and UI edits
+- Survives provider UI edits
 - Removing this marker opts the event out
 
 ---
@@ -207,10 +198,8 @@ Rules:
 This section defines the **authoritative mutation contract** used when the Apply phase
 projects Manifest execution geometry into Google Calendar via the API.
 
-Apply operates strictly at the **Manifest Event** level.
-
-- One Manifest Event maps to exactly one Google Calendar event
-- SubEvents are aggregated inputs and are never written independently
+Apply consumes reconciliation actions that are derived from Manifest Events and SubEvents.
+Provider event mutations are generated from subevent-level execution geometry.
 
 ---
 
@@ -308,8 +297,6 @@ Primary connect flow is UI/API device authorization:
 4. `auth_device_poll` exchanges device code and writes `token.json`
 
 `auth_disconnect` removes local token file and returns to predictable disconnected state.
-
-Manual authorization-code exchange remains available via `auth_exchange_code`/CLI fallback for operational recovery scenarios.
 
 ---
 
@@ -435,9 +422,9 @@ They introduce no new semantics, authority, or reconciliation logic.
 
 ### Mapping Scope
 
-- Apply operates at the **Manifest Event** level
-- Exactly **one Google Calendar event** is addressed per ApplyOp
-- Manifest SubEvents are **inputs**, not write targets
+- Apply mutations are generated from resolved subevent execution geometry.
+- A single reconciliation action may produce one or more Google event mutations.
+- SubEvents are execution inputs and are mapped deterministically to provider mutations.
 
 Calendar I/O MUST NOT:
 - Inspect Manifest state
@@ -741,10 +728,9 @@ Failures are correct behavior.
 
 ### Export Granularity
 
-- One Manifest base SubEvent → one Google Calendar event
-- No grouping
-- No expansion
-- No inference
+- Mutations are computed from canonical SubEvent geometry.
+- One or more provider events may be touched for a reconciliation action.
+- No inference beyond explicit reconciliation inputs.
 
 ---
 
@@ -803,7 +789,7 @@ Partial Apply is forbidden.
 
 ## Guarantees
 
-- API and ICS transports are behaviorally equivalent
+- Google adapter behavior is deterministic and provider-scoped
 - Managed state is explicit and reversible
 - Manifest intent is never silently altered
 - Calendar edits either round‑trip or fail loudly

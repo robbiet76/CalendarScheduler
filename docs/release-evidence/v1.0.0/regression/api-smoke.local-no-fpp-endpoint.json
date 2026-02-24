@@ -1,0 +1,33 @@
+{
+    "ok": false,
+    "endpoint": "http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=ui-api.php&nopage=1",
+    "syncMode": "both",
+    "includeAuthStart": false,
+    "includeAuthPoll": false,
+    "includeAuthDisconnect": false,
+    "includeApplyNoop": false,
+    "checks": [
+        {
+            "name": "status",
+            "ok": false,
+            "httpCode": 0,
+            "error": "Failed to connect to 127.0.0.1 port 80 after 1 ms: Could not connect to server",
+            "requiredFields": [
+                "provider",
+                "google",
+                "syncMode"
+            ]
+        },
+        {
+            "name": "preview",
+            "ok": false,
+            "httpCode": 0,
+            "error": "Failed to connect to 127.0.0.1 port 80 after 0 ms: Could not connect to server",
+            "requiredFields": [
+                "preview.counts",
+                "preview.actions",
+                "preview.syncMode"
+            ]
+        }
+    ]
+}

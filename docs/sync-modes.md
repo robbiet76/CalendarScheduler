@@ -14,7 +14,7 @@ Best for:
 - Normal day-to-day bidirectional synchronization.
 
 ## `Calendar -> FPP`
-Use when Google Calendar is authoritative.
+Use when your selected calendar provider is authoritative.
 
 Behavior:
 - Only FPP-targeted changes are executable.
