@@ -22,7 +22,6 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMetadataSchema;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMetadataSchema;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookOAuthBootstrap;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Engine\SchedulerEngine;
 use CalendarScheduler\Engine\SchedulerRunResult;
@@ -102,7 +101,7 @@ function cs_hint_for_exception(\Throwable $e, string $action = ''): ?string
 {
     $message = strtolower($e->getMessage());
     if (str_contains($message, 'outlook device auth start failed: invalid_client')) {
-        return 'Outlook device code is not enabled for this app type. Use the Outlook authorize URL flow (confidential/private app) or enable public client/device flow in Azure.';
+        return 'Outlook device code is not enabled for this app registration. Enable public client/device flow in Azure and verify the client_id.';
     }
     if (str_contains($message, 'device auth start failed: invalid_client')) {
         return 'Upload a valid TV and Limited Input OAuth client JSON, then try Connect Provider again.';
@@ -496,7 +495,6 @@ function cs_google_status(): array
     $base = [
         'connected' => false,
         'selectedCalendarId' => null,
-        'authUrl' => null,
         'calendars' => [],
         'account' => 'Not configured',
         'error' => null,
@@ -507,7 +505,6 @@ function cs_google_status(): array
             'tokenFilePresent' => false,
             'tokenPathWritable' => false,
             'deviceFlowReady' => false,
-            'manualFlowReady' => false,
             'hints' => [],
         ],
     ];
@@ -545,10 +542,6 @@ function cs_google_status(): array
         if (!$base['setup']['tokenPathWritable']) {
             $base['setup']['hints'][] = "Token directory is not writable: " . dirname($tokenPath);
         }
-
-        // Manual OAuth callback flow is optional fallback; device flow is primary.
-        $base['authUrl'] = null;
-        $base['setup']['manualFlowReady'] = false;
 
         // Device flow is our default path; it only needs valid client config and writable token path.
         $base['setup']['deviceFlowReady'] = $base['setup']['clientFilePresent'] && $base['setup']['tokenPathWritable'];
@@ -615,7 +608,6 @@ function cs_outlook_status(): array
     $base = [
         'connected' => false,
         'selectedCalendarId' => null,
-        'authUrl' => null,
         'oauth' => [
             'tenant_id' => CS_OUTLOOK_DEFAULT_TENANT,
             'client_id' => '',
@@ -667,10 +659,6 @@ function cs_outlook_status(): array
 
         $clientId = is_string($oauth['client_id'] ?? null) ? trim((string)$oauth['client_id']) : '';
         $base['setup']['oauthConfigured'] = $clientId !== '';
-        if ($base['setup']['oauthConfigured']) {
-            $base['authUrl'] = (new OutlookOAuthBootstrap($config))->getAuthorizationUrl();
-        }
-
         $tokenPath = $config->getTokenPath();
         $base['setup']['tokenFilePresent'] = is_file($tokenPath);
         $base['setup']['tokenPathWritable'] = is_dir(dirname($tokenPath)) && is_writable(dirname($tokenPath));
@@ -846,102 +834,6 @@ function cs_outlook_save_oauth_config(array $input): void
     $config['provider'] = 'outlook';
     $config['oauth'] = $oauth;
     cs_write_outlook_config_json($config);
-}
-
-function cs_extract_authorization_code(string $codeOrUrl): string
-{
-    $candidate = trim($codeOrUrl);
-    if ($candidate === '') {
-        return '';
-    }
-
-    if (preg_match('/^https?:\\/\\//i', $candidate) === 1) {
-        $query = parse_url($candidate, PHP_URL_QUERY);
-        if (is_string($query) && $query !== '') {
-            parse_str($query, $params);
-            $code = $params['code'] ?? '';
-            if (is_string($code) && trim($code) !== '') {
-                return trim($code);
-            }
-        }
-    }
-
-    return $candidate;
-}
-
-function cs_outlook_exchange_authorization_code(string $codeOrUrl): void
-{
-    cs_bootstrap_outlook_config_if_missing();
-    $code = cs_extract_authorization_code($codeOrUrl);
-    if ($code === '') {
-        throw new \RuntimeException('Authorization code is missing.');
-    }
-
-    $config = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
-    $oauth = $config->getOauth();
-
-    $clientId = is_string($oauth['client_id'] ?? null) ? trim((string)$oauth['client_id']) : '';
-    $clientSecret = is_string($oauth['client_secret'] ?? null) ? trim((string)$oauth['client_secret']) : '';
-    $redirectUri = is_string($oauth['redirect_uri'] ?? null) ? trim((string)$oauth['redirect_uri']) : '';
-    $scopes = is_array($oauth['scopes'] ?? null) ? $oauth['scopes'] : [];
-    $scope = implode(' ', array_values(array_filter($scopes, 'is_string')));
-    if ($scope === '') {
-        $scope = CS_OUTLOOK_DEFAULT_SCOPE;
-    }
-
-    if ($clientId === '' || $clientSecret === '' || $redirectUri === '') {
-        throw new \RuntimeException('Outlook OAuth config missing client_id/client_secret/redirect_uri.');
-    }
-
-    $tokenUrl = 'https://login.microsoftonline.com/' . rawurlencode($config->getTenantId()) . '/oauth2/v2.0/token';
-    $resp = cs_http_post_form_json(
-        $tokenUrl,
-        [
-            'code' => $code,
-            'client_id' => $clientId,
-            'client_secret' => $clientSecret,
-            'redirect_uri' => $redirectUri,
-            'grant_type' => 'authorization_code',
-            'scope' => $scope,
-        ]
-    );
-
-    if (isset($resp['error'])) {
-        $error = is_string($resp['error']) ? $resp['error'] : 'unknown_error';
-        $desc = is_string($resp['error_description'] ?? null) ? $resp['error_description'] : '';
-        $suffix = $desc !== '' ? " ({$desc})" : '';
-        throw new \RuntimeException("Outlook authorization code exchange failed: {$error}{$suffix}");
-    }
-
-    $now = time();
-    $expiresIn = isset($resp['expires_in']) ? (int)$resp['expires_in'] : 0;
-    $token = [
-        'access_token' => (string)($resp['access_token'] ?? ''),
-        'refresh_token' => (string)($resp['refresh_token'] ?? ''),
-        'token_type' => (string)($resp['token_type'] ?? 'Bearer'),
-        'scope' => (string)($resp['scope'] ?? $scope),
-        'expires_in' => $expiresIn,
-        'expires_at' => $expiresIn > 0 ? ($now + $expiresIn - 30) : 0,
-        'created_at' => $now,
-    ];
-
-    if ($token['access_token'] === '') {
-        throw new \RuntimeException('Outlook token exchange returned no access_token.');
-    }
-
-    $tokenPath = $config->getTokenPath();
-    if ($token['refresh_token'] === '' && is_file($tokenPath)) {
-        $existing = json_decode((string) @file_get_contents($tokenPath), true);
-        if (is_array($existing) && is_string($existing['refresh_token'] ?? null)) {
-            $token['refresh_token'] = $existing['refresh_token'];
-        }
-    }
-
-    $json = json_encode($token, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-    if (!is_string($json) || @file_put_contents($tokenPath, $json . "\n") === false) {
-        throw new \RuntimeException("Unable to write Outlook token file: {$tokenPath}");
-    }
-    @chmod($tokenPath, 0600);
 }
 
 function cs_outlook_disconnect(): void
@@ -1353,49 +1245,6 @@ function cs_google_device_auth_config(): array
 }
 
 /**
- * @return array{client_id:string,client_secret:string,redirect_uri:string}
- */
-function cs_google_manual_auth_config(): array
-{
-    cs_bootstrap_google_config_if_missing();
-    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
-    $oauth = $config->getOauth();
-    $redirectUri = $oauth['redirect_uri'] ?? null;
-    if (!is_string($redirectUri) || $redirectUri === '') {
-        throw new \RuntimeException('Google oauth.redirect_uri missing');
-    }
-
-    $clientPath = $config->getClientSecretPath();
-    $raw = @file_get_contents($clientPath);
-    if ($raw === false) {
-        throw new \RuntimeException("Unable to read Google client file: {$clientPath}");
-    }
-    $json = json_decode($raw, true);
-    if (!is_array($json)) {
-        throw new \RuntimeException("Invalid JSON in Google client file: {$clientPath}");
-    }
-
-    $clientBlock = $json['web'] ?? null;
-    if (!is_array($clientBlock)) {
-        throw new \RuntimeException(
-            "Manual OAuth requires a 'web' OAuth client in {$clientPath}"
-        );
-    }
-
-    $clientId = $clientBlock['client_id'] ?? null;
-    $clientSecret = $clientBlock['client_secret'] ?? null;
-    if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
-        throw new \RuntimeException('Google OAuth client_id/client_secret missing');
-    }
-
-    return [
-        'client_id' => $clientId,
-        'client_secret' => $clientSecret,
-        'redirect_uri' => $redirectUri,
-    ];
-}
-
-/**
  * @param array<string,string> $form
  * @return array<string,mixed>
  */
@@ -1680,35 +1529,6 @@ function cs_outlook_device_poll(string $deviceCode): array
 
     cs_write_outlook_token($resp);
     return ['status' => 'connected'];
-}
-
-function cs_google_exchange_authorization_code(string $code): void
-{
-    $code = cs_extract_authorization_code($code);
-    if ($code === '') {
-        throw new \RuntimeException('Authorization code is missing.');
-    }
-
-    $auth = cs_google_manual_auth_config();
-    $resp = cs_http_post_form_json(
-        'https://oauth2.googleapis.com/token',
-        [
-            'code' => $code,
-            'client_id' => $auth['client_id'],
-            'client_secret' => $auth['client_secret'],
-            'redirect_uri' => $auth['redirect_uri'],
-            'grant_type' => 'authorization_code',
-        ]
-    );
-
-    if (isset($resp['error'])) {
-        $error = is_string($resp['error']) ? $resp['error'] : 'unknown_error';
-        $desc = is_string($resp['error_description'] ?? null) ? $resp['error_description'] : '';
-        $suffix = $desc !== '' ? " ({$desc})" : '';
-        throw new \RuntimeException("Authorization code exchange failed: {$error}{$suffix}");
-    }
-
-    cs_write_google_token($resp);
 }
 
 function cs_google_disconnect(): void
@@ -2122,26 +1942,6 @@ try {
         ]);
     }
 
-    if ($action === 'auth_exchange_code') {
-        $code = $input['code'] ?? '';
-        if (!is_string($code) || trim($code) === '') {
-            cs_respond_error(
-                'code is required',
-                422,
-                'Paste the full callback URL or authorization code.',
-                'validation_error',
-                ['field' => 'code']
-            );
-        }
-        $provider = cs_get_calendar_provider();
-        if ($provider === 'outlook') {
-            cs_outlook_exchange_authorization_code(trim($code));
-        } else {
-            cs_google_exchange_authorization_code(trim($code));
-        }
-        cs_respond(['ok' => true]);
-    }
-
     if ($action === 'auth_disconnect') {
         $provider = cs_get_calendar_provider();
         if ($provider === 'outlook') {
@@ -2155,16 +1955,6 @@ try {
     if ($action === 'auth_outlook_save_config') {
         cs_outlook_save_oauth_config($input);
         cs_respond(['ok' => true]);
-    }
-
-    if ($action === 'auth_outlook_authorize_url') {
-        cs_bootstrap_outlook_config_if_missing();
-        $config = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
-        $bootstrap = new OutlookOAuthBootstrap($config);
-        cs_respond([
-            'ok' => true,
-            'auth_url' => $bootstrap->getAuthorizationUrl(),
-        ]);
     }
 
     if ($action === 'set_provider') {
@@ -2240,7 +2030,7 @@ try {
     cs_respond_error(
         "Unknown action: {$action}",
         404,
-        'Use one of: status, diagnostics, preview, apply, auth_device_start, auth_device_poll, auth_exchange_code, auth_disconnect, auth_outlook_save_config, auth_outlook_authorize_url, set_provider.',
+        'Use one of: status, diagnostics, preview, apply, auth_device_start, auth_device_poll, auth_disconnect, auth_outlook_save_config, set_provider.',
         'unknown_action',
         ['action' => $action]
     );

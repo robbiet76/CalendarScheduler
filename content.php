@@ -329,31 +329,6 @@
     </div>
   </div>
 
-  <div id="csOutlookAuthModalWrap" class="cs-modal-backdrop cs-hidden" role="dialog" aria-modal="true" aria-labelledby="csOutlookAuthModalTitle">
-    <div class="cs-modal">
-      <div class="cs-modal-header">
-        <strong id="csOutlookAuthModalTitle">Finish Outlook Sign-In</strong>
-      </div>
-      <div class="cs-modal-body">
-        <div class="mb-2">1) Open Microsoft sign-in and consent page:</div>
-        <div class="mb-2">
-          <a id="csOutlookAuthLink" href="#" target="_blank" rel="noopener noreferrer">Open Outlook Consent Page</a>
-        </div>
-        <div class="mb-2">2) Paste full callback URL or authorization code:</div>
-        <div class="d-flex gap-2 align-items-center">
-          <input id="csOutlookAuthCodeInput" class="form-control" placeholder="Paste callback URL or code here">
-          <button id="csOutlookAuthPasteBtn" type="button" class="buttons btn-black">Paste</button>
-        </div>
-        <div id="csOutlookAuthInlineMsg" class="cs-muted mt-2">Waiting for Microsoft consent completion...</div>
-      </div>
-      <div class="cs-modal-footer">
-        <a id="csOutlookAuthOpenBtn" class="buttons btn-black" href="#" target="_blank" rel="noopener noreferrer">Open Outlook Consent Page</a>
-        <button id="csOutlookAuthCompleteBtn" type="button" class="buttons btn-success">Complete Sign-In</button>
-        <button id="csOutlookAuthCancelBtn" type="button" class="buttons btn-black">Cancel</button>
-      </div>
-    </div>
-  </div>
-
   <div class="backdrop mb-3" id="csPendingPanel">
     <h4 class="cs-panel-title">2) Pending Actions</h4>
     <p class="cs-muted">View of all pending create/update/delete changes. Choose sync mode.</p>
@@ -598,51 +573,6 @@
         openBtn.href = defaultUrl;
         link.textContent = defaultUrl.replace(/^https?:\/\//, "");
       }
-    }
-
-    function setOutlookAuthVisible(visible, url) {
-      var wrap = byId("csOutlookAuthModalWrap");
-      var link = byId("csOutlookAuthLink");
-      var openBtn = byId("csOutlookAuthOpenBtn");
-      var input = byId("csOutlookAuthCodeInput");
-      var completeBtn = byId("csOutlookAuthCompleteBtn");
-      var inlineMsg = byId("csOutlookAuthInlineMsg");
-      if (!wrap || !link || !openBtn || !input || !completeBtn || !inlineMsg) {
-        return;
-      }
-
-      if (visible) {
-        var dest = url || "#";
-        link.href = dest;
-        openBtn.href = dest;
-        wrap.classList.remove("cs-hidden");
-        input.classList.remove("is-invalid");
-        inlineMsg.textContent = "Waiting for Microsoft consent completion...";
-        inlineMsg.classList.remove("text-danger");
-        inlineMsg.classList.add("cs-muted");
-        completeBtn.disabled = false;
-        input.focus();
-      } else {
-        wrap.classList.add("cs-hidden");
-        link.href = "#";
-        openBtn.href = "#";
-        input.value = "";
-        input.classList.remove("is-invalid");
-        inlineMsg.textContent = "";
-        inlineMsg.classList.remove("text-danger");
-        inlineMsg.classList.add("cs-muted");
-        completeBtn.disabled = false;
-      }
-    }
-
-    function setOutlookAuthMessage(message, isError) {
-      var inlineMsg = byId("csOutlookAuthInlineMsg");
-      if (!inlineMsg) {
-        return;
-      }
-      inlineMsg.textContent = String(message || "");
-      inlineMsg.classList.toggle("text-danger", !!isError);
-      inlineMsg.classList.toggle("cs-muted", !isError);
     }
 
     function setError(message) {
@@ -972,14 +902,12 @@
         }
         if (providerConnected) {
           setDeviceAuthVisible(false);
-          setOutlookAuthVisible(false);
           clearDeviceAuthPoll();
           clearPendingDeviceAuth();
           byId("csPreviewState").textContent = "Connected";
           byId("csPreviewTime").textContent = "Refreshing preview...";
           setTopBarClass("cs-status-loading");
         } else {
-          setOutlookAuthVisible(false);
           if (!resumeDeviceAuthIfNeeded()) {
             setDeviceAuthVisible(false);
           }
@@ -1328,7 +1256,6 @@
       var clientId = (byId("csOutlookClientId").value || "").trim();
 
       if (!clientId) {
-        setOutlookAuthMessage("Outlook client_id is required before connecting.", true);
         setSetupStatus("Outlook client_id is required.");
         return;
       }
@@ -1339,9 +1266,6 @@
         action: "auth_outlook_save_config",
         client_id: clientId
       })
-        .then(function () {
-          setOutlookAuthVisible(false);
-        })
         .then(function () {
           return startDeviceAuthFlow();
         })
@@ -1401,7 +1325,6 @@
         fetchJson({ action: "auth_disconnect" })
           .then(function () {
             setDeviceAuthVisible(false);
-            setOutlookAuthVisible(false);
             clearDeviceAuthPoll();
             clearPendingDeviceAuth();
             return refreshAll();
@@ -1432,7 +1355,6 @@
         .then(function () {
           activeProvider = provider;
           setDeviceAuthVisible(false);
-          setOutlookAuthVisible(false);
           clearDeviceAuthPoll();
           return refreshAll();
         })
@@ -1570,81 +1492,6 @@
       if (!document.hidden && !providerConnected) {
         resumeDeviceAuthIfNeeded();
       }
-    });
-
-    byId("csOutlookAuthCancelBtn").addEventListener("click", function () {
-      setOutlookAuthVisible(false);
-      setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
-    });
-
-    byId("csOutlookAuthPasteBtn").addEventListener("click", function () {
-      var input = byId("csOutlookAuthCodeInput");
-      if (!input) {
-        return;
-      }
-
-      if (navigator.clipboard && navigator.clipboard.readText) {
-        navigator.clipboard.readText()
-          .then(function (text) {
-            var value = String(text || "").trim();
-            if (!value) {
-              setOutlookAuthMessage("Clipboard is empty. Copy callback URL/code first.", true);
-              return;
-            }
-            input.value = value;
-            input.classList.remove("is-invalid");
-            setOutlookAuthMessage("Pasted from clipboard. Click Complete Sign-In.", false);
-          })
-          .catch(function () {
-            setOutlookAuthMessage("Clipboard read failed. Paste manually into the field.", true);
-          });
-        return;
-      }
-
-      setOutlookAuthMessage("Clipboard read is unavailable in this browser context. Paste manually.", true);
-    });
-
-    byId("csOutlookAuthCompleteBtn").addEventListener("click", function () {
-      var input = byId("csOutlookAuthCodeInput");
-      var completeBtn = byId("csOutlookAuthCompleteBtn");
-      var code = input ? String(input.value || "").trim() : "";
-      if (!code) {
-        if (input) {
-          input.classList.add("is-invalid");
-          input.focus();
-        }
-        setOutlookAuthMessage("Paste the full callback URL or authorization code to continue.", true);
-        return;
-      }
-      if (input) {
-        input.classList.remove("is-invalid");
-      }
-      if (completeBtn) {
-        completeBtn.disabled = true;
-      }
-      setOutlookAuthMessage("Completing Outlook sign-in...", false);
-
-      setButtonsDisabled(true);
-      setLoadingState();
-      fetchJson({ action: "auth_exchange_code", code: code })
-        .then(function () {
-          setOutlookAuthMessage("Outlook sign-in complete.", false);
-          setOutlookAuthVisible(false);
-          return refreshAll();
-        })
-        .catch(function (err) {
-          if (input) {
-            input.classList.add("is-invalid");
-          }
-          setOutlookAuthMessage("Sign-in failed: " + err.message, true);
-          setError(err.message);
-        })
-        .finally(function () {
-          if (completeBtn) {
-            completeBtn.disabled = false;
-          }
-          setButtonsDisabled(false);
-        });
     });
 
     byId("csCopyDeviceCodeBtn").addEventListener("click", function () {

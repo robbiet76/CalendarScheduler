@@ -65,8 +65,6 @@ Current UI-facing actions are:
 - `auth_upload_device_client`
 - `auth_disconnect`
 - `auth_outlook_save_config`
-- `auth_outlook_authorize_url`
-- `auth_exchange_code` (manual fallback path)
 
 Unknown actions MUST return:
 - `ok=false`

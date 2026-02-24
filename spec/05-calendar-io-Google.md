@@ -278,7 +278,7 @@ Minimum required structure:
   "oauth": {
     "device_client_file": "client_secret_device.json",
     "token_file": "token.json",
-    "redirect_uri": "http://localhost:8765/oauth2callback",
+    "redirect_uri": "http://127.0.0.1:8765/oauth2callback",
     "scopes": [
       "https://www.googleapis.com/auth/calendar"
     ]
@@ -297,8 +297,6 @@ Primary connect flow is UI/API device authorization:
 4. `auth_device_poll` exchanges device code and writes `token.json`
 
 `auth_disconnect` removes local token file and returns to predictable disconnected state.
-
-Manual authorization-code exchange remains available via `auth_exchange_code`/CLI fallback for operational recovery scenarios.
 
 ---
 

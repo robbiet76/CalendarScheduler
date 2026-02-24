@@ -3,7 +3,6 @@ bootstrap.php
 content.php
 fpp-schedule-save-hook.php
 menu.inc
-oauth-callback.php
 plugin.php
 pluginInfo.json
 ui-api.php

@@ -49,7 +49,6 @@ require_once __DIR__ . '/src/Adapter/Calendar/ProviderRuntimeFactory.php';
 
 // Calendar — Google provider
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleConfig.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleOAuthBootstrap.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApiClient.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleCalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMetadataSchema.php';
@@ -58,7 +57,6 @@ require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApply.php';
 
 // Calendar — Outlook provider (scaffold)
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookConfig.php';
-require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookOAuthBootstrap.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApiClient.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookCalendarTranslator.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookEventMetadataSchema.php';

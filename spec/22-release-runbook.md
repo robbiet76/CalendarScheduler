@@ -16,6 +16,7 @@ Provide an operator-safe release procedure for Calendar Scheduler that includes 
    - `php -l content.php`
 4. Run regression suite:
    - `bin/cs-resolution-regression --json`
+   - `bin/cs-provider-parity-regression --json`
    - `bin/cs-api-smoke --json`
    - Optional integrated run: `bin/cs-full-regression --json --api-include-apply-noop`
 5. Verify key API actions on FPP host return `ok=true`:
@@ -31,9 +32,11 @@ Run in this order to avoid invalidating OAuth state before live validation.
 
 1. Local (repo root):
    - `bin/cs-resolution-regression --json`
-2. FPP host (plugin repo):
+2. Local (repo root, provider parity):
+   - `bin/cs-provider-parity-regression --json`
+3. FPP host (plugin repo):
    - `bin/cs-full-regression --json --api-include-apply-noop`
-3. FPP host (plugin repo, API contract sweep including auth lifecycle):
+4. FPP host (plugin repo, API contract sweep including auth lifecycle):
    - `bin/cs-api-smoke --json --include-auth-cycle --include-apply-noop`
 
 Notes:

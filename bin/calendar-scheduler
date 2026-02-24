@@ -22,8 +22,6 @@ use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyTargets;
 use CalendarScheduler\Apply\FppScheduleWriter;
 use CalendarScheduler\Adapter\Calendar\ProviderRuntimeFactory;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
-use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -32,28 +30,6 @@ use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
 require_once __DIR__ . '/../bootstrap.php';
 
 $argv = $_SERVER['argv'] ?? [];
-$command = $argv[1] ?? null;
-
-// Dedicated shortcut command for OAuth bootstrap maintenance.
-if ($command === 'google:auth') {
-    $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-
-    $config = new \CalendarScheduler\Adapter\Calendar\Google\GoogleConfig($configPath);
-    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($config);
-    $printUrl = in_array('--print-url', $argv, true);
-    $bootstrap->runCli($printUrl);
-    exit(0);
-}
-
-if ($command === 'outlook:auth') {
-    $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
-
-    $config = new \CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig($configPath);
-    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Outlook\OutlookOAuthBootstrap($config);
-    $printUrl = in_array('--print-url', $argv, true);
-    $bootstrap->runCli($printUrl);
-    exit(0);
-}
 
 // -----------------------------------------------------------------------------
 // Defaults
@@ -82,26 +58,12 @@ $opts = getopt('', [
     'refresh-calendar',
     'apply',
     'plan',
-    'auth',
 ]);
 
 $dryRun = array_key_exists('dry-run', $opts);
 $quiet  = array_key_exists('quiet', $opts);
 $apply = array_key_exists('apply', $opts);
 $plan = array_key_exists('plan', $opts);
-
-$auth = array_key_exists('auth', $opts);
-
-// Back-compat auth flag path.
-if ($auth) {
-    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-    $googleConfig = new GoogleConfig($googleConfigPath);
-    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($googleConfig);
-
-    $printUrl = in_array('--print-url', $argv, true);
-    $bootstrap->runCli($printUrl);
-    exit(0);
-}
 
 $schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
 $manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
