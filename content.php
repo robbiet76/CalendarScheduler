@@ -282,10 +282,7 @@
               Enforce managed colors
             </label>
           </div>
-          <div class="cs-muted">When off, manual color/category edits are preserved.</div>
-          <div class="mt-2 d-flex justify-content-end">
-            <button class="buttons btn-black" id="csResetManagedColorsBtn" type="button">Reset Managed Colors</button>
-          </div>
+          <div class="cs-muted">When on, manual color/category edits are automatically reset to managed colors.</div>
         </div>
         </div>
         <div class="cs-connection-modify-wrap cs-hidden" id="csConnectionModifyWrap">
@@ -427,7 +424,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors", "csResetManagedColorsBtn"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -1018,7 +1015,6 @@
         var syncModeWrap = byId("csSyncModeWrap");
         var syncModeSelect = byId("csSyncModeSelect");
         var enforceManagedColorsToggle = byId("csEnforceManagedColors");
-        var resetManagedColorsBtn = byId("csResetManagedColorsBtn");
         var googleBadge = byId("csProviderGoogleBadge");
         var outlookBadge = byId("csProviderOutlookBadge");
         var pendingPanel = byId("csPendingPanel");
@@ -1051,10 +1047,6 @@
           enforceManagedColorsToggle.checked = !!uiPrefsApply.enforceManagedColors;
           enforceManagedColorsToggle.dataset.locked = providerConnected ? "0" : "1";
           enforceManagedColorsToggle.disabled = !providerConnected;
-        }
-        if (resetManagedColorsBtn) {
-          resetManagedColorsBtn.dataset.locked = providerConnected ? "0" : "1";
-          resetManagedColorsBtn.disabled = !providerConnected;
         }
         updateApplySubtitle();
         if (syncModeWrap) {
@@ -1467,47 +1459,25 @@
         action: "set_ui_pref",
         key: "enforce_managed_colors",
         value: checked
-      }).then(function () {
+      }).then(function (res) {
+        var summary = (res && typeof res.summary === "object" && res.summary) ? res.summary : null;
         if (!checked) {
           setSetupStatus("Managed colors are now optional; manual colors are preserved.");
           return refreshAll();
         }
-
-        // Enabling enforcement should apply immediately so users see the state change.
-        return fetchJson({ action: "reset_managed_colors" }).then(function (res) {
-          var summary = (res && typeof res.summary === "object" && res.summary) ? res.summary : {};
+        if (summary) {
           var updated = Number(summary.updated || 0);
           var managed = Number(summary.managed || 0);
           setSetupStatus("Managed colors enabled and applied. Updated " + updated + " of " + managed + " managed events.");
-          return refreshAll();
-        });
+        } else {
+          setSetupStatus("Managed colors are now enforced on calendar updates.");
+        }
+        return refreshAll();
       }).catch(function (err) {
         setError(err.message);
       }).finally(function () {
         setButtonsDisabled(false);
       });
-    });
-
-    byId("csResetManagedColorsBtn").addEventListener("click", function () {
-      if (!providerConnected) {
-        setSetupStatus("Connect provider first, then reset managed colors.");
-        return;
-      }
-      if (!window.confirm("Reset managed colors for all managed events in the selected calendar?")) {
-        return;
-      }
-      setButtonsDisabled(true);
-      setLoadingState();
-      fetchJson({ action: "reset_managed_colors" })
-        .then(function (res) {
-          var summary = (res && typeof res.summary === "object" && res.summary) ? res.summary : {};
-          var updated = Number(summary.updated || 0);
-          var managed = Number(summary.managed || 0);
-          setSetupStatus("Managed color reset complete. Updated " + updated + " of " + managed + " managed events.");
-          return refreshAll();
-        })
-        .catch(function (err) { setError(err.message); })
-        .finally(function () { setButtonsDisabled(false); });
     });
 
     byId("csUploadDeviceClientBtn").addEventListener("click", function () {

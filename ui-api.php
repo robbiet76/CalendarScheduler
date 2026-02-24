@@ -1994,7 +1994,12 @@ try {
             $value = in_array(strtolower(trim($rawValue)), ['1', 'true', 'yes', 'on'], true);
         }
         cs_set_ui_pref_bool($key, $value);
-        cs_respond(['ok' => true]);
+        $response = ['ok' => true];
+        if ($key === 'enforce_managed_colors' && $value === true) {
+            $provider = cs_get_calendar_provider();
+            $response['summary'] = cs_reset_managed_colors($provider);
+        }
+        cs_respond($response);
     }
 
     if ($action === 'reset_managed_colors') {

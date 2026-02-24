@@ -182,10 +182,10 @@ final class MapperShared
     public static function managedOutlookCategories(string $type, bool $enabled): array
     {
         return [match (self::managedStyleToken($type, $enabled)) {
-            'disabled' => 'CS Disabled',
-            'sequence' => 'CS Sequence',
-            'command' => 'CS Command',
-            default => 'CS Playlist',
+            'disabled' => 'Gray category',
+            'sequence' => 'Green category',
+            'command' => 'Red category',
+            default => 'Blue category',
         }];
     }
 
@@ -229,6 +229,10 @@ final class MapperShared
             }
             $normalized = strtolower(trim($category));
             return match ($normalized) {
+                'gray category' => 'disabled',
+                'green category' => 'sequence',
+                'red category' => 'command',
+                'blue category' => 'playlist',
                 'cs disabled' => 'disabled',
                 'cs sequence' => 'sequence',
                 'cs command' => 'command',
