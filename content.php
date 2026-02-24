@@ -230,21 +230,18 @@
         <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
         <div class="mb-2">
-          <div class="cs-provider-tags" role="tablist" aria-label="Calendar Provider">
-            <button type="button" class="badge cs-provider-tag" id="csProviderGoogleBadge" data-provider="google">Google</button>
-            <button type="button" class="badge cs-provider-tag" id="csProviderOutlookBadge" data-provider="outlook">Outlook</button>
+          <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <div class="cs-provider-tags" role="tablist" aria-label="Calendar Provider">
+              <button type="button" class="badge cs-provider-tag" id="csProviderGoogleBadge" data-provider="google">Google</button>
+              <button type="button" class="badge cs-provider-tag" id="csProviderOutlookBadge" data-provider="outlook">Outlook</button>
+            </div>
+            <button type="button" class="buttons btn-black" id="csProviderSetupStepsBtn">Setup Steps</button>
           </div>
         </div>
 
         <div id="csConnectionHelpGoogle" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Google OAuth Setup</strong></div>
-          <!-- TODO(oauth-ux): Add a dedicated setup help link/popup with full OAuth walkthrough steps from the UI. -->
-          <ol class="cs-help-list mt-1 mb-2">
-            <li>In Google Cloud Console, enable <strong>Google Calendar API</strong>.</li>
-            <li>Create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
-            <li>Download the client JSON and upload it below.</li>
-            <li>Click <strong>Connect Provider</strong>, open <code>google.com/device</code>, and enter the code shown.</li>
-          </ol>
+          <p class="cs-muted mb-2">Upload your Google OAuth client JSON, then click <strong>Connect Provider</strong> to start device sign-in.</p>
           <div class="row g-2 align-items-end mb-2">
             <div class="col-12 col-md-8">
               <label for="csDeviceClientFile" class="form-label mb-1">Upload client secret JSON:</label>
@@ -262,12 +259,7 @@
 
         <div id="csConnectionHelpOutlook" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Outlook OAuth Setup</strong></div>
-          <!-- TODO(oauth-ux): Add a dedicated setup help link/popup with full OAuth walkthrough steps from the UI. -->
-          <ol class="cs-help-list mt-1 mb-2">
-            <li>Create an Azure app registration with delegated Graph scopes including <code>Calendars.ReadWrite</code> and <code>offline_access</code>.</li>
-            <li>Enable public client/device flow for the app registration.</li>
-            <li>Enter only the app <strong>Client ID</strong> below, then click <strong>Connect Provider</strong>.</li>
-          </ol>
+          <p class="cs-muted mb-2">Enter your Azure app <strong>Client ID</strong>, then click <strong>Connect Provider</strong> to start device sign-in.</p>
           <div class="mb-1"><strong>Current Setup Checks</strong></div>
           <ul id="csOutlookHelpChecks" class="mb-1"></ul>
           <div class="row g-2">
@@ -325,6 +317,53 @@
       <div class="cs-modal-footer">
         <a id="csDeviceAuthOpenBtn" class="buttons btn-black" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">Open Google Device Page</a>
         <button id="csDeviceAuthCancelBtn" type="button" class="buttons btn-black">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="csGoogleSetupModalWrap" class="cs-modal-backdrop cs-hidden" role="dialog" aria-modal="true" aria-labelledby="csGoogleSetupModalTitle">
+    <div class="cs-modal">
+      <div class="cs-modal-header">
+        <strong id="csGoogleSetupModalTitle">Google OAuth Setup Steps</strong>
+      </div>
+      <div class="cs-modal-body">
+        <ol class="cs-help-list mt-1 mb-0">
+          <li>Open Google Cloud Console and select your project.</li>
+          <li>Enable <strong>Google Calendar API</strong> for that project.</li>
+          <li>Create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
+          <li>Download the OAuth client JSON file.</li>
+          <li>Return here and upload the JSON with <strong>Upload Client JSON</strong>.</li>
+          <li>Click <strong>Connect Provider</strong>.</li>
+          <li>Open the Google device page shown in the sign-in modal and enter the code.</li>
+          <li>After authorization completes, select the calendar to sync.</li>
+        </ol>
+      </div>
+      <div class="cs-modal-footer">
+        <button id="csGoogleSetupModalCloseBtn" type="button" class="buttons btn-black">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="csOutlookSetupModalWrap" class="cs-modal-backdrop cs-hidden" role="dialog" aria-modal="true" aria-labelledby="csOutlookSetupModalTitle">
+    <div class="cs-modal">
+      <div class="cs-modal-header">
+        <strong id="csOutlookSetupModalTitle">Outlook OAuth Setup Steps</strong>
+      </div>
+      <div class="cs-modal-body">
+        <ol class="cs-help-list mt-1 mb-0">
+          <li>Open Azure Portal and create or open an app registration.</li>
+          <li>Set account type to support personal Microsoft accounts (consumer flow).</li>
+          <li>Enable delegated Microsoft Graph scopes: <code>offline_access openid profile User.Read Calendars.ReadWrite</code>.</li>
+          <li>Enable public client/device code flow for the app registration.</li>
+          <li>Copy the application (client) ID.</li>
+          <li>Return here and paste the Client ID.</li>
+          <li>Click <strong>Connect Provider</strong>.</li>
+          <li>Open the Microsoft device page shown in the sign-in modal and enter the code.</li>
+          <li>After authorization completes, select the calendar to sync.</li>
+        </ol>
+      </div>
+      <div class="cs-modal-footer">
+        <button id="csOutlookSetupModalCloseBtn" type="button" class="buttons btn-black">Close</button>
       </div>
     </div>
   </div>
@@ -416,7 +455,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csUploadDeviceClientBtn", "csCalendarSelect", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csCalendarSelect", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors", "csProviderSetupStepsBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -540,6 +579,22 @@
       byId("csPreviewState").textContent = "Loading";
       byId("csPreviewTime").textContent = "Updating...";
       setTopBarClass("cs-status-loading");
+    }
+
+    function setProviderSetupModalVisible(provider, visible) {
+      var googleWrap = byId("csGoogleSetupModalWrap");
+      var outlookWrap = byId("csOutlookSetupModalWrap");
+      if (!googleWrap || !outlookWrap) {
+        return;
+      }
+      var isOutlook = String(provider || "").toLowerCase() === "outlook";
+      if (visible) {
+        googleWrap.classList.toggle("cs-hidden", isOutlook);
+        outlookWrap.classList.toggle("cs-hidden", !isOutlook);
+        return;
+      }
+      googleWrap.classList.add("cs-hidden");
+      outlookWrap.classList.add("cs-hidden");
     }
 
     function setDeviceAuthVisible(visible, code, url) {
@@ -1368,6 +1423,18 @@
 
     byId("csProviderOutlookBadge").addEventListener("click", function () {
       onProviderTagClick("outlook");
+    });
+
+    byId("csProviderSetupStepsBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible(activeProvider, true);
+    });
+
+    byId("csGoogleSetupModalCloseBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible("google", false);
+    });
+
+    byId("csOutlookSetupModalCloseBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible("outlook", false);
     });
 
     ["csOutlookClientId"].forEach(function (id) {
