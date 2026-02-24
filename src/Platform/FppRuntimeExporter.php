@@ -26,7 +26,6 @@ function exportFppRuntime(string $outputPath, string $baseUrl = 'http://127.0.0.
             'playlists' => [],
             'sequences' => [],
             'sequencesNormalized' => [],
-            'commands' => [],
             'commandNames' => [],
             'scripts' => [],
         ],
@@ -61,7 +60,6 @@ function exportFppRuntime(string $outputPath, string $baseUrl = 'http://127.0.0.
 
         $commands = fppRuntimeFetchJson($baseUrl . '/api/commands')['json'] ?? [];
         if (is_array($commands)) {
-            $result['catalog']['commands'] = $commands;
             $names = [];
             foreach ($commands as $row) {
                 if (!is_array($row)) {
