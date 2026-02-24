@@ -9,6 +9,7 @@ use CalendarScheduler\Platform\SunTimeDisplayEstimator;
 final class MapperShared
 {
     private const FPP_RUNTIME_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
+    private const UI_PREFS_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/ui-prefs.json';
 
     public static function extractExecutionOrder(array $subEvent): ?int
     {
@@ -146,6 +147,52 @@ final class MapperShared
         $dt = new \DateTimeImmutable($date . ' ' . $base, new \DateTimeZone('UTC'));
         $dt = $dt->modify(($offset >= 0 ? '+' : '') . (string)$offset . ' minutes');
         return $dt->format('H:i:s');
+    }
+
+    public static function isManagedColorEnforced(): bool
+    {
+        $prefs = self::readUiPrefs();
+        $value = $prefs['enforce_managed_colors'] ?? false;
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value)) {
+            return $value !== 0;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
+        }
+
+        return false;
+    }
+
+    public static function managedGoogleColorId(string $type, bool $enabled): string
+    {
+        if (!$enabled) {
+            return '8';
+        }
+
+        return match (strtolower(trim($type))) {
+            'sequence' => '10',
+            'command' => '6',
+            default => '9',
+        };
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    public static function managedOutlookCategories(string $type, bool $enabled): array
+    {
+        if (!$enabled) {
+            return ['CS Disabled'];
+        }
+
+        return [match (strtolower(trim($type))) {
+            'sequence' => 'CS Sequence',
+            'command' => 'CS Command',
+            default => 'CS Playlist',
+        }];
     }
 
     public static function composeManagedDescription(
@@ -330,5 +377,23 @@ final class MapperShared
         }
 
         return null;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private static function readUiPrefs(): array
+    {
+        if (!is_file(self::UI_PREFS_PATH)) {
+            return [];
+        }
+
+        $raw = @file_get_contents(self::UI_PREFS_PATH);
+        if (!is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        $json = @json_decode($raw, true);
+        return is_array($json) ? $json : [];
     }
 }

@@ -796,6 +796,12 @@ final class GoogleEventMapper
             $payload['recurrence'] = $recurrence;
         }
 
+        $applyManagedStyle = $action->type === ReconciliationAction::TYPE_CREATE
+            || MapperShared::isManagedColorEnforced();
+        if ($applyManagedStyle) {
+            $payload['colorId'] = MapperShared::managedGoogleColorId($identityType, $enabled);
+        }
+
         return $payload;
     }
 

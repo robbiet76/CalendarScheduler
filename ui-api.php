@@ -15,10 +15,13 @@ use CalendarScheduler\Apply\ApplyTargets;
 use CalendarScheduler\Apply\FppScheduleWriter;
 use CalendarScheduler\Apply\ManifestWriter;
 use CalendarScheduler\Adapter\Calendar\ProviderRuntimeFactory;
+use CalendarScheduler\Adapter\Calendar\MapperShared;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
 use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
+use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMetadataSchema;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookApiClient;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookConfig;
+use CalendarScheduler\Adapter\Calendar\Outlook\OutlookEventMetadataSchema;
 use CalendarScheduler\Adapter\Calendar\Outlook\OutlookOAuthBootstrap;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Engine\SchedulerEngine;
@@ -35,6 +38,7 @@ const CS_SCHEDULE_PATH = '/home/fpp/media/config/schedule.json';
 const CS_FPP_STAGE_DIR = '/home/fpp/media/config/calendar-scheduler/fpp';
 const CS_GOOGLE_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/google';
 const CS_OUTLOOK_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
+const CS_UI_PREFS_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/ui-prefs.json';
 const CS_FPP_RUNTIME_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
 const CS_GOOGLE_DEVICE_CLIENT_FILENAME = 'client_secret_device.json';
 const CS_GOOGLE_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
@@ -968,9 +972,8 @@ function cs_set_sync_mode(string $mode): void
 
 function cs_get_ui_pref_bool(string $key, bool $default = false): bool
 {
-    $config = cs_read_google_config_json();
-    $ui = is_array($config['ui'] ?? null) ? $config['ui'] : [];
-    $value = $ui[$key] ?? null;
+    $prefs = cs_read_ui_prefs_json();
+    $value = $prefs[$key] ?? null;
     if (is_bool($value)) {
         return $value;
     }
@@ -981,16 +984,71 @@ function cs_get_ui_pref_bool(string $key, bool $default = false): bool
         $v = strtolower(trim($value));
         return in_array($v, ['1', 'true', 'yes', 'on'], true);
     }
+
+    // Legacy fallback for installs that still stored UI prefs in Google config.json.
+    try {
+        $config = cs_read_google_config_json();
+        $ui = is_array($config['ui'] ?? null) ? $config['ui'] : [];
+        $legacy = $ui[$key] ?? null;
+        if (is_bool($legacy)) {
+            return $legacy;
+        }
+        if (is_int($legacy)) {
+            return $legacy !== 0;
+        }
+        if (is_string($legacy)) {
+            $v = strtolower(trim($legacy));
+            return in_array($v, ['1', 'true', 'yes', 'on'], true);
+        }
+    } catch (\Throwable) {
+        // Keep default on fallback failure.
+    }
+
     return $default;
 }
 
 function cs_set_ui_pref_bool(string $key, bool $value): void
 {
-    $config = cs_read_google_config_json();
-    $ui = is_array($config['ui'] ?? null) ? $config['ui'] : [];
-    $ui[$key] = $value;
-    $config['ui'] = $ui;
-    cs_write_google_config_json($config);
+    $prefs = cs_read_ui_prefs_json();
+    $prefs[$key] = $value;
+    cs_write_ui_prefs_json($prefs);
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function cs_read_ui_prefs_json(): array
+{
+    if (!is_file(CS_UI_PREFS_PATH)) {
+        return [];
+    }
+
+    $raw = @file_get_contents(CS_UI_PREFS_PATH);
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * @param array<string,mixed> $prefs
+ */
+function cs_write_ui_prefs_json(array $prefs): void
+{
+    $dir = dirname(CS_UI_PREFS_PATH);
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+        throw new \RuntimeException('Unable to create UI prefs runtime directory: ' . $dir);
+    }
+
+    $json = json_encode($prefs, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        throw new \RuntimeException('Failed to encode UI preferences JSON');
+    }
+    if (@file_put_contents(CS_UI_PREFS_PATH, $json . "\n") === false) {
+        throw new \RuntimeException('Failed to write UI preferences: ' . CS_UI_PREFS_PATH);
+    }
 }
 
 function cs_bootstrap_google_config_if_missing(): bool
@@ -1679,6 +1737,133 @@ function cs_apply(SchedulerRunResult $result, ?string $syncMode = null): array
     return $result->totalCounts();
 }
 
+/**
+ * @return array<string,int|string>
+ */
+function cs_reset_managed_colors(string $provider): array
+{
+    $provider = strtolower(trim($provider));
+    if ($provider === 'outlook') {
+        return cs_reset_outlook_managed_colors();
+    }
+
+    return cs_reset_google_managed_colors();
+}
+
+/**
+ * @return array<string,int|string>
+ */
+function cs_reset_google_managed_colors(): array
+{
+    cs_bootstrap_google_config_if_missing();
+    $config = new GoogleConfig(CS_GOOGLE_CONFIG_DIR);
+    $client = new GoogleApiClient($config);
+    $calendarId = $config->getCalendarId();
+    $events = $client->listEvents($calendarId);
+
+    $scanned = 0;
+    $managed = 0;
+    $updated = 0;
+
+    foreach ($events as $event) {
+        if (!is_array($event)) {
+            continue;
+        }
+        $scanned++;
+
+        $meta = GoogleEventMetadataSchema::decodeFromGoogleEvent($event);
+        $settings = is_array($meta['settings'] ?? null) ? $meta['settings'] : [];
+        $type = is_string($settings['type'] ?? null) ? trim((string)$settings['type']) : '';
+        if ($type === '') {
+            continue;
+        }
+        $managed++;
+
+        $enabled = array_key_exists('enabled', $settings)
+            ? (bool)($settings['enabled'] ?? false)
+            : true;
+        $desiredColorId = MapperShared::managedGoogleColorId($type, $enabled);
+        $currentColorId = is_string($event['colorId'] ?? null) ? trim((string)$event['colorId']) : '';
+        if ($currentColorId === $desiredColorId) {
+            continue;
+        }
+
+        $eventId = is_string($event['id'] ?? null) ? trim((string)$event['id']) : '';
+        if ($eventId === '') {
+            continue;
+        }
+
+        $client->updateEvent($calendarId, $eventId, ['colorId' => $desiredColorId]);
+        $updated++;
+    }
+
+    return [
+        'provider' => 'google',
+        'scanned' => $scanned,
+        'managed' => $managed,
+        'updated' => $updated,
+    ];
+}
+
+/**
+ * @return array<string,int|string>
+ */
+function cs_reset_outlook_managed_colors(): array
+{
+    cs_bootstrap_outlook_config_if_missing();
+    $config = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
+    $client = new OutlookApiClient($config);
+    $calendarId = $config->getCalendarId();
+    $events = $client->listEvents($calendarId);
+
+    $scanned = 0;
+    $managed = 0;
+    $updated = 0;
+
+    foreach ($events as $event) {
+        if (!is_array($event)) {
+            continue;
+        }
+        $scanned++;
+
+        $meta = OutlookEventMetadataSchema::decodeFromOutlookEvent($event);
+        $settings = is_array($meta['settings'] ?? null) ? $meta['settings'] : [];
+        $type = is_string($settings['type'] ?? null) ? trim((string)$settings['type']) : '';
+        if ($type === '') {
+            continue;
+        }
+        $managed++;
+
+        $enabled = array_key_exists('enabled', $settings)
+            ? (bool)($settings['enabled'] ?? false)
+            : true;
+        $desired = MapperShared::managedOutlookCategories($type, $enabled);
+        sort($desired, SORT_STRING);
+
+        $current = is_array($event['categories'] ?? null) ? array_values($event['categories']) : [];
+        $current = array_values(array_filter($current, static fn ($v): bool => is_string($v) && trim((string)$v) !== ''));
+        sort($current, SORT_STRING);
+        if ($current === $desired) {
+            continue;
+        }
+
+        $eventId = is_string($event['id'] ?? null) ? trim((string)$event['id']) : '';
+        if ($eventId === '') {
+            continue;
+        }
+
+        $client->updateEvent($calendarId, $eventId, ['categories' => $desired]);
+        $updated++;
+    }
+
+    return [
+        'provider' => 'outlook',
+        'scanned' => $scanned,
+        'managed' => $managed,
+        'updated' => $updated,
+    ];
+}
+
 try {
     // Action dispatch for all UI-facing operations.
     $input = cs_read_json_input();
@@ -1711,6 +1896,14 @@ try {
             $hints[] = 'Unable to read UI preferences from config; using defaults.';
             $google['setup']['hints'] = $hints;
         }
+        $enforceManagedColors = false;
+        try {
+            $enforceManagedColors = cs_get_ui_pref_bool('enforce_managed_colors', false);
+        } catch (\Throwable $e) {
+            $hints = is_array($google['setup']['hints'] ?? null) ? $google['setup']['hints'] : [];
+            $hints[] = 'Unable to read managed color preference; using default disabled.';
+            $google['setup']['hints'] = $hints;
+        }
         cs_respond([
             'ok' => true,
             'provider' => $provider,
@@ -1719,6 +1912,7 @@ try {
             'syncMode' => cs_normalize_sync_mode($syncMode),
             'ui' => [
                 'connectionCollapsed' => $connectionCollapsed,
+                'enforceManagedColors' => $enforceManagedColors,
             ],
         ]);
     }
@@ -1781,13 +1975,13 @@ try {
             );
         }
         $key = trim($key);
-        if ($key !== 'connection_collapsed') {
+        if (!in_array($key, ['connection_collapsed', 'enforce_managed_colors'], true)) {
             cs_respond_error(
                 'unsupported key',
                 422,
-                'Only connection_collapsed is currently supported.',
+                'Only connection_collapsed and enforce_managed_colors are currently supported.',
                 'validation_error',
-                ['field' => 'key', 'allowed' => ['connection_collapsed']]
+                ['field' => 'key', 'allowed' => ['connection_collapsed', 'enforce_managed_colors']]
             );
         }
         $rawValue = $input['value'] ?? false;
@@ -1801,6 +1995,15 @@ try {
         }
         cs_set_ui_pref_bool($key, $value);
         cs_respond(['ok' => true]);
+    }
+
+    if ($action === 'reset_managed_colors') {
+        $provider = cs_get_calendar_provider();
+        $summary = cs_reset_managed_colors($provider);
+        cs_respond([
+            'ok' => true,
+            'summary' => $summary,
+        ]);
     }
 
     if ($action === 'auth_device_start') {

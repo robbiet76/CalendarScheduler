@@ -275,6 +275,18 @@
         <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
         </div>
+        <div class="mt-2 pt-2 border-top">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="csEnforceManagedColors">
+            <label class="form-check-label" for="csEnforceManagedColors">
+              Enforce managed colors
+            </label>
+          </div>
+          <div class="cs-muted">When off, manual color/category edits are preserved.</div>
+          <div class="mt-2 d-flex justify-content-end">
+            <button class="buttons btn-black" id="csResetManagedColorsBtn" type="button">Reset Managed Colors</button>
+          </div>
+        </div>
         </div>
         <div class="cs-connection-modify-wrap cs-hidden" id="csConnectionModifyWrap">
           <button class="buttons btn-black" id="csConnectionModifyBtn" type="button" aria-label="Modify Connection Setup">Modify</button>
@@ -415,7 +427,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors", "csResetManagedColorsBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -937,6 +949,10 @@
         if (!connectionCollapsedLoaded) {
           var uiPrefs = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
           setConnectionCollapsed(!!uiPrefs.connectionCollapsed);
+          var enforceToggleInit = byId("csEnforceManagedColors");
+          if (enforceToggleInit) {
+            enforceToggleInit.checked = !!uiPrefs.enforceManagedColors;
+          }
           connectionCollapsedLoaded = true;
         }
         if (providerConnected) {
@@ -1001,6 +1017,8 @@
         var uploadBtn = byId("csUploadDeviceClientBtn");
         var syncModeWrap = byId("csSyncModeWrap");
         var syncModeSelect = byId("csSyncModeSelect");
+        var enforceManagedColorsToggle = byId("csEnforceManagedColors");
+        var resetManagedColorsBtn = byId("csResetManagedColorsBtn");
         var googleBadge = byId("csProviderGoogleBadge");
         var outlookBadge = byId("csProviderOutlookBadge");
         var pendingPanel = byId("csPendingPanel");
@@ -1027,6 +1045,16 @@
           syncModeSelect.value = syncMode;
           syncModeSelect.dataset.locked = providerConnected ? "0" : "1";
           syncModeSelect.disabled = !providerConnected;
+        }
+        if (enforceManagedColorsToggle) {
+          var uiPrefsApply = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
+          enforceManagedColorsToggle.checked = !!uiPrefsApply.enforceManagedColors;
+          enforceManagedColorsToggle.dataset.locked = providerConnected ? "0" : "1";
+          enforceManagedColorsToggle.disabled = !providerConnected;
+        }
+        if (resetManagedColorsBtn) {
+          resetManagedColorsBtn.dataset.locked = providerConnected ? "0" : "1";
+          resetManagedColorsBtn.disabled = !providerConnected;
         }
         updateApplySubtitle();
         if (syncModeWrap) {
@@ -1429,6 +1457,43 @@
       }).catch(function () {
         // Keep local state even if pref persistence fails.
       });
+    });
+
+    byId("csEnforceManagedColors").addEventListener("change", function () {
+      var checked = !!this.checked;
+      fetchJson({
+        action: "set_ui_pref",
+        key: "enforce_managed_colors",
+        value: checked
+      }).then(function () {
+        setSetupStatus(checked
+          ? "Managed colors are now enforced on calendar updates."
+          : "Managed colors are now optional; manual colors are preserved.");
+      }).catch(function (err) {
+        setError(err.message);
+      });
+    });
+
+    byId("csResetManagedColorsBtn").addEventListener("click", function () {
+      if (!providerConnected) {
+        setSetupStatus("Connect provider first, then reset managed colors.");
+        return;
+      }
+      if (!window.confirm("Reset managed colors for all managed events in the selected calendar?")) {
+        return;
+      }
+      setButtonsDisabled(true);
+      setLoadingState();
+      fetchJson({ action: "reset_managed_colors" })
+        .then(function (res) {
+          var summary = (res && typeof res.summary === "object" && res.summary) ? res.summary : {};
+          var updated = Number(summary.updated || 0);
+          var managed = Number(summary.managed || 0);
+          setSetupStatus("Managed color reset complete. Updated " + updated + " of " + managed + " managed events.");
+          return refreshAll();
+        })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
     });
 
     byId("csUploadDeviceClientBtn").addEventListener("click", function () {

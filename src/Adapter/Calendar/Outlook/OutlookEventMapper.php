@@ -409,6 +409,12 @@ final class OutlookEventMapper
             $payload['recurrence'] = $recurrence;
         }
 
+        $applyManagedStyle = $action->type === ReconciliationAction::TYPE_CREATE
+            || MapperShared::isManagedColorEnforced();
+        if ($applyManagedStyle) {
+            $payload['categories'] = MapperShared::managedOutlookCategories($identityType, $enabled);
+        }
+
         return $payload;
     }
 
