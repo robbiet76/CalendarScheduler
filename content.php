@@ -244,7 +244,7 @@
           </div>
           <div class="row g-2 align-items-end mb-2">
             <div class="col-12 col-md-8">
-              <label for="csDeviceClientFile" class="form-label mb-1">Upload client secret JSON:</label>
+              <label for="csDeviceClientFile" class="form-label mb-1">Upload OAuth client JSON:</label>
               <input id="csDeviceClientFile" type="file" class="form-control" accept="application/json,.json">
             </div>
             <div class="col-12 col-md-4 d-flex justify-content-md-end">
@@ -331,9 +331,9 @@
       </div>
       <div class="cs-modal-body">
         <ol class="cs-help-list mt-1 mb-0">
-          <li>Open Google Cloud Console and select your project.</li>
-          <li>Enable <strong>Google Calendar API</strong> for that project.</li>
-          <li>Create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
+          <li>Open Google Cloud Console and select an existing project or create a new one.</li>
+          <li>Go to <strong>APIs &amp; Services -> Library</strong>, search for <strong>Google Calendar API</strong>, and click <strong>Enable</strong>.</li>
+          <li>Go to <strong>APIs &amp; Services -> Credentials</strong> and create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
           <li>Download the OAuth client JSON file.</li>
           <li>Return here and upload the JSON with <strong>Upload Client JSON</strong>.</li>
           <li>Click <strong>Connect Provider</strong>.</li>
