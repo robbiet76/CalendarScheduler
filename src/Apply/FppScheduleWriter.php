@@ -14,18 +14,17 @@ namespace CalendarScheduler\Apply;
 /**
  * FppScheduleWriter
  *
- * Writes the final schedule.json safely.
+ * Reads/writes schedule.json via FPP REST API.
  *
- * Hardening guarantees:
- * - Pre-validate JSON serialization before taking locks or touching files
- * - Exclusive flock() to prevent concurrent writers
- * - Backup existing schedule.json to schedule.json.bak
- * - Atomic replace via temp file + rename
- * - Cleanup temp file on failure
+ * Runtime behavior:
+ * - Read via GET /api/schedule
+ * - Write via POST /api/schedule
+ * - Keep staged and backup artifacts in plugin staging directory
  */
 final class FppScheduleWriter
 {
-    private string $schedulePath;
+    private const FPP_SCHEDULE_API_URL = 'http://127.0.0.1/api/schedule';
+
     private string $stagingDirectory;
 
     public function __construct(string $schedulePath, string $stagingDirectory)
@@ -41,7 +40,6 @@ final class FppScheduleWriter
             throw new \InvalidArgumentException('stagingDirectory must not be empty');
         }
 
-        $this->schedulePath = $schedulePath;
         $this->stagingDirectory = $stagingDirectory;
     }
 
@@ -50,22 +48,7 @@ final class FppScheduleWriter
      */
     public function load(): array
     {
-        if (!file_exists($this->schedulePath)) {
-            return [];
-        }
-
-        $contents = file_get_contents($this->schedulePath);
-        if ($contents === false) {
-            throw new \RuntimeException('Failed to read schedule file: ' . $this->schedulePath);
-        }
-
-        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
-
-        if (!is_array($decoded)) {
-            throw new \RuntimeException('Decoded schedule is not an array');
-        }
-
-        return array_values($decoded);
+        return $this->loadViaApi();
     }
 
     /**
@@ -117,47 +100,101 @@ final class FppScheduleWriter
             throw new \RuntimeException('No staged schedule to commit: ' . $stagedPath);
         }
 
-        $hadExisting = file_exists($this->schedulePath);
+        $this->commitStagedViaApi($stagedPath, $backupPath);
+    }
 
-        $lockHandle = @fopen($this->schedulePath, 'c+');
-        if ($lockHandle === false) {
-            throw new \RuntimeException('Unable to open schedule file for locking: ' . $this->schedulePath);
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function loadViaApi(): array
+    {
+        $payload = $this->requestScheduleApi('GET');
+        if ($payload === []) {
+            return [];
         }
 
-        try {
-            if (!flock($lockHandle, LOCK_EX)) {
-                throw new \RuntimeException('Unable to acquire schedule lock: ' . $this->schedulePath);
-            }
-
-            if ($hadExisting) {
-                if (!@copy($this->schedulePath, $backupPath)) {
-                    throw new \RuntimeException('Failed to create schedule backup: ' . $backupPath);
-                }
-            }
-
-            $tmpPath = $this->schedulePath . '.tmp';
-
-            if (file_exists($tmpPath)) {
-                @unlink($tmpPath);
-            }
-
-            $contents = file_get_contents($stagedPath);
-            if ($contents === false) {
-                throw new \RuntimeException('Failed to read staged schedule: ' . $stagedPath);
-            }
-
-            if (@file_put_contents($tmpPath, $contents) === false) {
-                @unlink($tmpPath);
-                throw new \RuntimeException('Failed to write temporary schedule file: ' . $tmpPath);
-            }
-
-            if (!@rename($tmpPath, $this->schedulePath)) {
-                @unlink($tmpPath);
-                throw new \RuntimeException('Failed to replace schedule file: ' . $this->schedulePath);
-            }
-        } finally {
-            @flock($lockHandle, LOCK_UN);
-            @fclose($lockHandle);
+        if (array_is_list($payload)) {
+            return $payload;
         }
+
+        if (isset($payload['schedule']) && is_array($payload['schedule']) && array_is_list($payload['schedule'])) {
+            return $payload['schedule'];
+        }
+
+        throw new \RuntimeException('FPP schedule API returned unexpected payload shape');
+    }
+
+    private function commitStagedViaApi(string $stagedPath, string $backupPath): void
+    {
+        $stagedJson = file_get_contents($stagedPath);
+        if (!is_string($stagedJson) || trim($stagedJson) === '') {
+            throw new \RuntimeException('Failed to read staged schedule payload: ' . $stagedPath);
+        }
+
+        $decodedStaged = json_decode($stagedJson, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($decodedStaged) || !array_is_list($decodedStaged)) {
+            throw new \RuntimeException('Staged schedule JSON must be a list payload');
+        }
+
+        // Preserve the same local backup artifact behavior as file-mode commit.
+        $current = $this->loadViaApi();
+        $backupJson = json_encode($current, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        if (@file_put_contents($backupPath, (string)$backupJson . PHP_EOL, LOCK_EX) === false) {
+            throw new \RuntimeException('Failed to create schedule backup: ' . $backupPath);
+        }
+
+        $this->requestScheduleApi('POST', $stagedJson);
+    }
+
+    /**
+     * @return array<string,mixed>|array<int,array<string,mixed>>
+     */
+    private function requestScheduleApi(string $method, ?string $jsonBody = null): array
+    {
+        if (!function_exists('curl_init')) {
+            throw new \RuntimeException('FPP schedule API access requires cURL');
+        }
+
+        $ch = curl_init(self::FPP_SCHEDULE_API_URL);
+        if ($ch === false) {
+            throw new \RuntimeException('Unable to initialize cURL for FPP schedule API');
+        }
+
+        $opts = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        ];
+
+        if ($method === 'POST') {
+            $opts[CURLOPT_POST] = true;
+            $opts[CURLOPT_POSTFIELDS] = (string)$jsonBody;
+        } else {
+            $opts[CURLOPT_HTTPGET] = true;
+        }
+
+        curl_setopt_array($ch, $opts);
+
+        $rawBody = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if (!is_string($rawBody)) {
+            $err = $curlError !== '' ? $curlError : 'request failed';
+            throw new \RuntimeException("FPP schedule API {$method} failed: {$err}");
+        }
+        if ($httpCode < 200 || $httpCode >= 300) {
+            throw new \RuntimeException("FPP schedule API {$method} failed (HTTP {$httpCode})");
+        }
+
+        $decoded = json_decode($rawBody, true);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException("FPP schedule API {$method} returned invalid JSON");
+        }
+
+        return $decoded;
     }
 }
