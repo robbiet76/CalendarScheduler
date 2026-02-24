@@ -28,6 +28,8 @@ use CalendarScheduler\Platform\FPPSemantics;
  */
 final class FppScheduleAdapter
 {
+    private const FPP_SCHEDULE_API_URL = 'http://127.0.0.1/api/schedule';
+
     /** @var array<string,bool> */
     private const COMMAND_EXCLUDE_KEYS = [
         'enabled' => true,
@@ -114,7 +116,7 @@ final class FppScheduleAdapter
      * Load and convert all FPP schedule entries into canonical manifest-event arrays.
      *
      * @param \DateTimeZone $fppTz
-     * @param string $schedulePath Absolute path to schedule.json
+     * @param string $schedulePath Kept for call-site compatibility; live read is via /api/schedule
      * @return array<int,array<string,mixed>> manifest-events
      */
     public function loadManifestEvents(
@@ -122,23 +124,8 @@ final class FppScheduleAdapter
         string $schedulePath
     ): array {
         $fppTz = $context->timezone;
-        if (!is_file($schedulePath)) {
-            throw new \RuntimeException("FPP schedule not found: {$schedulePath}");
-        }
-
-        $raw = json_decode(
-            file_get_contents($schedulePath),
-            true,
-            512,
-            JSON_THROW_ON_ERROR
-        );
-
-        if (!is_array($raw)) {
-            throw new \RuntimeException('Invalid FPP schedule.json');
-        }
-
-        $mtime = filemtime($schedulePath);
-        $updatedAt = is_int($mtime) ? $mtime : time();
+        $raw = $this->fetchLiveScheduleViaApi();
+        $updatedAt = time();
 
         $yearHints = [];
         $globalYearHint = null;
@@ -213,6 +200,58 @@ final class FppScheduleAdapter
         unset($event);
 
         return array_values($aggregated);
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function fetchLiveScheduleViaApi(): array
+    {
+        if (!function_exists('curl_init')) {
+            throw new \RuntimeException('FPP schedule API read requires cURL');
+        }
+
+        $ch = curl_init(self::FPP_SCHEDULE_API_URL);
+        if ($ch === false) {
+            throw new \RuntimeException('Unable to initialize cURL for FPP schedule API read');
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPGET => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_CONNECTTIMEOUT => 3,
+        ]);
+
+        $rawBody = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if (!is_string($rawBody)) {
+            $err = $curlError !== '' ? $curlError : 'request failed';
+            throw new \RuntimeException("FPP schedule API read failed: {$err}");
+        }
+        if ($httpCode < 200 || $httpCode >= 300) {
+            throw new \RuntimeException("FPP schedule API read failed (HTTP {$httpCode})");
+        }
+
+        $decoded = json_decode($rawBody, true);
+        if (!is_array($decoded)) {
+            throw new \RuntimeException('FPP schedule API read returned invalid JSON');
+        }
+
+        if (array_is_list($decoded)) {
+            return $decoded;
+        }
+
+        // Be defensive if upstream returns an object wrapper.
+        if (isset($decoded['schedule']) && is_array($decoded['schedule']) && array_is_list($decoded['schedule'])) {
+            return $decoded['schedule'];
+        }
+
+        throw new \RuntimeException('FPP schedule API read returned unexpected payload shape');
     }
 
     /**
