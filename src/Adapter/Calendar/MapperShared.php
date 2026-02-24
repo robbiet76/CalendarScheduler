@@ -189,6 +189,19 @@ final class MapperShared
         }];
     }
 
+    /**
+     * @return array<string,string> displayName => graph color enum
+     */
+    public static function managedOutlookMasterCategoryColors(): array
+    {
+        return [
+            'Blue category' => 'preset7',
+            'Green category' => 'preset4',
+            'Red category' => 'preset0',
+            'Gray category' => 'preset12',
+        ];
+    }
+
     public static function managedStyleToken(string $type, bool $enabled): string
     {
         if (!$enabled) {

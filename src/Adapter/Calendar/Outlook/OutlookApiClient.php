@@ -131,6 +131,33 @@ final class OutlookApiClient
         return is_array($items) ? $items : [];
     }
 
+    /** @return array<int,array<string,mixed>> */
+    public function listMasterCategories(): array
+    {
+        $this->ensureAuthenticated();
+
+        $res = $this->requestJson('GET', '/me/outlook/masterCategories', null);
+        $items = $res['value'] ?? [];
+
+        return is_array($items) ? $items : [];
+    }
+
+    public function createMasterCategory(string $displayName, string $color): void
+    {
+        $this->ensureAuthenticated();
+
+        $name = trim($displayName);
+        $color = trim($color);
+        if ($name === '' || $color === '') {
+            throw new \RuntimeException('Master category displayName/color is required.');
+        }
+
+        $this->requestJson('POST', '/me/outlook/masterCategories', [
+            'displayName' => $name,
+            'color' => $color,
+        ]);
+    }
+
     /** @return array<string,mixed> */
     public function getMe(): array
     {

@@ -1813,6 +1813,7 @@ function cs_reset_outlook_managed_colors(): array
     cs_bootstrap_outlook_config_if_missing();
     $config = new OutlookConfig(CS_OUTLOOK_CONFIG_DIR);
     $client = new OutlookApiClient($config);
+    cs_ensure_outlook_managed_master_categories($client);
     $calendarId = $config->getCalendarId();
     $events = $client->listEvents($calendarId);
 
@@ -1862,6 +1863,45 @@ function cs_reset_outlook_managed_colors(): array
         'managed' => $managed,
         'updated' => $updated,
     ];
+}
+
+function cs_ensure_outlook_managed_master_categories(OutlookApiClient $client): void
+{
+    $desired = MapperShared::managedOutlookMasterCategoryColors();
+    $existingRows = $client->listMasterCategories();
+
+    $existingNames = [];
+    foreach ($existingRows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $displayName = is_string($row['displayName'] ?? null) ? trim((string)$row['displayName']) : '';
+        if ($displayName === '') {
+            continue;
+        }
+        $existingNames[strtolower($displayName)] = true;
+    }
+
+    foreach ($desired as $displayName => $color) {
+        $key = strtolower(trim((string)$displayName));
+        if ($key === '' || isset($existingNames[$key])) {
+            continue;
+        }
+        try {
+            $client->createMasterCategory((string)$displayName, (string)$color);
+        } catch (\Throwable $e) {
+            $msg = strtolower($e->getMessage());
+            // Another client/session may have created it already.
+            if (
+                str_contains($msg, 'already exists')
+                || str_contains($msg, 'name already exists')
+                || str_contains($msg, 'errornamealreadyexists')
+            ) {
+                continue;
+            }
+            throw $e;
+        }
+    }
 }
 
 try {
