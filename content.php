@@ -230,18 +230,18 @@
         <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
         <div class="mb-2">
-          <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
-            <div class="cs-provider-tags" role="tablist" aria-label="Calendar Provider">
-              <button type="button" class="badge cs-provider-tag" id="csProviderGoogleBadge" data-provider="google">Google</button>
-              <button type="button" class="badge cs-provider-tag" id="csProviderOutlookBadge" data-provider="outlook">Outlook</button>
-            </div>
-            <button type="button" class="buttons btn-black" id="csProviderSetupStepsBtn">Setup Steps</button>
+          <div class="cs-provider-tags" role="tablist" aria-label="Calendar Provider">
+            <button type="button" class="badge cs-provider-tag" id="csProviderGoogleBadge" data-provider="google">Google</button>
+            <button type="button" class="badge cs-provider-tag" id="csProviderOutlookBadge" data-provider="outlook">Outlook</button>
           </div>
         </div>
 
         <div id="csConnectionHelpGoogle" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Google OAuth Setup</strong></div>
           <p class="cs-muted mb-2">Upload your Google OAuth client JSON, then click <strong>Connect Provider</strong> to start device sign-in.</p>
+          <div class="mb-2">
+            <button type="button" class="buttons btn-black" id="csGoogleSetupStepsBtn">Setup Steps</button>
+          </div>
           <div class="row g-2 align-items-end mb-2">
             <div class="col-12 col-md-8">
               <label for="csDeviceClientFile" class="form-label mb-1">Upload client secret JSON:</label>
@@ -260,6 +260,9 @@
         <div id="csConnectionHelpOutlook" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Outlook OAuth Setup</strong></div>
           <p class="cs-muted mb-2">Enter your Azure app <strong>Client ID</strong>, then click <strong>Connect Provider</strong> to start device sign-in.</p>
+          <div class="mb-2">
+            <button type="button" class="buttons btn-black" id="csOutlookSetupStepsBtn">Setup Steps</button>
+          </div>
           <div class="mb-1"><strong>Current Setup Checks</strong></div>
           <ul id="csOutlookHelpChecks" class="mb-1"></ul>
           <div class="row g-2">
@@ -455,7 +458,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csUploadDeviceClientBtn", "csCalendarSelect", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors", "csProviderSetupStepsBtn"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csCalendarSelect", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors", "csGoogleSetupStepsBtn", "csOutlookSetupStepsBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -1425,8 +1428,12 @@
       onProviderTagClick("outlook");
     });
 
-    byId("csProviderSetupStepsBtn").addEventListener("click", function () {
-      setProviderSetupModalVisible(activeProvider, true);
+    byId("csGoogleSetupStepsBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible("google", true);
+    });
+
+    byId("csOutlookSetupStepsBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible("outlook", true);
     });
 
     byId("csGoogleSetupModalCloseBtn").addEventListener("click", function () {
