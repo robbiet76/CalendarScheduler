@@ -440,6 +440,7 @@
     var applyInFlight = false;
     var lastPendingCount = 0;
     var managedColorReconcileDone = false;
+    var awaitingPostAuthConnection = false;
 
     function byId(id) {
       return document.getElementById(id);
@@ -948,6 +949,9 @@
         var providerData = activeProvider === "outlook" ? outlook : google;
         syncMode = (typeof res.syncMode === "string" && res.syncMode) ? res.syncMode : "both";
         providerConnected = !!providerData.connected;
+        if (providerConnected) {
+          awaitingPostAuthConnection = false;
+        }
         if (!connectionCollapsedLoaded) {
           var uiPrefs = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
           setConnectionCollapsed(!!uiPrefs.connectionCollapsed);
@@ -1241,6 +1245,7 @@
             clearDeviceAuthPoll();
             clearPendingDeviceAuth();
             setDeviceAuthVisible(false);
+            awaitingPostAuthConnection = true;
             refreshAll();
             return;
           }
@@ -1358,7 +1363,14 @@
           }
           return runPreview();
         })
-        .catch(function (err) { setError(err.message); })
+        .catch(function (err) {
+          if (awaitingPostAuthConnection && !providerConnected) {
+            setLoadingState();
+            byId("csPreviewTime").textContent = "Finalizing provider connection...";
+            return;
+          }
+          setError(err.message);
+        })
         .finally(function () {
           if (!initialRenderDone) {
             var body = byId("csMainBody");
