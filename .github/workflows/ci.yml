@@ -25,9 +25,9 @@ jobs:
           php -l content.php
           php -l ui-api.php
 
-      - name: Resolution Regression
+      - name: Provider Parity Regression (Local-Safe)
         run: |
-          bin/cs-full-regression --skip-live --skip-api-smoke --json
+          bin/cs-provider-parity-regression --json
 
       - name: Package Build And Verify
         run: |
