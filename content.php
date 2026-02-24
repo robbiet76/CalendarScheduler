@@ -186,6 +186,12 @@
   .cs-modal-body {
     padding: 12px 14px;
   }
+
+  .cs-small-check .form-check-input {
+    transform: scale(0.85);
+    transform-origin: left center;
+    margin-top: 0.2rem;
+  }
 </style>
 
 <div class="cs-page" id="csShell">
@@ -270,19 +276,16 @@
           <select id="csCalendarSelect" class="form-control" disabled>
             <option>Loading calendars...</option>
           </select>
+          <div class="form-check cs-small-check mt-2">
+            <input class="form-check-input" type="checkbox" id="csEnforceManagedColors">
+            <label class="form-check-label" for="csEnforceManagedColors">
+              Manage calendar event colors
+            </label>
+          </div>
         </div>
 
         <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
           <button class="buttons btn-success" id="csConnectBtn" type="button">Connect Provider</button>
-        </div>
-        <div class="mt-2 pt-2 border-top">
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="csEnforceManagedColors">
-            <label class="form-check-label" for="csEnforceManagedColors">
-              Enforce managed colors
-            </label>
-          </div>
-          <div class="cs-muted">When on, manual color/category edits are automatically reset to managed colors.</div>
         </div>
         </div>
         <div class="cs-connection-modify-wrap cs-hidden" id="csConnectionModifyWrap">
@@ -406,6 +409,7 @@
     var applyConfirmTimer = null;
     var applyInFlight = false;
     var lastPendingCount = 0;
+    var managedColorReconcileDone = false;
 
     function byId(id) {
       return document.getElementById(id);
@@ -950,6 +954,7 @@
           if (enforceToggleInit) {
             enforceToggleInit.checked = !!uiPrefs.enforceManagedColors;
           }
+          managedColorReconcileDone = false;
           connectionCollapsedLoaded = true;
         }
         if (providerConnected) {
@@ -1044,9 +1049,28 @@
         }
         if (enforceManagedColorsToggle) {
           var uiPrefsApply = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
-          enforceManagedColorsToggle.checked = !!uiPrefsApply.enforceManagedColors;
+          var enforceManagedColors = !!uiPrefsApply.enforceManagedColors;
+          enforceManagedColorsToggle.checked = enforceManagedColors;
           enforceManagedColorsToggle.dataset.locked = providerConnected ? "0" : "1";
           enforceManagedColorsToggle.disabled = !providerConnected;
+
+          // One-time reconciliation after load to migrate legacy custom categories.
+          if (providerConnected && enforceManagedColors && !managedColorReconcileDone) {
+            managedColorReconcileDone = true;
+            fetchJson({ action: "reset_managed_colors" })
+              .then(function (resetRes) {
+                var summary = (resetRes && typeof resetRes.summary === "object" && resetRes.summary) ? resetRes.summary : {};
+                var updated = Number(summary.updated || 0);
+                var managed = Number(summary.managed || 0);
+                if (updated > 0) {
+                  setSetupStatus("Managed colors reconciled. Updated " + updated + " of " + managed + " managed events.");
+                }
+                return refreshAll();
+              })
+              .catch(function () {
+                managedColorReconcileDone = false;
+              });
+          }
         }
         updateApplySubtitle();
         if (syncModeWrap) {
