@@ -41,14 +41,24 @@ function exportFppEnv(string $outputPath): void
     ];
 
     try {
-        // Prefer $settings from FPP web bootstrap (most reliable in plugin.php context).
-        $settings = null;
-        if (isset($GLOBALS['settings']) && is_array($GLOBALS['settings'])) {
-            $settings = $GLOBALS['settings'];
-        }
+        // Prefer FPP REST API for live values.
+        $get = static function (string $key): ?string {
+            $url = 'http://127.0.0.1/api/settings/' . rawurlencode($key);
+            $json = @file_get_contents($url);
+            if (is_string($json) && trim($json) !== '') {
+                $decoded = @json_decode($json, true);
+                if (is_array($decoded) && array_key_exists('value', $decoded)) {
+                    $v = $decoded['value'];
+                    if (is_string($v) || is_numeric($v)) {
+                        return (string)$v;
+                    }
+                }
+            }
 
-        // Fallback helper for contexts where only GetSettingValue() is exposed.
-        $get = static function (string $key) use ($settings): ?string {
+            // Fallback for contexts where API is unavailable.
+            $settings = isset($GLOBALS['settings']) && is_array($GLOBALS['settings'])
+                ? $GLOBALS['settings']
+                : null;
             if (is_array($settings) && array_key_exists($key, $settings)) {
                 $v = $settings[$key];
                 if (is_string($v) || is_numeric($v)) {
@@ -63,6 +73,7 @@ function exportFppEnv(string $outputPath): void
                     return (string) $v;
                 }
             }
+
             return null;
         };
 
@@ -78,7 +89,7 @@ function exportFppEnv(string $outputPath): void
         $lat = $get('Latitude');
         $lon = $get('Longitude');
         $tz  = $get('TimeZone') ?? $get('TimeZoneName') ?? $get('timezone');
-        $loc = $get('Locale');
+        $loc = $get('Locale') ?? $get('locale');
 
         if ($lat !== null) $result['latitude']  = (float) $lat;
         if ($lon !== null) $result['longitude'] = (float) $lon;

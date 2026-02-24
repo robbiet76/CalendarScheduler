@@ -29,6 +29,7 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/src/Platform/FppEnvExporter.php';
+require_once __DIR__ . '/src/Platform/FppRuntimeExporter.php';
 
 const CS_MANIFEST_PATH = '/home/fpp/media/config/calendar-scheduler/manifest.json';
 const CS_SCHEDULE_PATH = '/home/fpp/media/config/schedule.json';
@@ -36,6 +37,7 @@ const CS_FPP_STAGE_DIR = '/home/fpp/media/config/calendar-scheduler/fpp';
 const CS_GOOGLE_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/google';
 const CS_OUTLOOK_CONFIG_DIR = '/home/fpp/media/config/calendar-scheduler/calendar/outlook';
 const CS_FPP_ENV_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+const CS_FPP_RUNTIME_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
 const CS_GOOGLE_DEVICE_CLIENT_FILENAME = 'client_secret_device.json';
 const CS_GOOGLE_DEFAULT_REDIRECT_URI = 'http://127.0.0.1:8765/oauth2callback';
 const CS_GOOGLE_DEFAULT_SCOPE = 'https://www.googleapis.com/auth/calendar';
@@ -255,6 +257,7 @@ function cs_export_fpp_env(): void
 
     try {
         Platform\exportFppEnv(CS_FPP_ENV_PATH);
+        Platform\exportFppRuntime(CS_FPP_RUNTIME_PATH);
     } finally {
         restore_error_handler();
     }

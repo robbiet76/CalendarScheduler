@@ -126,6 +126,7 @@ if (!in_array($format, ['text', 'json'], true)) {
 
 
 $envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+$runtimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
 
 $readEnvEpoch = static function (string $path): int {
     if (!file_exists($path)) {
@@ -146,6 +147,12 @@ if ($envUrl !== false && trim($envUrl) !== '') {
     $envUrl = trim($envUrl);
 } else {
     $envUrl = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-env-export.php&nopage=1';
+}
+$runtimeUrl = getenv('GCS_FPP_RUNTIME_URL');
+if ($runtimeUrl !== false && trim($runtimeUrl) !== '') {
+    $runtimeUrl = trim($runtimeUrl);
+} else {
+    $runtimeUrl = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-runtime-export.php&nopage=1';
 }
 
 $cmd = 'curl --silent --show-error --fail --max-time 5 '
@@ -177,6 +184,31 @@ $afterEpoch = is_int($afterEpoch) ? $afterEpoch : (int) $afterEpoch;
 
 if ($afterEpoch <= $beforeEpoch) {
     throw new RuntimeException('fpp-env.json was not refreshed (generatedAtEpoch did not advance)');
+}
+
+// Refresh FPP runtime catalog snapshot (REST-sourced).
+$cmdRuntime = 'curl --silent --show-error --fail --max-time 5 '
+    . '--output /dev/null '
+    . escapeshellarg($runtimeUrl);
+exec($cmdRuntime, $outRuntime, $rcRuntime);
+
+if ($rcRuntime !== 0) {
+    throw new RuntimeException('Failed to invoke FPP runtime exporter via web');
+}
+
+if (!file_exists($runtimePath)) {
+    throw new RuntimeException('fpp-runtime.json was not written by web exporter');
+}
+
+$runtime = json_decode(file_get_contents($runtimePath), true);
+if (!is_array($runtime)) {
+    throw new RuntimeException('fpp-runtime.json is not valid JSON');
+}
+
+if (($runtime['ok'] ?? false) !== true) {
+    $errors = $runtime['errors'] ?? [];
+    $msg = is_array($errors) ? implode('; ', $errors) : (string)$errors;
+    throw new RuntimeException('fpp-runtime.json export failed: ' . $msg);
 }
 
 try {
