@@ -5,27 +5,26 @@ This guide is for first-time setup on an FPP instance with the Calendar Schedule
 ## Prerequisites
 - FPP `9.0+`
 - Plugin installed and visible in FPP UI
-- Google account with access to the target calendar
-- Google Cloud OAuth client JSON of type `TV and Limited Input`
+- A calendar account you want to sync (`Google` or `Outlook`)
+
+Provider-specific prerequisites:
+- Google: OAuth client JSON of type `TV and Limited Input`
+- Outlook: Azure app registration `Client ID` with Graph delegated scopes including `Calendars.ReadWrite` and `offline_access`, with public client/device flow enabled
 
 ## 1) Open The Plugin
 1. In FPP, open `Content Setup -> Plugins -> Calendar Scheduler`.
 2. Confirm the page loads and shows `Connection Setup`, `Pending Actions`, and `Apply Changes`.
 
-## 2) Upload OAuth Client JSON
-1. In `Connection Setup`, click `Upload Client JSON`.
-2. Select your downloaded OAuth JSON file.
-3. Wait for setup checks to show:
-   - `Device client file present: OK`
-   - `Config present: OK`
-   - `Config valid: OK`
-   - `Token directory writable: OK`
+## 2) Choose Provider
+1. In `Connection Setup`, select `Google` or `Outlook` using the provider tags.
+2. Complete setup fields/checks for the selected provider:
+   - Google: upload OAuth client JSON and confirm setup checks are `OK`.
+   - Outlook: enter `Client ID` and confirm setup checks are `OK`.
 
 ## 3) Connect Provider
 1. Click `Connect Provider`.
-2. Open `google.com/device`.
-3. Enter the shown code.
-4. Return to FPP and wait for connected state.
+2. Follow the device sign-in prompt for the selected provider.
+3. Return to FPP and wait for connected state.
 
 Expected connected indicators:
 - `Connected Account` is populated.
@@ -60,5 +59,5 @@ Open `Diagnostics` and confirm these keys are present:
 - `lastError`
 
 ## Safe First-Run Recommendation
-- First run in `Calendar -> FPP` if calendar is your source of truth.
+- First run in `Calendar -> FPP` if the calendar is your source of truth.
 - Apply once, confirm expected FPP schedule output, then switch to `Both` if desired.
