@@ -188,9 +188,22 @@
   }
 
   .cs-small-check .form-check-input {
-    transform: scale(0.85);
-    transform-origin: left center;
-    margin-top: 0.2rem;
+    transform: scale(0.75);
+    transform-origin: center center;
+    margin: 0;
+    position: static;
+  }
+
+  .cs-small-check {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding-left: 0;
+  }
+
+  .cs-small-check .form-check-label {
+    margin: 0;
+    line-height: 1.2;
   }
 </style>
 
