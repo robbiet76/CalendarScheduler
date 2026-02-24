@@ -441,7 +441,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csCalendarSelect", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -1019,7 +1019,7 @@
             selectedLabel = select.options[select.selectedIndex >= 0 ? select.selectedIndex : 0].text || "";
           }
           updateConnectionSummary(providerData, selectedLabel);
-          select.disabled = false;
+          select.disabled = !!refreshInFlight;
         }
         if (connectedAccountGroup) {
           connectedAccountGroup.classList.toggle("cs-hidden", !providerConnected);
@@ -1058,7 +1058,7 @@
         if (syncModeSelect) {
           syncModeSelect.value = syncMode;
           syncModeSelect.dataset.locked = providerConnected ? "0" : "1";
-          syncModeSelect.disabled = !providerConnected;
+          syncModeSelect.disabled = !!refreshInFlight || !providerConnected;
         }
         if (enforceManagedColorsToggle) {
           var uiPrefsApply = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
