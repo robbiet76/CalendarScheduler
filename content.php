@@ -1461,16 +1461,30 @@
 
     byId("csEnforceManagedColors").addEventListener("change", function () {
       var checked = !!this.checked;
+      setButtonsDisabled(true);
+      setLoadingState();
       fetchJson({
         action: "set_ui_pref",
         key: "enforce_managed_colors",
         value: checked
       }).then(function () {
-        setSetupStatus(checked
-          ? "Managed colors are now enforced on calendar updates."
-          : "Managed colors are now optional; manual colors are preserved.");
+        if (!checked) {
+          setSetupStatus("Managed colors are now optional; manual colors are preserved.");
+          return refreshAll();
+        }
+
+        // Enabling enforcement should apply immediately so users see the state change.
+        return fetchJson({ action: "reset_managed_colors" }).then(function (res) {
+          var summary = (res && typeof res.summary === "object" && res.summary) ? res.summary : {};
+          var updated = Number(summary.updated || 0);
+          var managed = Number(summary.managed || 0);
+          setSetupStatus("Managed colors enabled and applied. Updated " + updated + " of " + managed + " managed events.");
+          return refreshAll();
+        });
       }).catch(function (err) {
         setError(err.message);
+      }).finally(function () {
+        setButtonsDisabled(false);
       });
     });
 

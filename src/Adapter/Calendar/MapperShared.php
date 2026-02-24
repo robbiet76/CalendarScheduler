@@ -168,11 +168,8 @@ final class MapperShared
 
     public static function managedGoogleColorId(string $type, bool $enabled): string
     {
-        if (!$enabled) {
-            return '8';
-        }
-
-        return match (strtolower(trim($type))) {
+        return match (self::managedStyleToken($type, $enabled)) {
+            'disabled' => '8',
             'sequence' => '10',
             'command' => '6',
             default => '9',
@@ -184,15 +181,63 @@ final class MapperShared
      */
     public static function managedOutlookCategories(string $type, bool $enabled): array
     {
-        if (!$enabled) {
-            return ['CS Disabled'];
-        }
-
-        return [match (strtolower(trim($type))) {
+        return [match (self::managedStyleToken($type, $enabled)) {
+            'disabled' => 'CS Disabled',
             'sequence' => 'CS Sequence',
             'command' => 'CS Command',
             default => 'CS Playlist',
         }];
+    }
+
+    public static function managedStyleToken(string $type, bool $enabled): string
+    {
+        if (!$enabled) {
+            return 'disabled';
+        }
+
+        return match (strtolower(trim($type))) {
+            'sequence' => 'sequence',
+            'command' => 'command',
+            default => 'playlist',
+        };
+    }
+
+    public static function googleColorIdToStyleToken(?string $colorId): ?string
+    {
+        if (!is_string($colorId) || trim($colorId) === '') {
+            return null;
+        }
+
+        $normalized = trim($colorId);
+        return match ($normalized) {
+            '8' => 'disabled',
+            '10' => 'sequence',
+            '6' => 'command',
+            '9' => 'playlist',
+            default => 'custom:google:' . strtolower($normalized),
+        };
+    }
+
+    /**
+     * @param array<int,string> $categories
+     */
+    public static function outlookCategoriesToStyleToken(array $categories): ?string
+    {
+        foreach ($categories as $category) {
+            if (!is_string($category) || trim($category) === '') {
+                continue;
+            }
+            $normalized = strtolower(trim($category));
+            return match ($normalized) {
+                'cs disabled' => 'disabled',
+                'cs sequence' => 'sequence',
+                'cs command' => 'command',
+                'cs playlist' => 'playlist',
+                default => 'custom:outlook:' . $normalized,
+            };
+        }
+
+        return null;
     }
 
     public static function composeManagedDescription(

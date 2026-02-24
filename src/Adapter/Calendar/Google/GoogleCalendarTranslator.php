@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter\Calendar\Google;
 
+use CalendarScheduler\Adapter\Calendar\MapperShared;
 use CalendarScheduler\Adapter\Calendar\TranslatorShared;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -84,8 +85,18 @@ final class GoogleCalendarTranslator
                 $description = null;
             }
             $status = is_string($ev['status'] ?? null) ? $ev['status'] : 'confirmed';
+            $decodedMetadata = GoogleEventMetadataSchema::decodeFromGoogleEvent($ev);
+            $observedStyleToken = MapperShared::googleColorIdToStyleToken(
+                is_string($ev['colorId'] ?? null) ? (string)$ev['colorId'] : null
+            );
+            if (is_string($observedStyleToken) && $observedStyleToken !== '') {
+                $decodedSettings = is_array($decodedMetadata['settings'] ?? null) ? $decodedMetadata['settings'] : [];
+                $decodedSettings['styleToken'] = $observedStyleToken;
+                $decodedMetadata['settings'] = $decodedSettings;
+            }
+
             $schedulerMetadata = $this->reconcileSchedulerMetadata(
-                GoogleEventMetadataSchema::decodeFromGoogleEvent($ev),
+                $decodedMetadata,
                 $summary,
                 $description
             );

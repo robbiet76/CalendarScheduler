@@ -35,6 +35,7 @@ final class GoogleEventMetadataSchema
     public const KEY_SYMBOLIC_START_OFFSET = 'cs.symbolicStartOffset';
     public const KEY_SYMBOLIC_END = 'cs.symbolicEnd';
     public const KEY_SYMBOLIC_END_OFFSET = 'cs.symbolicEndOffset';
+    public const KEY_STYLE_TOKEN = 'cs.styleToken';
 
     private function __construct()
     {
@@ -60,7 +61,8 @@ final class GoogleEventMetadataSchema
         ?string $symbolicStart = null,
         ?int $symbolicStartOffset = null,
         ?string $symbolicEnd = null,
-        ?int $symbolicEndOffset = null
+        ?int $symbolicEndOffset = null,
+        ?string $styleToken = null
     ): array {
         $out = [
             self::KEY_MANIFEST_EVENT_ID => $manifestEventId,
@@ -97,6 +99,9 @@ final class GoogleEventMetadataSchema
         if (is_string($symbolicEnd) && trim($symbolicEnd) !== '') {
             $out[self::KEY_SYMBOLIC_END] = trim($symbolicEnd);
             $out[self::KEY_SYMBOLIC_END_OFFSET] = (string)($symbolicEndOffset ?? 0);
+        }
+        if (is_string($styleToken) && trim($styleToken) !== '') {
+            $out[self::KEY_STYLE_TOKEN] = trim($styleToken);
         }
 
         return $out;
@@ -149,6 +154,11 @@ final class GoogleEventMetadataSchema
         if ($symbolicEnd !== null) {
             $settings['end'] = $symbolicEnd;
             $settings['end_offset'] = self::readInt($private, self::KEY_SYMBOLIC_END_OFFSET) ?? 0;
+        }
+
+        $styleToken = self::readString($private, self::KEY_STYLE_TOKEN);
+        if ($styleToken !== null) {
+            $settings['styleToken'] = $styleToken;
         }
 
         return [

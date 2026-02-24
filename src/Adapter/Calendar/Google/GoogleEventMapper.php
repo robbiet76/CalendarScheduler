@@ -535,6 +535,7 @@ final class GoogleEventMapper
         $stopType = is_string($behaviorIn['stopType'] ?? null)
             ? (string)$behaviorIn['stopType']
             : (string)($payloadIn['stopType'] ?? 'graceful');
+        $styleToken = MapperShared::managedStyleToken($identityType, $enabled);
 
         $startTime = is_array($timing['start_time'] ?? null) ? $timing['start_time'] : null;
         $endTime = is_array($timing['end_time'] ?? null) ? $timing['end_time'] : null;
@@ -573,7 +574,8 @@ final class GoogleEventMapper
                     is_string($timing['end_time']['symbolic'] ?? null)
                         ? trim((string)$timing['end_time']['symbolic'])
                         : null,
-                    isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : null
+                    isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : null,
+                    $styleToken
                 ),
             ],
         ];

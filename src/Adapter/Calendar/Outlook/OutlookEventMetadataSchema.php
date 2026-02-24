@@ -31,6 +31,7 @@ final class OutlookEventMetadataSchema
     public const KEY_SYMBOLIC_END = 'cs.symbolicEnd';
     public const KEY_SYMBOLIC_END_OFFSET = 'cs.symbolicEndOffset';
     public const KEY_TIMEZONE = 'cs.timezone';
+    public const KEY_STYLE_TOKEN = 'cs.styleToken';
 
     private function __construct()
     {
@@ -52,7 +53,8 @@ final class OutlookEventMetadataSchema
         ?int $symbolicStartOffset = null,
         ?string $symbolicEnd = null,
         ?int $symbolicEndOffset = null,
-        ?string $timezone = null
+        ?string $timezone = null,
+        ?string $styleToken = null
     ): array {
         $out = [
             self::KEY_MANIFEST_EVENT_ID => $manifestEventId,
@@ -94,6 +96,9 @@ final class OutlookEventMetadataSchema
         if (is_string($timezone) && trim($timezone) !== '') {
             $out[self::KEY_TIMEZONE] = trim($timezone);
         }
+        if (is_string($styleToken) && trim($styleToken) !== '') {
+            $out[self::KEY_STYLE_TOKEN] = trim($styleToken);
+        }
 
         return $out;
     }
@@ -125,6 +130,7 @@ final class OutlookEventMetadataSchema
             self::graphPropertyId(self::KEY_SYMBOLIC_END),
             self::graphPropertyId(self::KEY_SYMBOLIC_END_OFFSET),
             self::graphPropertyId(self::KEY_TIMEZONE),
+            self::graphPropertyId(self::KEY_STYLE_TOKEN),
         ];
     }
 
@@ -203,6 +209,11 @@ final class OutlookEventMetadataSchema
         if ($symbolicEnd !== null) {
             $settings['end'] = $symbolicEnd;
             $settings['end_offset'] = self::readInt($private, self::KEY_SYMBOLIC_END_OFFSET) ?? 0;
+        }
+
+        $styleToken = self::readString($private, self::KEY_STYLE_TOKEN);
+        if ($styleToken !== null) {
+            $settings['styleToken'] = $styleToken;
         }
 
         return [

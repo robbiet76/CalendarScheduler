@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 namespace CalendarScheduler\Adapter\Calendar\Outlook;
 
+use CalendarScheduler\Adapter\Calendar\MapperShared;
 use CalendarScheduler\Adapter\Calendar\TranslatorShared;
 
 final class OutlookCalendarTranslator
@@ -82,8 +83,18 @@ final class OutlookCalendarTranslator
                 $timeZone = null;
             }
 
+            $decodedMetadata = OutlookEventMetadataSchema::decodeFromOutlookEvent($ev);
+            $observedStyleToken = MapperShared::outlookCategoriesToStyleToken(
+                is_array($ev['categories'] ?? null) ? $ev['categories'] : []
+            );
+            if (is_string($observedStyleToken) && $observedStyleToken !== '') {
+                $decodedSettings = is_array($decodedMetadata['settings'] ?? null) ? $decodedMetadata['settings'] : [];
+                $decodedSettings['styleToken'] = $observedStyleToken;
+                $decodedMetadata['settings'] = $decodedSettings;
+            }
+
             $schedulerMetadata = $this->reconcileSchedulerMetadata(
-                OutlookEventMetadataSchema::decodeFromOutlookEvent($ev),
+                $decodedMetadata,
                 $subject,
                 $description
             );

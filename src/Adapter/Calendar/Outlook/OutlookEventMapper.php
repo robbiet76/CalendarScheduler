@@ -334,6 +334,7 @@ final class OutlookEventMapper
         $stopType = is_string($behaviorIn['stopType'] ?? null)
             ? trim((string)$behaviorIn['stopType'])
             : (is_string($payloadIn['stopType'] ?? null) ? trim((string)$payloadIn['stopType']) : 'graceful');
+        $styleToken = MapperShared::managedStyleToken($identityType, $enabled);
 
         $subject = $this->buildSubject($action, $subEvent);
         $description = $this->buildDescription(
@@ -383,7 +384,8 @@ final class OutlookEventMapper
                 ? trim((string)$timing['end_time']['symbolic'])
                 : null,
             symbolicEndOffset: isset($timing['end_time']['offset']) ? (int)$timing['end_time']['offset'] : null,
-            timezone: $timezone
+            timezone: $timezone,
+            styleToken: $styleToken
         );
         $singleValueExtendedProperties = OutlookEventMetadataSchema::toSingleValueExtendedProperties($privateMetadata);
 

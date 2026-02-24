@@ -13,6 +13,7 @@ namespace CalendarScheduler\Engine;
 use CalendarScheduler\Intent\IntentNormalizer;
 use CalendarScheduler\Intent\NormalizationContext;
 use CalendarScheduler\Adapter\Calendar\CalendarSnapshot;
+use CalendarScheduler\Adapter\Calendar\MapperShared;
 use CalendarScheduler\Adapter\Calendar\ProviderRuntimeFactory;
 use CalendarScheduler\Planner\Dto\PlannerIntent;
 use CalendarScheduler\Resolution\ResolutionEngine;
@@ -52,6 +53,7 @@ final class SchedulerEngine
     private ?float $orderingLatitude = null;
     private ?float $orderingLongitude = null;
     private string $orderingTimezone = 'UTC';
+    private bool $managedColorEnforced = false;
     /** @var array<string,int|null> */
     private array $symbolicDisplaySecondsCache = [];
     /**
@@ -93,6 +95,7 @@ final class SchedulerEngine
     {
         $runEpoch = time();
         $syncMode = $this->normalizeSyncMode($opts['sync-mode'] ?? $opts['sync_mode'] ?? null);
+        $this->managedColorEnforced = MapperShared::isManagedColorEnforced();
 
         // -----------------------------------------------------------------
         // Resolve paths
@@ -625,6 +628,14 @@ final class SchedulerEngine
                                 'enabled'  => $enabled,
                                 'repeat'   => $repeat ?? 'none',
                                 'stopType' => $stopType ?? 'graceful',
+                                'styleToken' => (
+                                    $this->managedColorEnforced
+                                    && isset($settings['styletoken'])
+                                    && is_string($settings['styletoken'])
+                                    && trim((string)$settings['styletoken']) !== ''
+                                )
+                                    ? trim((string)$settings['styletoken'])
+                                    : null,
                             ]
                         ),
                     ];
