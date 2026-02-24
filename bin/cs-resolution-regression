@@ -60,6 +60,10 @@ $allCases = [
     'RR-27',
     'RR-28',
     'RR-29',
+    'RR-30',
+    'RR-31',
+    'RR-32',
+    'RR-33',
 ];
 
 if (array_key_exists('list', $opts)) {
@@ -973,6 +977,152 @@ function buildCaseFixture(string $caseId): array
                 },
             ];
         }
+
+        case 'RR-30': {
+            $rows = [
+                makeBaseRow(
+                    'rr30',
+                    'RR30_Target',
+                    '2026-03-20',
+                    '2026-03-25',
+                    '18:00:00',
+                    '22:00:00',
+                    ['settings' => ['start' => 'SunSet', 'start_offset' => -10, 'end' => 'Dusk', 'end_offset' => 15]]
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-30 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-30 subEventCount should be 1', $errors);
+                    assertTrue(
+                        windowExists($summary, sig('RR30_Target', '2026-03-20', '2026-03-25', 'SunSet', 'Dusk', 'graceful')),
+                        'RR-30 should preserve symbolic start and end times',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-31': {
+            $rows = [
+                makeBaseRow(
+                    'rr31',
+                    'RR31_WeekendMask_Target',
+                    '2026-05-01',
+                    '2026-05-31',
+                    '18:30:00',
+                    '21:30:00',
+                    ['freq' => 'WEEKLY', 'byday' => ['SA', 'SU']]
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-31 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-31 subEventCount should be 1', $errors);
+                    assertTrue(
+                        weeklyDaysPresent($summary, 'RR31_WeekendMask_Target', ['SA', 'SU']),
+                        'RR-31 weekend day mask should be preserved',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-32': {
+            $rows = [
+                makeBaseRow(
+                    'rr32',
+                    'RR32_MixedMask_Target',
+                    '2026-06-01',
+                    '2026-06-30',
+                    '19:00:00',
+                    '21:00:00',
+                    ['freq' => 'WEEKLY', 'byday' => ['TU', 'TH', 'SA']]
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-32 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 1, 'RR-32 subEventCount should be 1', $errors);
+                    assertTrue(
+                        weeklyDaysPresent($summary, 'RR32_MixedMask_Target', ['TU', 'TH', 'SA']),
+                        'RR-32 mixed day mask should be preserved',
+                        $errors
+                    );
+                },
+            ];
+        }
+
+        case 'RR-33': {
+            $rows = [
+                makeBaseRow(
+                    'rr33',
+                    'RR33_Command_Target',
+                    '2026-04-10',
+                    '2026-04-20',
+                    '20:00:00',
+                    '21:00:00',
+                    [
+                        'type' => 'command',
+                        'settings' => [
+                            'commandPreset' => 'volume_fade',
+                            'args' => '--zone=front --to=35',
+                        ],
+                    ]
+                ),
+                makeCancellationRow('rr33', '2026-04-15', '20:00:00'),
+                makeOverrideRow(
+                    'rr33',
+                    '2026-04-12',
+                    'RR33_Command_Target',
+                    '20:00:00',
+                    '21:30:00',
+                    [
+                        'type' => 'command',
+                        'settings' => [
+                            'commandPreset' => 'volume_fade',
+                            'args' => '--zone=front --to=10',
+                        ],
+                    ]
+                ),
+                makeOverrideRow(
+                    'rr33',
+                    '2026-04-18',
+                    'RR33_Command_Target',
+                    '20:00:00',
+                    '22:00:00',
+                    [
+                        'type' => 'command',
+                        'settings' => [
+                            'commandPreset' => 'script_call',
+                            'scriptName' => 'pre_show_warmup.sh',
+                        ],
+                    ]
+                ),
+            ];
+            return [
+                'calendarRows' => $rows,
+                'assert' => static function (array $summary, array &$errors): void {
+                    assertTrue($summary['eventCount'] === 1, 'RR-33 eventCount should be 1', $errors);
+                    assertTrue($summary['subEventCount'] === 4, 'RR-33 subEventCount should be 4', $errors);
+                    assertTrue(allWindowsType($summary, 'command'), 'RR-33 windows should all be command type', $errors);
+                    assertWindows(
+                        $summary,
+                        [
+                            sig('RR33_Command_Target', '2026-04-10', '2026-04-14', '20:00:00', '20:00:00', 'graceful'),
+                            sig('RR33_Command_Target', '2026-04-16', '2026-04-20', '20:00:00', '20:00:00', 'graceful'),
+                            sig('RR33_Command_Target', '2026-04-12', '2026-04-12', '20:00:00', '20:00:00', 'graceful'),
+                            sig('RR33_Command_Target', '2026-04-18', '2026-04-18', '20:00:00', '20:00:00', 'graceful'),
+                        ],
+                        $errors,
+                        'RR-33 windows'
+                    );
+                },
+            ];
+        }
     }
 
     throw new InvalidArgumentException("Unknown case: {$caseId}");
@@ -1077,6 +1227,10 @@ function caseTitle(string $id): string
         'RR-27' => 'Specific overlap window precedence over broad background',
         'RR-28' => 'Non-overlap chronological fallback',
         'RR-29' => 'Later-start show precedence over overlapping static layer',
+        'RR-30' => 'Symbolic start+end time token preservation',
+        'RR-31' => 'Weekend-only day mask canonicalization',
+        'RR-32' => 'Mixed weekday mask canonicalization',
+        'RR-33' => 'Command variants with split/override segmentation',
     ];
 
     return $titles[$id] ?? $id;

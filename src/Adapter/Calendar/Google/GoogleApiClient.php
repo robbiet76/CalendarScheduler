@@ -291,18 +291,21 @@ final class GoogleApiClient
         $clientSecret = $clientBlock['client_secret'] ?? null;
         $tokenUri = $oauth['token_uri'] ?? 'https://oauth2.googleapis.com/token';
 
-        if (!is_string($clientId) || $clientId === '' || !is_string($clientSecret) || $clientSecret === '') {
+        if (!is_string($clientId) || $clientId === '') {
             throw new \RuntimeException(
-                "Google OAuth client_id/client_secret missing in client file"
+                "Google OAuth client_id missing in client file"
             );
         }
 
-        $post = http_build_query([
+        $postData = [
             'client_id' => $clientId,
-            'client_secret' => $clientSecret,
             'refresh_token' => $refreshToken,
             'grant_type' => 'refresh_token',
-        ]);
+        ];
+        if (is_string($clientSecret) && $clientSecret !== '') {
+            $postData['client_secret'] = $clientSecret;
+        }
+        $post = http_build_query($postData);
 
         $ch = curl_init($tokenUri);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);

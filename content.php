@@ -102,6 +102,25 @@
     margin-top: 4px;
   }
 
+  .cs-provider-tags {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .cs-provider-tag {
+    border: 1px solid #212529;
+    background: #fff;
+    color: #212529;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .cs-provider-tag.cs-provider-tag-active {
+    background: #212529;
+    color: #fff;
+  }
+
   .cs-help-list {
     margin-bottom: 8px;
     padding-left: 18px;
@@ -167,6 +186,25 @@
   .cs-modal-body {
     padding: 12px 14px;
   }
+
+  .cs-small-check .form-check-input {
+    transform: scale(0.75);
+    transform-origin: center center;
+    margin: 0;
+    position: static;
+  }
+
+  .cs-small-check {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding-left: 0;
+  }
+
+  .cs-small-check .form-check-label {
+    margin: 0;
+    line-height: 1.2;
+  }
 </style>
 
 <div class="cs-page" id="csShell">
@@ -192,21 +230,21 @@
         <p class="cs-muted" id="csConnectionSubtitle">Connect to a calendar using OAuth. Select calendar provider.</p>
 
         <div class="mb-2">
-          <span class="badge text-bg-primary" id="csProviderGoogleBadge">Google</span>
-          <span class="badge text-bg-secondary" id="csProviderOutlookBadge">Outlook (Coming Soon)</span>
+          <div class="cs-provider-tags" role="tablist" aria-label="Calendar Provider">
+            <button type="button" class="badge cs-provider-tag" id="csProviderGoogleBadge" data-provider="google">Google</button>
+            <button type="button" class="badge cs-provider-tag" id="csProviderOutlookBadge" data-provider="outlook">Outlook</button>
+          </div>
         </div>
 
-        <div id="csConnectionHelp" class="cs-device-box mb-2 cs-hidden">
+        <div id="csConnectionHelpGoogle" class="cs-device-box mb-2 cs-hidden">
           <div><strong>Google OAuth Setup</strong></div>
-          <ol class="cs-help-list mt-1 mb-2">
-            <li>In Google Cloud Console, enable <strong>Google Calendar API</strong>.</li>
-            <li>Create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
-            <li>Download the client JSON and upload it below.</li>
-            <li>Click <strong>Connect Provider</strong>, open <code>google.com/device</code>, and enter the code shown.</li>
-          </ol>
+          <p class="cs-muted mb-2">Upload your Google OAuth client JSON, then click <strong>Connect Provider</strong> to start device sign-in.</p>
+          <div class="mb-2">
+            <button type="button" class="buttons btn-black" id="csGoogleSetupStepsBtn">Setup Steps</button>
+          </div>
           <div class="row g-2 align-items-end mb-2">
             <div class="col-12 col-md-8">
-              <label for="csDeviceClientFile" class="form-label mb-1">Upload client secret JSON:</label>
+              <label for="csDeviceClientFile" class="form-label mb-1">Upload OAuth client JSON:</label>
               <input id="csDeviceClientFile" type="file" class="form-control" accept="application/json,.json">
             </div>
             <div class="col-12 col-md-4 d-flex justify-content-md-end">
@@ -219,6 +257,24 @@
           <ul id="csHelpHints" class="mb-0"></ul>
         </div>
 
+        <div id="csConnectionHelpOutlook" class="cs-device-box mb-2 cs-hidden">
+          <div><strong>Outlook OAuth Setup</strong></div>
+          <p class="cs-muted mb-2">Enter your Azure app <strong>Client ID</strong>, then click <strong>Connect Provider</strong> to start device sign-in.</p>
+          <div class="mb-2">
+            <button type="button" class="buttons btn-black" id="csOutlookSetupStepsBtn">Setup Steps</button>
+          </div>
+          <div class="mb-1"><strong>Current Setup Checks</strong></div>
+          <ul id="csOutlookHelpChecks" class="mb-1"></ul>
+          <div class="row g-2">
+            <div class="col-12">
+              <label for="csOutlookClientId" class="form-label mb-1">Client ID</label>
+              <input id="csOutlookClientId" class="form-control" placeholder="Application (client) ID">
+            </div>
+          </div>
+          <div class="mb-1 mt-2"><strong>Current Setup Hints</strong></div>
+          <ul id="csOutlookHelpHints" class="mb-0"></ul>
+        </div>
+
         <div class="mb-2 cs-hidden" id="csConnectedAccountGroup">
           <strong>Connected Account:</strong> <span id="csConnectedAccountValue">Loading...</span>
         </div>
@@ -228,6 +284,12 @@
           <select id="csCalendarSelect" class="form-control" disabled>
             <option>Loading calendars...</option>
           </select>
+          <div class="form-check cs-small-check mt-2">
+            <input class="form-check-input" type="checkbox" id="csEnforceManagedColors">
+            <label class="form-check-label" for="csEnforceManagedColors">
+              Manage calendar event colors
+            </label>
+          </div>
         </div>
 
         <div class="mt-3 mb-2 d-flex justify-content-end gap-2">
@@ -258,6 +320,53 @@
       <div class="cs-modal-footer">
         <a id="csDeviceAuthOpenBtn" class="buttons btn-black" href="https://www.google.com/device" target="_blank" rel="noopener noreferrer">Open Google Device Page</a>
         <button id="csDeviceAuthCancelBtn" type="button" class="buttons btn-black">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="csGoogleSetupModalWrap" class="cs-modal-backdrop cs-hidden" role="dialog" aria-modal="true" aria-labelledby="csGoogleSetupModalTitle">
+    <div class="cs-modal">
+      <div class="cs-modal-header">
+        <strong id="csGoogleSetupModalTitle">Google OAuth Setup Steps</strong>
+      </div>
+      <div class="cs-modal-body">
+        <ol class="cs-help-list mt-1 mb-0">
+          <li>Open Google Cloud Console and select an existing project or create a new one.</li>
+          <li>Go to <strong>APIs &amp; Services -> Library</strong>, search for <strong>Google Calendar API</strong>, and click <strong>Enable</strong>.</li>
+          <li>Go to <strong>APIs &amp; Services -> Credentials</strong> and create OAuth credentials of type <strong>TV and Limited Input</strong>.</li>
+          <li>Download the OAuth client JSON file.</li>
+          <li>Return here and upload the JSON with <strong>Upload Client JSON</strong>.</li>
+          <li>Click <strong>Connect Provider</strong>.</li>
+          <li>Open the Google device page shown in the sign-in modal and enter the code.</li>
+          <li>After authorization completes, select the calendar to sync.</li>
+        </ol>
+      </div>
+      <div class="cs-modal-footer">
+        <button id="csGoogleSetupModalCloseBtn" type="button" class="buttons btn-black">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="csOutlookSetupModalWrap" class="cs-modal-backdrop cs-hidden" role="dialog" aria-modal="true" aria-labelledby="csOutlookSetupModalTitle">
+    <div class="cs-modal">
+      <div class="cs-modal-header">
+        <strong id="csOutlookSetupModalTitle">Outlook OAuth Setup Steps</strong>
+      </div>
+      <div class="cs-modal-body">
+        <ol class="cs-help-list mt-1 mb-0">
+          <li>Open Azure Portal and create or open an app registration.</li>
+          <li>Set account type to support personal Microsoft accounts (consumer flow).</li>
+          <li>Enable delegated Microsoft Graph scopes: <code>offline_access openid profile User.Read Calendars.ReadWrite</code>.</li>
+          <li>Enable public client/device code flow for the app registration.</li>
+          <li>Copy the application (client) ID.</li>
+          <li>Return here and paste the Client ID.</li>
+          <li>Click <strong>Connect Provider</strong>.</li>
+          <li>Open the Microsoft device page shown in the sign-in modal and enter the code.</li>
+          <li>After authorization completes, select the calendar to sync.</li>
+        </ol>
+      </div>
+      <div class="cs-modal-footer">
+        <button id="csOutlookSetupModalCloseBtn" type="button" class="buttons btn-black">Close</button>
       </div>
     </div>
   </div>
@@ -318,9 +427,11 @@
     var qs = new URLSearchParams(window.location.search || "");
     var pluginName = qs.get("plugin") || "CalendarScheduler";
     var API_URL = "plugin.php?plugin=" + encodeURIComponent(pluginName) + "&page=ui-api.php&nopage=1";
+    var activeProvider = "google";
     var providerConnected = false;
     var deviceAuthPollTimer = null;
     var deviceAuthDeadlineEpoch = 0;
+    var DEVICE_AUTH_STATE_KEY = "cs_device_auth_pending_v1";
     var syncMode = "both";
     var connectionCollapsed = false;
     var connectionCollapsedLoaded = false;
@@ -328,6 +439,8 @@
     var applyConfirmTimer = null;
     var applyInFlight = false;
     var lastPendingCount = 0;
+    var managedColorReconcileDone = false;
+    var awaitingPostAuthConnection = false;
 
     function byId(id) {
       return document.getElementById(id);
@@ -346,7 +459,7 @@
     // Global UI state helpers
     // -----------------------------------------------------------------------
     function setButtonsDisabled(disabled) {
-      ["csConnectBtn", "csUploadDeviceClientBtn", "csSyncModeSelect"].forEach(function (id) {
+      ["csConnectBtn", "csUploadDeviceClientBtn", "csCalendarSelect", "csSyncModeSelect", "csProviderGoogleBadge", "csProviderOutlookBadge", "csEnforceManagedColors", "csGoogleSetupStepsBtn", "csOutlookSetupStepsBtn"].forEach(function (id) {
         var node = byId(id);
         if (node) {
           if (!disabled && node.dataset.locked === "1") {
@@ -472,29 +585,52 @@
       setTopBarClass("cs-status-loading");
     }
 
+    function setProviderSetupModalVisible(provider, visible) {
+      var googleWrap = byId("csGoogleSetupModalWrap");
+      var outlookWrap = byId("csOutlookSetupModalWrap");
+      if (!googleWrap || !outlookWrap) {
+        return;
+      }
+      var isOutlook = String(provider || "").toLowerCase() === "outlook";
+      if (visible) {
+        googleWrap.classList.toggle("cs-hidden", isOutlook);
+        outlookWrap.classList.toggle("cs-hidden", !isOutlook);
+        return;
+      }
+      googleWrap.classList.add("cs-hidden");
+      outlookWrap.classList.add("cs-hidden");
+    }
+
     function setDeviceAuthVisible(visible, code, url) {
       var wrap = byId("csDeviceAuthModalWrap");
+      var titleNode = byId("csDeviceAuthModalTitle");
       var codeNode = byId("csDeviceAuthCode");
       var link = byId("csDeviceAuthLink");
       var openBtn = byId("csDeviceAuthOpenBtn");
       var copyBtn = byId("csCopyDeviceCodeBtn");
-      if (!wrap || !codeNode || !link || !openBtn || !copyBtn) {
+      if (!wrap || !titleNode || !codeNode || !link || !openBtn || !copyBtn) {
         return;
       }
+      var isOutlook = activeProvider === "outlook";
+      var defaultUrl = isOutlook ? "https://microsoft.com/devicelogin" : "https://www.google.com/device";
+      titleNode.textContent = isOutlook ? "Finish Outlook Sign-In" : "Finish Google Sign-In";
+      openBtn.textContent = isOutlook ? "Open Microsoft Device Page" : "Open Google Device Page";
       if (visible) {
         var authCode = code || "-";
         codeNode.textContent = authCode;
         copyBtn.disabled = authCode === "-";
-        var dest = url || "https://www.google.com/device";
+        var dest = url || defaultUrl;
         link.href = dest;
         openBtn.href = dest;
+        link.textContent = dest.replace(/^https?:\/\//, "");
         wrap.classList.remove("cs-hidden");
       } else {
         wrap.classList.add("cs-hidden");
         codeNode.textContent = "-";
         copyBtn.disabled = true;
-        link.href = "https://www.google.com/device";
-        openBtn.href = "https://www.google.com/device";
+        link.href = defaultUrl;
+        openBtn.href = defaultUrl;
+        link.textContent = defaultUrl.replace(/^https?:\/\//, "");
       }
     }
 
@@ -521,22 +657,58 @@
     }
 
     function renderConnectionHelp(setup, connected) {
-      var box = byId("csConnectionHelp");
+      var googleBox = byId("csConnectionHelpGoogle");
+      var outlookBox = byId("csConnectionHelpOutlook");
       var checksNode = byId("csHelpChecks");
       var hintsNode = byId("csHelpHints");
-      if (!box || !checksNode || !hintsNode) {
+      var outlookChecksNode = byId("csOutlookHelpChecks");
+      var outlookHintsNode = byId("csOutlookHelpHints");
+      if (!googleBox || !outlookBox || !checksNode || !hintsNode || !outlookChecksNode || !outlookHintsNode) {
         return;
       }
 
       if (connected) {
-        box.classList.add("cs-hidden");
+        googleBox.classList.add("cs-hidden");
+        outlookBox.classList.add("cs-hidden");
         checksNode.innerHTML = "";
         hintsNode.innerHTML = "";
+        outlookChecksNode.innerHTML = "";
+        outlookHintsNode.innerHTML = "";
+        return;
+      }
+      setup = setup || {};
+      if (activeProvider === "outlook") {
+        googleBox.classList.add("cs-hidden");
+        outlookBox.classList.remove("cs-hidden");
+        checksNode.innerHTML = "";
+        hintsNode.innerHTML = "";
+        var outlookDeviceReady = !!setup.configPresent
+          && !!setup.configValid
+          && !!setup.oauthConfigured
+          && !!setup.tokenPathWritable;
+        outlookChecksNode.innerHTML = [
+          checkRow("Config present", !!setup.configPresent),
+          checkRow("Config valid", !!setup.configValid),
+          checkRow("OAuth fields configured", !!setup.oauthConfigured),
+          checkRow("Token file present", !!setup.tokenFilePresent),
+          checkRow("Token directory writable", !!setup.tokenPathWritable),
+          checkRow("Device flow ready", outlookDeviceReady)
+        ].join("");
+        var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
+        if (outlookHints.length === 0) {
+          outlookHintsNode.innerHTML = "<li class=\"cs-help-check-ok\">No setup issues detected.</li>";
+        } else {
+          outlookHintsNode.innerHTML = outlookHints.map(function (hint) {
+            return "<li>" + escapeHtml(hint) + "</li>";
+          }).join("");
+        }
         return;
       }
 
-      box.classList.remove("cs-hidden");
-      setup = setup || {};
+      outlookBox.classList.add("cs-hidden");
+      googleBox.classList.remove("cs-hidden");
+      outlookChecksNode.innerHTML = "";
+      outlookHintsNode.innerHTML = "";
 
       checksNode.innerHTML = [
         checkRow("Device client file present", !!setup.clientFilePresent),
@@ -558,11 +730,22 @@
 
     function allSetupChecksOk(setup) {
       setup = setup || {};
+      if (activeProvider === "outlook") {
+        return !!setup.configPresent
+          && !!setup.configValid
+          && !!setup.tokenPathWritable
+          && !!setup.oauthConfigured;
+      }
       return !!setup.clientFilePresent
         && !!setup.configPresent
         && !!setup.configValid
         && !!setup.tokenPathWritable
         && !!setup.deviceFlowReady;
+    }
+
+    function outlookFormReady() {
+      var clientId = (byId("csOutlookClientId").value || "").trim();
+      return !!clientId;
     }
 
     // -----------------------------------------------------------------------
@@ -739,12 +922,12 @@
       setApplyEnabled(pendingCount > 0);
     }
 
-    function updateConnectionSummary(google, selectedLabel) {
+    function updateConnectionSummary(providerData, selectedLabel) {
       var node = byId("csConnectionSummary");
       if (!node) {
         return;
       }
-      var connected = !!(google && google.connected);
+      var connected = !!(providerData && providerData.connected);
       if (!connected) {
         node.textContent = "Not connected.";
         return;
@@ -754,34 +937,51 @@
       if (label === "") {
         label = "No calendar selected";
       }
-      node.textContent = "Connected to Google calendar: " + label;
+      node.textContent = "Connected to " + (activeProvider === "outlook" ? "Outlook" : "Google") + " calendar: " + label;
     }
 
     // Pull provider state and update setup/connection controls.
     function loadStatus() {
       return fetchJson({ action: "status" }).then(function (res) {
+        activeProvider = (typeof res.provider === "string" && res.provider) ? res.provider : "google";
         var google = res.google || {};
+        var outlook = res.outlook || {};
+        var providerData = activeProvider === "outlook" ? outlook : google;
         syncMode = (typeof res.syncMode === "string" && res.syncMode) ? res.syncMode : "both";
-        providerConnected = !!google.connected;
+        providerConnected = !!providerData.connected;
+        if (providerConnected) {
+          awaitingPostAuthConnection = false;
+        }
         if (!connectionCollapsedLoaded) {
           var uiPrefs = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
           setConnectionCollapsed(!!uiPrefs.connectionCollapsed);
+          var enforceToggleInit = byId("csEnforceManagedColors");
+          if (enforceToggleInit) {
+            enforceToggleInit.checked = !!uiPrefs.enforceManagedColors;
+          }
+          managedColorReconcileDone = false;
           connectionCollapsedLoaded = true;
         }
         if (providerConnected) {
           setDeviceAuthVisible(false);
           clearDeviceAuthPoll();
+          clearPendingDeviceAuth();
+          byId("csPreviewState").textContent = "Connected";
+          byId("csPreviewTime").textContent = "Refreshing preview...";
+          setTopBarClass("cs-status-loading");
         } else {
-          setDeviceAuthVisible(false);
+          if (!resumeDeviceAuthIfNeeded()) {
+            setDeviceAuthVisible(false);
+          }
         }
-        renderConnectionHelp(google.setup || {}, providerConnected);
+        renderConnectionHelp(providerData.setup || {}, providerConnected);
         var subtitle = byId("csConnectionSubtitle");
         if (subtitle) {
           subtitle.textContent = providerConnected
             ? "Connect to a calendar using OAuth."
             : "Connect to a calendar using OAuth. Select calendar provider.";
         }
-        var account = google.account || "Not connected yet";
+        var account = providerData.account || "Not connected yet";
         var accountValue = byId("csConnectedAccountValue");
         if (accountValue) {
           accountValue.textContent = account;
@@ -790,17 +990,17 @@
         var select = byId("csCalendarSelect");
         var connectedAccountGroup = byId("csConnectedAccountGroup");
         var calendarSelectGroup = byId("csCalendarSelectGroup");
-        var calendars = Array.isArray(google.calendars) ? google.calendars : [];
+        var calendars = Array.isArray(providerData.calendars) ? providerData.calendars : [];
         if (calendars.length === 0) {
           select.innerHTML = "<option>Connect account to load calendars</option>";
           select.disabled = true;
-          updateConnectionSummary(google, "");
+          updateConnectionSummary(providerData, "");
         } else {
           var selectedLabel = "";
           select.innerHTML = calendars.map(function (c) {
-            var selected = c.id === google.selectedCalendarId ? " selected" : "";
+            var selected = c.id === providerData.selectedCalendarId ? " selected" : "";
             var label = c.primary ? (c.summary + " (Primary)") : c.summary;
-            if (c.id === google.selectedCalendarId) {
+            if (c.id === providerData.selectedCalendarId) {
               selectedLabel = label;
             }
             return "<option value=\"" + escapeHtml(c.id) + "\"" + selected + ">" + escapeHtml(label) + "</option>";
@@ -808,8 +1008,8 @@
           if (!selectedLabel && select.options.length > 0) {
             selectedLabel = select.options[select.selectedIndex >= 0 ? select.selectedIndex : 0].text || "";
           }
-          updateConnectionSummary(google, selectedLabel);
-          select.disabled = false;
+          updateConnectionSummary(providerData, selectedLabel);
+          select.disabled = !!refreshInFlight;
         }
         if (connectedAccountGroup) {
           connectedAccountGroup.classList.toggle("cs-hidden", !providerConnected);
@@ -822,20 +1022,58 @@
         var uploadBtn = byId("csUploadDeviceClientBtn");
         var syncModeWrap = byId("csSyncModeWrap");
         var syncModeSelect = byId("csSyncModeSelect");
+        var enforceManagedColorsToggle = byId("csEnforceManagedColors");
         var googleBadge = byId("csProviderGoogleBadge");
         var outlookBadge = byId("csProviderOutlookBadge");
         var pendingPanel = byId("csPendingPanel");
         var applyPanel = byId("csApplyPanel");
+        var uploadBtnWrap = byId("csUploadDeviceClientBtn");
         connectBtn.dataset.locked = "0";
         connectBtn.textContent = providerConnected ? "Disconnect Provider" : "Connect Provider";
         connectBtn.classList.toggle("btn-success", !providerConnected);
         connectBtn.classList.toggle("btn-black", providerConnected);
-        uploadBtn.dataset.locked = providerConnected ? "1" : "0";
-        uploadBtn.disabled = providerConnected;
+        if (activeProvider === "google") {
+          uploadBtn.dataset.locked = providerConnected ? "1" : "0";
+          uploadBtn.disabled = providerConnected;
+          if (uploadBtnWrap) {
+            uploadBtnWrap.classList.remove("cs-hidden");
+          }
+        } else {
+          uploadBtn.dataset.locked = "1";
+          uploadBtn.disabled = true;
+          if (uploadBtnWrap) {
+            uploadBtnWrap.classList.add("cs-hidden");
+          }
+        }
         if (syncModeSelect) {
           syncModeSelect.value = syncMode;
           syncModeSelect.dataset.locked = providerConnected ? "0" : "1";
-          syncModeSelect.disabled = !providerConnected;
+          syncModeSelect.disabled = !!refreshInFlight || !providerConnected;
+        }
+        if (enforceManagedColorsToggle) {
+          var uiPrefsApply = (res && typeof res.ui === "object" && res.ui) ? res.ui : {};
+          var enforceManagedColors = !!uiPrefsApply.enforceManagedColors;
+          enforceManagedColorsToggle.checked = enforceManagedColors;
+          enforceManagedColorsToggle.dataset.locked = providerConnected ? "0" : "1";
+          enforceManagedColorsToggle.disabled = !providerConnected;
+
+          // One-time reconciliation after load to migrate legacy custom categories.
+          if (providerConnected && enforceManagedColors && !managedColorReconcileDone) {
+            managedColorReconcileDone = true;
+            fetchJson({ action: "reset_managed_colors" })
+              .then(function (resetRes) {
+                var summary = (resetRes && typeof resetRes.summary === "object" && resetRes.summary) ? resetRes.summary : {};
+                var updated = Number(summary.updated || 0);
+                var managed = Number(summary.managed || 0);
+                if (updated > 0) {
+                  setSetupStatus("Managed colors reconciled. Updated " + updated + " of " + managed + " managed events.");
+                }
+                return refreshAll();
+              })
+              .catch(function () {
+                managedColorReconcileDone = false;
+              });
+          }
         }
         updateApplySubtitle();
         if (syncModeWrap) {
@@ -848,22 +1086,53 @@
           applyPanel.classList.toggle("cs-hidden", !providerConnected);
         }
         if (googleBadge) {
-          googleBadge.classList.remove("cs-hidden");
+          googleBadge.classList.toggle("cs-provider-tag-active", activeProvider === "google");
+          googleBadge.setAttribute("aria-selected", activeProvider === "google" ? "true" : "false");
         }
         if (outlookBadge) {
-          outlookBadge.classList.toggle("cs-hidden", providerConnected);
+          outlookBadge.classList.toggle("cs-provider-tag-active", activeProvider === "outlook");
+          outlookBadge.setAttribute("aria-selected", activeProvider === "outlook" ? "true" : "false");
         }
 
-        var setup = google.setup || {};
+        var setup = providerData.setup || {};
         var connectReady = allSetupChecksOk(setup);
-        if (!providerConnected && !connectReady) {
+        if (!providerConnected && activeProvider === "outlook") {
+          var oauthClientId = (providerData && providerData.oauth && providerData.oauth.client_id)
+            ? String(providerData.oauth.client_id).trim()
+            : "";
+          var localReady = outlookFormReady() || !!oauthClientId;
+          connectBtn.dataset.locked = localReady ? "0" : "1";
+          connectBtn.disabled = !localReady;
+          var outlookHints = Array.isArray(setup.hints) ? setup.hints : [];
+          if (!localReady) {
+            setSetupStatus("Enter Outlook client ID to enable Connect.");
+          } else if (outlookHints.length > 0) {
+            setSetupStatus(outlookHints.join(" | "));
+          } else {
+            setSetupStatus("Click Connect Provider to start Outlook device sign-in.");
+          }
+        } else if (!providerConnected && !connectReady) {
           connectBtn.dataset.locked = "1";
           connectBtn.disabled = true;
           var hints = Array.isArray(setup.hints) ? setup.hints : [];
           var msg = hints.length > 0 ? hints.join(" | ") : "Provider setup is incomplete.";
           setSetupStatus(msg);
         } else if (!providerConnected) {
-          setSetupStatus("Not connected. Click Connect Provider to start Google device sign-in.");
+          if (activeProvider === "outlook") {
+            setSetupStatus("Not connected. Click Connect Provider to start Outlook sign-in.");
+          } else {
+            setSetupStatus("Not connected. Click Connect Provider to start Google device sign-in.");
+          }
+        }
+
+        if (activeProvider === "outlook") {
+          var clientIdInput = byId("csOutlookClientId");
+          var oauth = (providerData && typeof providerData.oauth === "object" && providerData.oauth)
+            ? providerData.oauth
+            : {};
+          if (clientIdInput && !clientIdInput.value) {
+            clientIdInput.value = oauth.client_id || "";
+          }
         }
         return refreshDiagnostics();
       });
@@ -895,26 +1164,95 @@
       deviceAuthDeadlineEpoch = 0;
     }
 
-    function pollDeviceAuth(deviceCode, intervalSeconds) {
+    function savePendingDeviceAuth(state) {
+      try {
+        window.localStorage.setItem(DEVICE_AUTH_STATE_KEY, JSON.stringify(state || {}));
+      } catch (e) {
+        // Ignore storage errors.
+      }
+    }
+
+    function loadPendingDeviceAuth() {
+      try {
+        var raw = window.localStorage.getItem(DEVICE_AUTH_STATE_KEY);
+        if (!raw) {
+          return null;
+        }
+        var parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearPendingDeviceAuth() {
+      try {
+        window.localStorage.removeItem(DEVICE_AUTH_STATE_KEY);
+      } catch (e) {
+        // Ignore storage errors.
+      }
+    }
+
+    function resumeDeviceAuthIfNeeded() {
+      if (providerConnected) {
+        clearPendingDeviceAuth();
+        return false;
+      }
+
+      var pending = loadPendingDeviceAuth();
+      if (!pending) {
+        return false;
+      }
+      if (String(pending.provider || "") !== String(activeProvider || "")) {
+        return false;
+      }
+
+      var deviceCode = String(pending.deviceCode || "").trim();
+      var userCode = String(pending.userCode || "").trim();
+      var verificationUrl = String(pending.verificationUrl || "").trim();
+      var interval = Math.max(parseInt(pending.interval || 5, 10), 3);
+      var expiresAtEpoch = parseInt(pending.expiresAtEpoch || 0, 10);
+
+      if (!deviceCode || expiresAtEpoch <= 0 || Date.now() >= expiresAtEpoch) {
+        clearPendingDeviceAuth();
+        return false;
+      }
+
+      clearDeviceAuthPoll();
+      deviceAuthDeadlineEpoch = expiresAtEpoch;
+      setDeviceAuthVisible(true, userCode || "-", verificationUrl || "");
+      setSetupStatus("Waiting for " + (activeProvider === "outlook" ? "Outlook" : "Google") + " authorization completion.");
+      deviceAuthPollTimer = window.setTimeout(function () {
+        pollDeviceAuth(deviceCode, interval, pending.provider || activeProvider || "google");
+      }, 1000);
+      return true;
+    }
+
+    function pollDeviceAuth(deviceCode, intervalSeconds, providerOverride) {
+      var authProvider = String(providerOverride || activeProvider || "google").toLowerCase();
       if (Date.now() >= deviceAuthDeadlineEpoch) {
         clearDeviceAuthPoll();
+        clearPendingDeviceAuth();
         setDeviceAuthVisible(false);
         setError("Device authorization timed out. Click Connect Provider to try again.");
         return;
       }
 
-      fetchJson({ action: "auth_device_poll", device_code: deviceCode })
+      fetchJson({ action: "auth_device_poll", provider: authProvider, device_code: deviceCode })
         .then(function (res) {
           var poll = res.poll || {};
           if (poll.status === "connected") {
             clearDeviceAuthPoll();
+            clearPendingDeviceAuth();
             setDeviceAuthVisible(false);
+            awaitingPostAuthConnection = true;
             refreshAll();
             return;
           }
 
           if (poll.status === "failed") {
             clearDeviceAuthPoll();
+            clearPendingDeviceAuth();
             setDeviceAuthVisible(false);
             setError("Device authorization failed (" + (poll.error || "unknown") + ").");
             return;
@@ -925,19 +1263,21 @@
             nextInterval = Math.max(intervalSeconds + 2, intervalSeconds);
           }
           deviceAuthPollTimer = window.setTimeout(function () {
-            pollDeviceAuth(deviceCode, nextInterval);
+            pollDeviceAuth(deviceCode, nextInterval, authProvider);
           }, nextInterval * 1000);
         })
         .catch(function (err) {
           clearDeviceAuthPoll();
+          clearPendingDeviceAuth();
           setDeviceAuthVisible(false);
           setError("Device authorization polling error: " + err.message + ".");
         });
     }
 
     function startDeviceAuthFlow() {
+      var authProvider = String(activeProvider || "google").toLowerCase();
       setLoadingState();
-      fetchJson({ action: "auth_device_start" })
+      return fetchJson({ action: "auth_device_start", provider: authProvider })
         .then(function (res) {
           var device = res.device || {};
           var deviceCode = device.device_code || "";
@@ -953,15 +1293,51 @@
 
           clearDeviceAuthPoll();
           deviceAuthDeadlineEpoch = Date.now() + (expiresIn * 1000);
+          savePendingDeviceAuth({
+            provider: authProvider,
+            deviceCode: deviceCode,
+            userCode: userCode,
+            verificationUrl: verificationUrl,
+            interval: interval,
+            expiresAtEpoch: deviceAuthDeadlineEpoch
+          });
           setDeviceAuthVisible(true, userCode, verificationUrl);
 
           deviceAuthPollTimer = window.setTimeout(function () {
-            pollDeviceAuth(deviceCode, interval);
+            pollDeviceAuth(deviceCode, interval, authProvider);
           }, interval * 1000);
         })
         .catch(function (err) {
+          clearPendingDeviceAuth();
           setDeviceAuthVisible(false);
-          setError("Automatic device authorization could not start: " + err.message + ".");
+          setError("Automatic device authorization could not start: " + err.message);
+          throw err;
+        });
+    }
+
+    function startOutlookAuthFlow() {
+      var clientId = (byId("csOutlookClientId").value || "").trim();
+
+      if (!clientId) {
+        setSetupStatus("Outlook client_id is required.");
+        return;
+      }
+
+      setButtonsDisabled(true);
+      setLoadingState();
+      return fetchJson({
+        action: "auth_outlook_save_config",
+        client_id: clientId
+      })
+        .then(function () {
+          return startDeviceAuthFlow();
+        })
+        .catch(function (err) {
+          setError(err.message);
+          throw err;
+        })
+        .finally(function () {
+          setButtonsDisabled(false);
         });
     }
 
@@ -987,7 +1363,14 @@
           }
           return runPreview();
         })
-        .catch(function (err) { setError(err.message); })
+        .catch(function (err) {
+          if (awaitingPostAuthConnection && !providerConnected) {
+            setLoadingState();
+            byId("csPreviewTime").textContent = "Finalizing provider connection...";
+            return;
+          }
+          setError(err.message);
+        })
         .finally(function () {
           if (!initialRenderDone) {
             var body = byId("csMainBody");
@@ -1003,7 +1386,8 @@
 
     byId("csConnectBtn").addEventListener("click", function () {
       if (providerConnected) {
-        if (!window.confirm("Disconnect provider and remove the local Google token from this FPP instance?")) {
+        var providerLabel = activeProvider === "outlook" ? "Outlook" : "Google";
+        if (!window.confirm("Disconnect provider and remove the local " + providerLabel + " token from this FPP instance?")) {
           return;
         }
         setButtonsDisabled(true);
@@ -1012,6 +1396,7 @@
           .then(function () {
             setDeviceAuthVisible(false);
             clearDeviceAuthPoll();
+            clearPendingDeviceAuth();
             return refreshAll();
           })
           .catch(function (err) { setError(err.message); })
@@ -1019,7 +1404,74 @@
         return;
       }
 
-      startDeviceAuthFlow();
+      if (activeProvider === "outlook") {
+        startOutlookAuthFlow().catch(function () {});
+      } else {
+        startDeviceAuthFlow().catch(function () {});
+      }
+    });
+
+    function onProviderTagClick(provider) {
+      provider = String(provider || "google").trim().toLowerCase();
+      if (provider !== "google" && provider !== "outlook") {
+        return;
+      }
+      if (provider === activeProvider) {
+        return;
+      }
+      setButtonsDisabled(true);
+      setLoadingState();
+      fetchJson({ action: "set_provider", provider: provider })
+        .then(function () {
+          activeProvider = provider;
+          setDeviceAuthVisible(false);
+          clearDeviceAuthPoll();
+          return refreshAll();
+        })
+        .catch(function (err) { setError(err.message); })
+        .finally(function () { setButtonsDisabled(false); });
+    }
+
+    byId("csProviderGoogleBadge").addEventListener("click", function () {
+      onProviderTagClick("google");
+    });
+
+    byId("csProviderOutlookBadge").addEventListener("click", function () {
+      onProviderTagClick("outlook");
+    });
+
+    byId("csGoogleSetupStepsBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible("google", true);
+    });
+
+    byId("csOutlookSetupStepsBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible("outlook", true);
+    });
+
+    byId("csGoogleSetupModalCloseBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible("google", false);
+    });
+
+    byId("csOutlookSetupModalCloseBtn").addEventListener("click", function () {
+      setProviderSetupModalVisible("outlook", false);
+    });
+
+    ["csOutlookClientId"].forEach(function (id) {
+      var node = byId(id);
+      if (!node) {
+        return;
+      }
+      node.addEventListener("input", function () {
+        if (activeProvider === "outlook" && !providerConnected) {
+          var connectBtn = byId("csConnectBtn");
+          if (!connectBtn) {
+            return;
+          }
+          var ready = outlookFormReady();
+          connectBtn.dataset.locked = ready ? "0" : "1";
+          connectBtn.disabled = !ready;
+        }
+      });
     });
 
     byId("csConnectionCloseBtn").addEventListener("click", function () {
@@ -1041,6 +1493,35 @@
         value: connectionCollapsed
       }).catch(function () {
         // Keep local state even if pref persistence fails.
+      });
+    });
+
+    byId("csEnforceManagedColors").addEventListener("change", function () {
+      var checked = !!this.checked;
+      setButtonsDisabled(true);
+      setLoadingState();
+      fetchJson({
+        action: "set_ui_pref",
+        key: "enforce_managed_colors",
+        value: checked
+      }).then(function (res) {
+        var summary = (res && typeof res.summary === "object" && res.summary) ? res.summary : null;
+        if (!checked) {
+          setSetupStatus("Managed colors are now optional; manual colors are preserved.");
+          return refreshAll();
+        }
+        if (summary) {
+          var updated = Number(summary.updated || 0);
+          var managed = Number(summary.managed || 0);
+          setSetupStatus("Managed colors enabled and applied. Updated " + updated + " of " + managed + " managed events.");
+        } else {
+          setSetupStatus("Managed colors are now enforced on calendar updates.");
+        }
+        return refreshAll();
+      }).catch(function (err) {
+        setError(err.message);
+      }).finally(function () {
+        setButtonsDisabled(false);
       });
     });
 
@@ -1083,8 +1564,20 @@
 
     byId("csDeviceAuthCancelBtn").addEventListener("click", function () {
       clearDeviceAuthPoll();
+      clearPendingDeviceAuth();
       setDeviceAuthVisible(false);
       setSetupStatus("Sign-in canceled. Click Connect Provider to start again.");
+    });
+
+    window.addEventListener("focus", function () {
+      if (!providerConnected) {
+        resumeDeviceAuthIfNeeded();
+      }
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden && !providerConnected) {
+        resumeDeviceAuthIfNeeded();
+      }
     });
 
     byId("csCopyDeviceCodeBtn").addEventListener("click", function () {

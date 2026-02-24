@@ -5,3 +5,7 @@
 - Sync mode behavior: `docs/sync-modes.md`
 - Known limitations: `docs/known-limitations.md`
 - Runtime vs development layout: `docs/runtime-vs-dev.md`
+
+Provider coverage:
+- Google Calendar
+- Outlook Calendar (Microsoft Graph)

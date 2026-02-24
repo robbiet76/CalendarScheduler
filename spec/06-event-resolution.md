@@ -315,11 +315,109 @@ If two events cannot be expressed in the same Canonical Intent shape, they MUST 
 
 ---
 
+## Execution Geometry Compilation (Resolved Schedule)
+
+Resolution also compiles normalized intent into minimal FPP-executable geometry
+as ordered bundles and subevents. This geometry is provider-agnostic and is the
+authoritative input to planning.
+
+### Core Principles
+
+1. Resolution outputs execution geometry, not provider semantics.
+2. No cancelled occurrence may execute.
+3. Overrides replace behavior, never coverage.
+4. Segmentation occurs only when required.
+5. Output must remain minimal, deterministic, and reversible.
+6. FPP precedence rules define ordering within bundles.
+
+If minimality and reversibility conflict, reversibility wins.
+
+### Fundamental Concepts
+
+#### Bundle
+
+A bundle is an atomic, ordered scheduling unit evaluated top-down.
+
+- First matching entry executes.
+- A bundle represents one contiguous coverage segment.
+- Base subevent is always last; overrides are above base.
+
+#### Segment
+
+A segment is a contiguous date coverage range with no gaps.
+
+Segments are created when:
+- Recurrence starts
+- Recurrence ends
+- Cancelled dates carve holes in coverage
+
+Each segment maps to exactly one bundle.
+
+#### Base vs Override Subevents
+
+- Base subevent defines default behavior for the full segment and sits last.
+- Override subevents define narrower behavior changes and sit above base.
+- Overrides never remove coverage and must stay within segment boundaries.
+
+### Cancellation Rule (Hard)
+
+Cancelled occurrences MUST be represented by segmentation, not disabled overrides.
+
+Reason:
+- Disabled entries in FPP would fall through to base behavior.
+- A cancelled occurrence could still execute if represented as an override.
+
+Therefore, cancellations always split base coverage into gap-free segments.
+
+### Authoritative Resolution Pipeline
+
+1. Interpret recurrence into coverage model (range/scope based; no instance explosion).
+2. Subtract cancelled dates to form contiguous segments.
+3. Apply overrides within each segment.
+4. Emit minimal bundles:
+   - no overrides => base only
+   - with overrides => overrides first, base last
+5. Coalesce adjacent compatible bundles when signatures and boundaries allow safe merge.
+
+### Ordering and Precedence
+
+Within a bundle:
+- Overrides outrank base.
+- Narrower override scopes outrank broader override scopes.
+
+Across bundles:
+- Bundles are chronologically ordered.
+- Bundle atomicity is preserved.
+
+### Round-Trip and Traceability Contract
+
+Resolved subevents MUST retain non-execution metadata required for deterministic
+diffing and provider round-trip reconstruction. Current runtime fields include:
+
+- `bundleUid`
+- `parentUid`
+- `sourceEventUid`
+- `role` (`base` or `override`)
+- `scope` (inclusive start, exclusive end)
+
+This metadata is operational and must not alter execution semantics.
+
+### Geometry Invariants
+
+1. No cancelled occurrence executes.
+2. Overrides never remove base coverage.
+3. Segmentation only occurs when required by cancellations/coverage boundaries.
+4. Bundles remain minimal and deterministic.
+5. Output remains fully representable for FPP execution and calendar round-trip.
+
+---
+
 ## Summary
 
-Event Resolution determines **what changed**, not **what should run**.
+Event Resolution determines **what changed** and compiles normalized intent into
+deterministic execution geometry for planning.
 
-It produces a precise, auditable intent delta suitable for downstream application.
+It produces a precise, auditable intent delta and minimal, reversible bundle output.
 
 ---
 

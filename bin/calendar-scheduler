@@ -21,10 +21,7 @@ use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Apply\ApplyOptions;
 use CalendarScheduler\Apply\ApplyTargets;
 use CalendarScheduler\Apply\FppScheduleWriter;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleApiClient;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleEventMapper;
-use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
+use CalendarScheduler\Adapter\Calendar\ProviderRuntimeFactory;
 
 // -----------------------------------------------------------------------------
 // Bootstrap
@@ -33,18 +30,6 @@ use CalendarScheduler\Adapter\Calendar\Google\GoogleConfig;
 require_once __DIR__ . '/../bootstrap.php';
 
 $argv = $_SERVER['argv'] ?? [];
-$command = $argv[1] ?? null;
-
-// Dedicated shortcut command for OAuth bootstrap maintenance.
-if ($command === 'google:auth') {
-    $configPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-
-    $config = new \CalendarScheduler\Adapter\Calendar\Google\GoogleConfig($configPath);
-    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($config);
-    $printUrl = in_array('--print-url', $argv, true);
-    $bootstrap->runCli($printUrl);
-    exit(0);
-}
 
 // -----------------------------------------------------------------------------
 // Defaults
@@ -67,11 +52,12 @@ $opts = getopt('', [
     'format:',
     'sync-mode:',
     'sync_mode:',
+    'calendar-provider:',
+    'calendar_provider:',
     'quiet',
     'refresh-calendar',
     'apply',
     'plan',
-    'auth',
 ]);
 
 $dryRun = array_key_exists('dry-run', $opts);
@@ -79,24 +65,13 @@ $quiet  = array_key_exists('quiet', $opts);
 $apply = array_key_exists('apply', $opts);
 $plan = array_key_exists('plan', $opts);
 
-$auth = array_key_exists('auth', $opts);
-
-// Back-compat auth flag path.
-if ($auth) {
-    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-    $googleConfig = new GoogleConfig($googleConfigPath);
-    $bootstrap = new \CalendarScheduler\Adapter\Calendar\Google\GoogleOAuthBootstrap($googleConfig);
-
-    $printUrl = in_array('--print-url', $argv, true);
-    $bootstrap->runCli($printUrl);
-    exit(0);
-}
-
 $schedulePath = $opts['schedule'] ?? $DEFAULT_SCHEDULE_PATH;
 $manifestPath = $opts['manifest'] ?? $DEFAULT_MANIFEST_PATH;
 $format       = $opts['format']   ?? 'text';
 $syncMode     = resolveSyncMode($opts);
+$calendarProvider = resolveCalendarProvider($opts);
 $opts['sync-mode'] = $syncMode;
+$opts['calendar-provider'] = $calendarProvider;
 
 if (!in_array($format, ['text', 'json'], true)) {
     fwrite(STDERR, "ERROR: --format must be 'text' or 'json'\n");
@@ -112,9 +87,9 @@ if (!in_array($format, ['text', 'json'], true)) {
 // -------------------------------------------------------------------------
 
 
-$envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+$runtimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
 
-$readEnvEpoch = static function (string $path): int {
+$readRuntimeEpoch = static function (string $path): int {
     if (!file_exists($path)) {
         return 0;
     }
@@ -126,44 +101,44 @@ $readEnvEpoch = static function (string $path): int {
     return is_int($epoch) ? $epoch : (int) $epoch;
 };
 
-$beforeEpoch = $readEnvEpoch($envPath);
+$beforeEpoch = $readRuntimeEpoch($runtimePath);
 
-$envUrl = getenv('GCS_FPP_ENV_URL');
-if ($envUrl !== false && trim($envUrl) !== '') {
-    $envUrl = trim($envUrl);
+$runtimeUrl = getenv('GCS_FPP_RUNTIME_URL');
+if ($runtimeUrl !== false && trim($runtimeUrl) !== '') {
+    $runtimeUrl = trim($runtimeUrl);
 } else {
-    $envUrl = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-env-export.php&nopage=1';
+    $runtimeUrl = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-runtime-export.php&nopage=1';
 }
 
-$cmd = 'curl --silent --show-error --fail --max-time 5 '
+// Refresh FPP runtime catalog snapshot (REST-sourced).
+$cmdRuntime = 'curl --silent --show-error --fail --max-time 5 '
     . '--output /dev/null '
-    . escapeshellarg($envUrl);
-exec($cmd, $out, $rc);
+    . escapeshellarg($runtimeUrl);
+exec($cmdRuntime, $outRuntime, $rcRuntime);
 
-if ($rc !== 0) {
-    throw new RuntimeException('Failed to invoke FPP environment exporter via web');
+if ($rcRuntime !== 0) {
+    throw new RuntimeException('Failed to invoke FPP runtime exporter via web');
 }
 
-if (!file_exists($envPath)) {
-    throw new RuntimeException('fpp-env.json was not written by web exporter');
+if (!file_exists($runtimePath)) {
+    throw new RuntimeException('fpp-runtime.json was not written by web exporter');
 }
 
-$env = json_decode(file_get_contents($envPath), true);
-if (!is_array($env)) {
-    throw new RuntimeException('fpp-env.json is not valid JSON');
+$runtime = json_decode(file_get_contents($runtimePath), true);
+if (!is_array($runtime)) {
+    throw new RuntimeException('fpp-runtime.json is not valid JSON');
 }
 
-if (($env['ok'] ?? false) !== true) {
-    $errors = $env['errors'] ?? [];
-    $msg = is_array($errors) ? implode('; ', $errors) : (string) $errors;
-    throw new RuntimeException('fpp-env.json export failed: ' . $msg);
+if (($runtime['ok'] ?? false) !== true) {
+    $errors = $runtime['errors'] ?? [];
+    $msg = is_array($errors) ? implode('; ', $errors) : (string)$errors;
+    throw new RuntimeException('fpp-runtime.json export failed: ' . $msg);
 }
 
-$afterEpoch = $env['generatedAtEpoch'] ?? 0;
+$afterEpoch = $runtime['generatedAtEpoch'] ?? 0;
 $afterEpoch = is_int($afterEpoch) ? $afterEpoch : (int) $afterEpoch;
-
 if ($afterEpoch <= $beforeEpoch) {
-    throw new RuntimeException('fpp-env.json was not refreshed (generatedAtEpoch did not advance)');
+    throw new RuntimeException('fpp-runtime.json was not refreshed (generatedAtEpoch did not advance)');
 }
 
 try {
@@ -185,6 +160,40 @@ try {
 
     $code = ($e instanceof \InvalidArgumentException || $e instanceof \RuntimeException) ? 1 : 2;
     exit($code);
+}
+
+// Optional diagnostics: dump reconciliation actions for triage.
+$debugActions = getenv('GCS_DEBUG_ACTIONS') === '1';
+if ($debugActions) {
+    $debugPath = getenv('GCS_DEBUG_ACTIONS_PATH');
+    if (!is_string($debugPath) || trim($debugPath) === '') {
+        $debugPath = '/tmp/cs-actions.json';
+    }
+    $debugPath = trim($debugPath);
+
+    $actionsOut = [];
+    foreach ($runResult->actions() as $action) {
+        $event = is_array($action->event ?? null) ? $action->event : [];
+        $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
+        $actionsOut[] = [
+            'identityHash' => $action->identityHash,
+            'target' => $action->target,
+            'type' => $action->type,
+            'authority' => $action->authority,
+            'reason' => $action->reason,
+            'sourceEventUid' => $correlation['sourceEventUid'] ?? null,
+            'googleEventIds' => $correlation['googleEventIds'] ?? null,
+            'outlookEventIds' => $correlation['outlookEventIds'] ?? null,
+        ];
+    }
+
+    $payload = [
+        'generatedAt' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format(DATE_ATOM),
+        'noop' => $runResult->isNoop(),
+        'countsByTarget' => $runResult->countsByTarget(),
+        'actions' => $actionsOut,
+    ];
+    @file_put_contents($debugPath, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
 }
 
 // -----------------------------------------------------------------------------
@@ -243,20 +252,7 @@ if ($apply) {
         }
     }
 
-    $googleExecutor = null;
-
-    // Calendar writes are optional and only required if calendar actions exist.
-    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google';
-    if (is_dir($googleConfigPath) || is_file($googleConfigPath)) {
-        $googleConfig = new GoogleConfig($googleConfigPath);
-        $googleClient = new GoogleApiClient($googleConfig);
-        $googleMapper = new GoogleEventMapper();
-
-        $googleExecutor = new GoogleApplyExecutor(
-            $googleClient,
-            $googleMapper
-        );
-    }
+    $calendarRuntime = ProviderRuntimeFactory::createApply($calendarProvider);
 
     $applier = new ApplyRunner(
         new ManifestWriter($manifestPath),
@@ -265,7 +261,7 @@ if ($apply) {
             $schedulePath,
             '/home/fpp/media/config/calendar-scheduler/fpp'
         ),
-        $googleExecutor
+        $calendarRuntime
     );
 
     $applier->apply($runResult->reconciliationResult(), $options);
@@ -329,6 +325,45 @@ function resolveSyncMode(array $opts): string
     return 'both';
 }
 
+/**
+ * @param array<string,mixed> $opts
+ */
+function resolveCalendarProvider(array $opts): string
+{
+    $explicit = $opts['calendar-provider'] ?? $opts['calendar_provider'] ?? null;
+    if (is_string($explicit) && trim($explicit) !== '') {
+        return normalizeCalendarProvider($explicit);
+    }
+
+    $googleConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/google/config.json';
+    if (is_file($googleConfigPath)) {
+        $raw = @file_get_contents($googleConfigPath);
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $provider = strtolower((string)($decoded['provider'] ?? 'google'));
+                if ($provider === 'google' || $provider === 'outlook') {
+                    return $provider;
+                }
+            }
+        }
+        return 'google';
+    }
+
+    $outlookConfigPath = '/home/fpp/media/config/calendar-scheduler/calendar/outlook/config.json';
+    if (is_file($outlookConfigPath)) {
+        $raw = @file_get_contents($outlookConfigPath);
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && strtolower((string)($decoded['provider'] ?? 'outlook')) === 'outlook') {
+                return 'outlook';
+            }
+        }
+    }
+
+    return 'google';
+}
+
 function normalizeSyncMode(string $syncMode): string
 {
     $syncMode = strtolower(trim($syncMode));
@@ -336,6 +371,15 @@ function normalizeSyncMode(string $syncMode): string
         return $syncMode;
     }
     return 'both';
+}
+
+function normalizeCalendarProvider(string $provider): string
+{
+    $provider = strtolower(trim($provider));
+    if ($provider === 'google' || $provider === 'outlook') {
+        return $provider;
+    }
+    return 'google';
 }
 
 if ($dryRun) {

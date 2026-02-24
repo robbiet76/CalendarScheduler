@@ -1,0 +1,1692 @@
+{
+    "ok": true,
+    "roundTripEnabled": true,
+    "canaryEnabled": false,
+    "canaryCase": null,
+    "cases": [
+        {
+            "id": "RR-01",
+            "title": "Base recurrence (no exceptions)",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "df3cfadb4b5725ce2dc097f62a4de429f6c6425fbda9d6e604da365d0d9aff8c",
+                        "target": "RR01_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR01_Target|2026-02-01|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-02",
+            "title": "Single EXDATE split",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "579462a3eaf030c8e5e39d624d80d9b89b24d8b847a69bd69cc2d3a8fb2dc8d8",
+                        "target": "RR02_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-14",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR02_Target|2026-02-01|2026-02-14|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "579462a3eaf030c8e5e39d624d80d9b89b24d8b847a69bd69cc2d3a8fb2dc8d8",
+                        "target": "RR02_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-16",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR02_Target|2026-02-16|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-03",
+            "title": "Multiple EXDATE split",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "2508c8c6d0a53cb0e7783b47b256f55ae068e32ecb7b75478a2ab32330c5df5d",
+                        "target": "RR03_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-09",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR03_Target|2026-02-01|2026-02-09|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "2508c8c6d0a53cb0e7783b47b256f55ae068e32ecb7b75478a2ab32330c5df5d",
+                        "target": "RR03_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-11",
+                        "endDate": "2026-02-14",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR03_Target|2026-02-11|2026-02-14|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "2508c8c6d0a53cb0e7783b47b256f55ae068e32ecb7b75478a2ab32330c5df5d",
+                        "target": "RR03_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-16",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RR03_Target|2026-02-16|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-04",
+            "title": "All occurrences cancelled",
+            "ok": true,
+            "summary": {
+                "noop": true,
+                "counts": {
+                    "fpp": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 0,
+                "subEventCount": 0,
+                "windows": []
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-05",
+            "title": "Contiguous override merge",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "8bb6ae7228f95de07bc302d9197af181ce51c9b64a2ef1d09f5049dbf6f6a341",
+                        "target": "RR05_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-06",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR05_Target|2026-02-05|2026-02-06|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "8bb6ae7228f95de07bc302d9197af181ce51c9b64a2ef1d09f5049dbf6f6a341",
+                        "target": "RR05_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-10",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR05_Target|2026-02-01|2026-02-10|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-06",
+            "title": "Non-contiguous overrides",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "fb78e561afff001f2633e6e7a454a06c3fdcb1f0ffb008460c1b783d51bc2319",
+                        "target": "RR06_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-05",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR06_Target|2026-02-05|2026-02-05|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "fb78e561afff001f2633e6e7a454a06c3fdcb1f0ffb008460c1b783d51bc2319",
+                        "target": "RR06_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-07",
+                        "endDate": "2026-02-07",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR06_Target|2026-02-07|2026-02-07|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "fb78e561afff001f2633e6e7a454a06c3fdcb1f0ffb008460c1b783d51bc2319",
+                        "target": "RR06_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-10",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RR06_Target|2026-02-01|2026-02-10|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-07",
+            "title": "StopType override",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "dfcede4c1138ceb458f9eb023759e85ad77b3ceb69b919486aee6fc2b5598a48",
+                        "target": "RR07_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-13",
+                        "endDate": "2026-02-13",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "hard",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR07_Target|2026-02-13|2026-02-13|18:00:00|22:00:00|hard"
+                    },
+                    {
+                        "eventId": "dfcede4c1138ceb458f9eb023759e85ad77b3ceb69b919486aee6fc2b5598a48",
+                        "target": "RR07_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-10",
+                        "endDate": "2026-02-20",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR07_Target|2026-02-10|2026-02-20|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-08",
+            "title": "Target override split",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 2,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 2,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "3adca959bbb9bf06d6566d034008210227881e1f30078dfbad5e1f53317ce7b3",
+                        "target": "RR08_Override_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-05",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR08_Override_Target|2026-02-05|2026-02-05|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "f339a720523ba4b20e7997fe75444b6123f6efae8d5af7e49474ca6f4fcac374",
+                        "target": "RR08_Base_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-10",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR08_Base_Target|2026-02-01|2026-02-10|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-09",
+            "title": "Weekly BYDAY with cancellation split",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "90d7e63e4b65672ea73c536a2243d9a398efeedca48ff8743a23aa0f1102e412",
+                        "target": "RR09_Target",
+                        "type": "playlist",
+                        "startDate": "2026-03-01",
+                        "endDate": "2026-03-04",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": [
+                            "MO",
+                            "TU",
+                            "WE",
+                            "TH",
+                            "FR"
+                        ],
+                        "sig": "RR09_Target|2026-03-01|2026-03-04|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "90d7e63e4b65672ea73c536a2243d9a398efeedca48ff8743a23aa0f1102e412",
+                        "target": "RR09_Target",
+                        "type": "playlist",
+                        "startDate": "2026-03-06",
+                        "endDate": "2026-03-15",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": [
+                            "MO",
+                            "TU",
+                            "WE",
+                            "TH",
+                            "FR"
+                        ],
+                        "sig": "RR09_Target|2026-03-06|2026-03-15|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-10",
+            "title": "Complex split + override round-trip",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "ef665d2c13ad95d68d35733f69708a998613620dbf0edd1facfca208b3fe10f9",
+                        "target": "RR10_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-06",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR10_Target|2026-02-05|2026-02-06|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "ef665d2c13ad95d68d35733f69708a998613620dbf0edd1facfca208b3fe10f9",
+                        "target": "RR10_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-14",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR10_Target|2026-02-01|2026-02-14|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "ef665d2c13ad95d68d35733f69708a998613620dbf0edd1facfca208b3fe10f9",
+                        "target": "RR10_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-16",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RR10_Target|2026-02-16|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-11",
+            "title": "Command type override behavior",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "f24fc320d0c67333e598da0224e9d97576c9ddfff1a15a9a0599d3952cd25b81",
+                        "target": "RR11_Command",
+                        "type": "command",
+                        "startDate": "2026-02-03",
+                        "endDate": "2026-02-03",
+                        "startTime": "19:00:00",
+                        "endTime": "19:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR11_Command|2026-02-03|2026-02-03|19:00:00|19:00:00|graceful"
+                    },
+                    {
+                        "eventId": "f24fc320d0c67333e598da0224e9d97576c9ddfff1a15a9a0599d3952cd25b81",
+                        "target": "RR11_Command",
+                        "type": "command",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-05",
+                        "startTime": "19:00:00",
+                        "endTime": "19:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR11_Command|2026-02-01|2026-02-05|19:00:00|19:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-12",
+            "title": "Symbolic start time token preservation",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "787cf53625092867dac976681dacbbf6409c28fc10b82210f1f3d383d3a67cca",
+                        "target": "RR12_Target",
+                        "type": "playlist",
+                        "startDate": "2026-03-01",
+                        "endDate": "2026-03-05",
+                        "startTime": "SunSet",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR12_Target|2026-03-01|2026-03-05|SunSet|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-13",
+            "title": "Symbolic end time token preservation",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "c5f2a91aa53f60c38092f9d709fb4804a8dcf46649047c2e1b19222c662e78e6",
+                        "target": "RR13_Target",
+                        "type": "playlist",
+                        "startDate": "2026-03-10",
+                        "endDate": "2026-03-15",
+                        "startTime": "18:00:00",
+                        "endTime": "Dusk",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR13_Target|2026-03-10|2026-03-15|18:00:00|Dusk|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-14",
+            "title": "Overnight window handling",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "e7cbed9570d86c48241bb5bc16a55599fb5228b0feb5fd109b23bb965b62c95e",
+                        "target": "RR14_Target",
+                        "type": "playlist",
+                        "startDate": "2026-04-01",
+                        "endDate": "2026-04-03",
+                        "startTime": "22:00:00",
+                        "endTime": "02:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR14_Target|2026-04-01|2026-04-03|22:00:00|02:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-15",
+            "title": "Weekday constrained recurrence canonicalization",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "6867e3e865e11c0ee1f6cb4a8e05796f8fe84074210b47079093abd83595ceed",
+                        "target": "RR15_Target",
+                        "type": "playlist",
+                        "startDate": "2026-04-01",
+                        "endDate": "2026-04-30",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": [
+                            "MO",
+                            "WE",
+                            "FR"
+                        ],
+                        "sig": "RR15_Target|2026-04-01|2026-04-30|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-16",
+            "title": "Timezone scoped recurrence stability",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "9eb71f0ec16c71bfa7913c0c8810e19861edc3ca9472c9e7461a9867cd7add1a",
+                        "target": "RR16_Target",
+                        "type": "playlist",
+                        "startDate": "2026-11-01",
+                        "endDate": "2026-11-04",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR16_Target|2026-11-01|2026-11-04|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-17",
+            "title": "Bundle override precedence ordering",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "c03190ecca218bb154f09f8d8e20a827f6b9941c9c63caaf69aafd3af0fa8703",
+                        "target": "RR17_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-05",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR17_Target|2026-02-05|2026-02-05|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "c03190ecca218bb154f09f8d8e20a827f6b9941c9c63caaf69aafd3af0fa8703",
+                        "target": "RR17_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-10",
+                        "endDate": "2026-02-10",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR17_Target|2026-02-10|2026-02-10|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "c03190ecca218bb154f09f8d8e20a827f6b9941c9c63caaf69aafd3af0fa8703",
+                        "target": "RR17_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-20",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RR17_Target|2026-02-01|2026-02-20|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-18",
+            "title": "Cross-bundle overlap specificity precedence",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 2,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 2,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "0d1178ff789349bd32824d820ef6a2c0ff8dde89411f8852fccb3722c4fdc44d",
+                        "target": "RR18_Narrow_Target",
+                        "type": "playlist",
+                        "startDate": "2026-04-10",
+                        "endDate": "2026-04-12",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR18_Narrow_Target|2026-04-10|2026-04-12|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "2dff802ce62c9b305cbe66d4cc80d59880fb50960074c73695ff7a592b91100d",
+                        "target": "RR18_Broad_Target",
+                        "type": "playlist",
+                        "startDate": "2026-04-01",
+                        "endDate": "2026-04-30",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR18_Broad_Target|2026-04-01|2026-04-30|18:00:00|23:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-19",
+            "title": "Cross-bundle overlap later daily start precedence",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 2,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 2,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "f5af93b1d7b6af03620010cd05e80cfbcfbf25dd5a8c3095ba635e3ffc50d23a",
+                        "target": "RR19_LateStart_Target",
+                        "type": "playlist",
+                        "startDate": "2026-05-01",
+                        "endDate": "2026-05-31",
+                        "startTime": "19:00:00",
+                        "endTime": "21:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR19_LateStart_Target|2026-05-01|2026-05-31|19:00:00|21:00:00|graceful"
+                    },
+                    {
+                        "eventId": "2df6c0ce6c0c2d791a9237509e3d201496cb6775abf4e5870b8dd329cce2e5d5",
+                        "target": "RR19_EarlyStart_Target",
+                        "type": "playlist",
+                        "startDate": "2026-05-01",
+                        "endDate": "2026-05-31",
+                        "startTime": "17:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR19_EarlyStart_Target|2026-05-01|2026-05-31|17:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-20",
+            "title": "Calendar->FPP segmented mirror",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "b6d4b0f587e0081ff563f0ad7d50c557ecb3bd2ba411f356e8c15b6ded4871e6",
+                        "target": "RR20_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-06",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR20_Target|2026-02-05|2026-02-06|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "b6d4b0f587e0081ff563f0ad7d50c557ecb3bd2ba411f356e8c15b6ded4871e6",
+                        "target": "RR20_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-14",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR20_Target|2026-02-01|2026-02-14|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "b6d4b0f587e0081ff563f0ad7d50c557ecb3bd2ba411f356e8c15b6ded4871e6",
+                        "target": "RR20_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-16",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RR20_Target|2026-02-16|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-21",
+            "title": "Calendar->FPP mirror invariants",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-06",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-05|2026-02-06|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-14",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-01|2026-02-14|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-16",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-16|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-22",
+            "title": "FPP->Calendar segmented mirror",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-06",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-05|2026-02-06|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-14",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-01|2026-02-14|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-16",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-16|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-23",
+            "title": "Two-way merge segment stability",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 1,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-06",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-05|2026-02-06|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-14",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-01|2026-02-14|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-16",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-16|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-24",
+            "title": "Calendar tombstone with segmented event delete",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 1
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 0,
+                "subEventCount": 0,
+                "windows": []
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-25",
+            "title": "Idempotent second pass convergence",
+            "ok": true,
+            "summary": {
+                "noop": true,
+                "counts": {
+                    "fpp": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 3,
+                "windows": [
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-05",
+                        "endDate": "2026-02-06",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-05|2026-02-06|18:00:00|23:00:00|graceful"
+                    },
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-01",
+                        "endDate": "2026-02-14",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-01|2026-02-14|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "030c5972890dbe8f0bda39547e11bcd8358a08b28b92ce86a0e30006833755c5",
+                        "target": "RRX_Target",
+                        "type": "playlist",
+                        "startDate": "2026-02-16",
+                        "endDate": "2026-02-28",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RRX_Target|2026-02-16|2026-02-28|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-26",
+            "title": "Overlap tie on daily start resolved by later calendar start date",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 2,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 2,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "0108f0305a0024f3c7fa3245f2c968af841376d66e1651bc0a6d0ff2299b3324",
+                        "target": "RR26_LateSeason_Target",
+                        "type": "playlist",
+                        "startDate": "2026-06-10",
+                        "endDate": "2026-06-20",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR26_LateSeason_Target|2026-06-10|2026-06-20|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "ff1fb9ead8b10248090b188f5626b7564a9891df08cd99b932680d0f870de821",
+                        "target": "RR26_EarlySeason_Target",
+                        "type": "playlist",
+                        "startDate": "2026-06-01",
+                        "endDate": "2026-06-30",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR26_EarlySeason_Target|2026-06-01|2026-06-30|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-27",
+            "title": "Specific overlap window precedence over broad background",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 2,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 2,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "cf225f23e898958c85cfa83569b48d032b22c9b2b2b85f3dbd85bbf396dc90f7",
+                        "target": "RR27_SpecificWindow_Target",
+                        "type": "playlist",
+                        "startDate": "2026-07-10",
+                        "endDate": "2026-07-12",
+                        "startTime": "20:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR27_SpecificWindow_Target|2026-07-10|2026-07-12|20:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "9006cdaa120447e3f5958170cc05a6eaf3f9a6a86c89ed0b7e8549e2c947ff3e",
+                        "target": "RR27_BroadBackground_Target",
+                        "type": "playlist",
+                        "startDate": "2026-07-01",
+                        "endDate": "2026-07-31",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR27_BroadBackground_Target|2026-07-01|2026-07-31|18:00:00|23:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-28",
+            "title": "Non-overlap chronological fallback",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 2,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 2,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "b2b04d3a464d241e1baf0ed348910ee750dbf0b536f657c83db5a04bd98a95fe",
+                        "target": "RR28_ChronologyA_Target",
+                        "type": "playlist",
+                        "startDate": "2026-08-01",
+                        "endDate": "2026-08-31",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR28_ChronologyA_Target|2026-08-01|2026-08-31|18:00:00|22:00:00|graceful"
+                    },
+                    {
+                        "eventId": "607a1d4041498a3ce2834b4bb17a0f190a991db9ff368aacb3d49338cacfc9df",
+                        "target": "RR28_ChronologyB_Target",
+                        "type": "playlist",
+                        "startDate": "2026-09-01",
+                        "endDate": "2026-09-30",
+                        "startTime": "18:00:00",
+                        "endTime": "22:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR28_ChronologyB_Target|2026-09-01|2026-09-30|18:00:00|22:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-29",
+            "title": "Later-start show precedence over overlapping static layer",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 2,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 2,
+                "subEventCount": 2,
+                "windows": [
+                    {
+                        "eventId": "df2fd9ab8e37458d39a8147999f7b4550329b4206291b8076b556925873412ab",
+                        "target": "RR29_Show_Target",
+                        "type": "playlist",
+                        "startDate": "2026-11-20",
+                        "endDate": "2026-12-31",
+                        "startTime": "19:00:00",
+                        "endTime": "21:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR29_Show_Target|2026-11-20|2026-12-31|19:00:00|21:00:00|graceful"
+                    },
+                    {
+                        "eventId": "7e6680e367f800c0aac1a5f7ad6120fa179733bdc2473368d162072b882401f6",
+                        "target": "RR29_Static_Target",
+                        "type": "playlist",
+                        "startDate": "2026-11-20",
+                        "endDate": "2026-12-31",
+                        "startTime": "18:00:00",
+                        "endTime": "23:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": [
+                            "SU",
+                            "MO",
+                            "TU",
+                            "WE",
+                            "TH"
+                        ],
+                        "sig": "RR29_Static_Target|2026-11-20|2026-12-31|18:00:00|23:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-30",
+            "title": "Symbolic start+end time token preservation",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "94746af218d4279167a4db02cc0211afd76e4ce04f1766b32673ef827f4f6b56",
+                        "target": "RR30_Target",
+                        "type": "playlist",
+                        "startDate": "2026-03-20",
+                        "endDate": "2026-03-25",
+                        "startTime": "SunSet",
+                        "endTime": "Dusk",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR30_Target|2026-03-20|2026-03-25|SunSet|Dusk|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-31",
+            "title": "Weekend-only day mask canonicalization",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "54b83fafe69093c1fb7042d4ec04150c6fa66b8b80da04a1821c4c24df17d811",
+                        "target": "RR31_WeekendMask_Target",
+                        "type": "playlist",
+                        "startDate": "2026-05-01",
+                        "endDate": "2026-05-31",
+                        "startTime": "18:30:00",
+                        "endTime": "21:30:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": [
+                            "SA",
+                            "SU"
+                        ],
+                        "sig": "RR31_WeekendMask_Target|2026-05-01|2026-05-31|18:30:00|21:30:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-32",
+            "title": "Mixed weekday mask canonicalization",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 1,
+                "windows": [
+                    {
+                        "eventId": "81a8ce72ada49e68778c973dd06ceadf5b341de7d81c1ae925a8d037eadaea51",
+                        "target": "RR32_MixedMask_Target",
+                        "type": "playlist",
+                        "startDate": "2026-06-01",
+                        "endDate": "2026-06-30",
+                        "startTime": "19:00:00",
+                        "endTime": "21:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": [
+                            "TU",
+                            "TH",
+                            "SA"
+                        ],
+                        "sig": "RR32_MixedMask_Target|2026-06-01|2026-06-30|19:00:00|21:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        },
+        {
+            "id": "RR-33",
+            "title": "Command variants with split/override segmentation",
+            "ok": true,
+            "summary": {
+                "noop": false,
+                "counts": {
+                    "fpp": {
+                        "create": 1,
+                        "update": 0,
+                        "delete": 0
+                    },
+                    "calendar": {
+                        "create": 0,
+                        "update": 0,
+                        "delete": 0
+                    }
+                },
+                "eventCount": 1,
+                "subEventCount": 4,
+                "windows": [
+                    {
+                        "eventId": "97e428fb173e8ff8262606e4055065f648cadf07c10ed08cd95d31e63023540a",
+                        "target": "RR33_Command_Target",
+                        "type": "command",
+                        "startDate": "2026-04-12",
+                        "endDate": "2026-04-12",
+                        "startTime": "20:00:00",
+                        "endTime": "20:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 0,
+                        "days": null,
+                        "sig": "RR33_Command_Target|2026-04-12|2026-04-12|20:00:00|20:00:00|graceful"
+                    },
+                    {
+                        "eventId": "97e428fb173e8ff8262606e4055065f648cadf07c10ed08cd95d31e63023540a",
+                        "target": "RR33_Command_Target",
+                        "type": "command",
+                        "startDate": "2026-04-10",
+                        "endDate": "2026-04-14",
+                        "startTime": "20:00:00",
+                        "endTime": "20:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 1,
+                        "days": null,
+                        "sig": "RR33_Command_Target|2026-04-10|2026-04-14|20:00:00|20:00:00|graceful"
+                    },
+                    {
+                        "eventId": "97e428fb173e8ff8262606e4055065f648cadf07c10ed08cd95d31e63023540a",
+                        "target": "RR33_Command_Target",
+                        "type": "command",
+                        "startDate": "2026-04-18",
+                        "endDate": "2026-04-18",
+                        "startTime": "20:00:00",
+                        "endTime": "20:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 2,
+                        "days": null,
+                        "sig": "RR33_Command_Target|2026-04-18|2026-04-18|20:00:00|20:00:00|graceful"
+                    },
+                    {
+                        "eventId": "97e428fb173e8ff8262606e4055065f648cadf07c10ed08cd95d31e63023540a",
+                        "target": "RR33_Command_Target",
+                        "type": "command",
+                        "startDate": "2026-04-16",
+                        "endDate": "2026-04-20",
+                        "startTime": "20:00:00",
+                        "endTime": "20:00:00",
+                        "stopType": "graceful",
+                        "executionOrder": 3,
+                        "days": null,
+                        "sig": "RR33_Command_Target|2026-04-16|2026-04-20|20:00:00|20:00:00|graceful"
+                    }
+                ]
+            },
+            "errors": []
+        }
+    ]
+}

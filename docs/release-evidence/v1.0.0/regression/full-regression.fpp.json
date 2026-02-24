@@ -1,0 +1,31 @@
+{
+    "ok": true,
+    "label": "full",
+    "runDir": "/tmp/cs-full-regression/20260224-161142-full",
+    "resolution": {
+        "ok": true,
+        "exitCode": 0,
+        "reportPath": "/tmp/cs-full-regression/20260224-161142-full/resolution.json",
+        "caseCount": 33
+    },
+    "live": {
+        "ok": true,
+        "exitCode": 0,
+        "syncMode": "config/default",
+        "artifactsPath": "/tmp/cs-regression/20260224-161143-full-live",
+        "reportPath": "/tmp/cs-full-regression/20260224-161142-full/live.report.json"
+    },
+    "apiSmoke": {
+        "ok": true,
+        "exitCode": 0,
+        "reportPath": "/tmp/cs-full-regression/20260224-161142-full/api-smoke.json",
+        "checkCount": 3
+    },
+    "providerParity": {
+        "ok": true,
+        "exitCode": 0,
+        "reportPath": "/tmp/cs-full-regression/20260224-161142-full/provider-parity.json",
+        "googleOk": true,
+        "outlookOk": true
+    }
+}

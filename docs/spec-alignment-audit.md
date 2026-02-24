@@ -17,7 +17,7 @@ Branch: `feature/production-readiness`
 ## Core Implementation Anchors
 - UI/API contract: `ui-api.php` (`status`, `diagnostics`, `preview`, `apply`, `auth_*` actions)
 - Engine pipeline: `src/Engine/SchedulerEngine.php`, `src/Diff/Reconciler.php`, `src/Apply/ApplyRunner.php`
-- Provider integration: `src/Adapter/Calendar/Google/*`
+- Provider integration: `src/Adapter/Calendar/Google/*`, `src/Adapter/Calendar/Outlook/*`
 - Regression/release runners: `bin/cs-resolution-regression`, `bin/cs-api-smoke`, `bin/cs-full-regression`, `bin/cs-package`, `bin/cs-verify-package`
 - Production docs: `docs/quick-start.md`, `docs/troubleshooting.md`, `docs/sync-modes.md`, `docs/known-limitations.md`
 
@@ -38,17 +38,16 @@ Branch: `feature/production-readiness`
 | `spec/10-diff-and-reconciliation.md` | `src/Diff/Reconciler.php`, `src/Diff/ReconciliationResult.php` | Aligned | Directional reconciliation model is implemented. |
 | `spec/11-apply-phase-rules.md` | `src/Apply/ApplyRunner.php`, `ui-api.php` apply path | Aligned | Apply semantics and safeguards are present. |
 | `spec/12-fpp-semantics.md` | `src/Platform/FppSemantics.php`, `src/Adapter/FppScheduleAdapter.php` | Aligned | Semantic conversions and defaults implemented. |
-| `spec/13-logging-debugging.md` | `ui-api.php`, `src/Adapter/Calendar/Google/*`, `docs/troubleshooting.md` | Aligned | Updated to current diagnostics/correlation/log-path model. |
+| `spec/13-logging-debugging.md` | `ui-api.php`, `src/Adapter/Calendar/Google/*`, `src/Adapter/Calendar/Outlook/*`, `docs/troubleshooting.md` | Aligned | Updated to current diagnostics/correlation/log-path model. |
 | `spec/14-ui-controller-contract.md` | `content.php`, `ui-api.php` | Aligned | Updated to current sync mode model and action contract. |
 | `spec/15-error-handling-and-invariants.md` | `ui-api.php` response envelope and error paths | Aligned | Updated to current runtime envelope and correlation behavior. |
 | `spec/16-non-goals-and-exclusions.md` | system-wide | Aligned | Generally consistent with present architecture. |
 | `spec/17-evolution-and-extension-model.md` | provider boundaries, schema evolution | Aligned | Updated provider/examples, manifest version field, and FPP schedule boundary wording. |
-| `spec/18-round-trip-contract.md` | `src/Adapter/FppScheduleAdapter.php`, `src/Adapter/Calendar/Google/*` | Aligned | Round-trip directionality still core behavior. |
+| `spec/18-round-trip-contract.md` | `src/Adapter/FppScheduleAdapter.php`, `src/Adapter/Calendar/Google/*`, `src/Adapter/Calendar/Outlook/*` | Aligned | Round-trip directionality still core behavior. |
 | `spec/19-regression-test-matrix.md` | `bin/cs-full-regression`, `bin/cs-resolution-regression`, `bin/cs-api-smoke` | Aligned | Runner command examples and scenario framing match current regression workflow. |
 | `spec/20-resolution-regression-suite.md` | `bin/cs-resolution-regression` RR cases | Aligned | Command examples updated to current runner invocation style. |
 | `spec/21-production-readiness-checklist.md` | current branch state | Aligned | Reflects completed Phases 1–6. |
 | `spec/22-release-runbook.md` | `bin/cs-*`, GitHub PR flow, FPP deploy workflow | Aligned | Updated to PR/master flow and root-owned FPP update commands. |
-| `spec/resolution_layer_design.md` | `src/Resolution/*` + planning integration | Aligned | Design still maps to runtime data model. |
 
 ## High-Priority Drift (Fix First)
 - None open from this pass.

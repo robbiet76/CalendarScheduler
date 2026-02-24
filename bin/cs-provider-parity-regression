@@ -1,0 +1,95 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+$googleRunner = $root . '/bin/cs-google-regression';
+$outlookRunner = $root . '/bin/cs-outlook-regression';
+
+if (!is_file($googleRunner)) {
+    fwrite(STDERR, "ERROR: Missing runner: {$googleRunner}\n");
+    exit(2);
+}
+if (!is_file($outlookRunner)) {
+    fwrite(STDERR, "ERROR: Missing runner: {$outlookRunner}\n");
+    exit(2);
+}
+
+$opts = getopt('', [
+    'skip-google',
+    'skip-outlook',
+    'json',
+]);
+
+$skipGoogle = array_key_exists('skip-google', $opts);
+$skipOutlook = array_key_exists('skip-outlook', $opts);
+if ($skipGoogle && $skipOutlook) {
+    fwrite(STDERR, "ERROR: Both providers are skipped. Nothing to run.\n");
+    exit(2);
+}
+
+$result = [
+    'ok' => true,
+    'google' => null,
+    'outlook' => null,
+];
+
+if (!$skipGoogle) {
+    $google = runCommand(buildPhpCommand($googleRunner));
+    $googleOk = $google['exitCode'] === 0;
+    if (!$googleOk) {
+        $result['ok'] = false;
+    }
+    $result['google'] = [
+        'ok' => $googleOk,
+        'exitCode' => $google['exitCode'],
+        'output' => trim($google['output']),
+    ];
+}
+
+if (!$skipOutlook) {
+    $outlook = runCommand(buildPhpCommand($outlookRunner));
+    $outlookOk = $outlook['exitCode'] === 0;
+    if (!$outlookOk) {
+        $result['ok'] = false;
+    }
+    $result['outlook'] = [
+        'ok' => $outlookOk,
+        'exitCode' => $outlook['exitCode'],
+        'output' => trim($outlook['output']),
+    ];
+}
+
+if (array_key_exists('json', $opts)) {
+    echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+} else {
+    echo 'Provider parity regression: ' . ($result['ok'] ? 'PASS' : 'FAIL') . PHP_EOL;
+    if (is_array($result['google'])) {
+        echo '- Google adapter parity: ' . (($result['google']['ok'] ?? false) ? 'PASS' : 'FAIL') . PHP_EOL;
+    }
+    if (is_array($result['outlook'])) {
+        echo '- Outlook adapter parity: ' . (($result['outlook']['ok'] ?? false) ? 'PASS' : 'FAIL') . PHP_EOL;
+    }
+}
+
+exit($result['ok'] ? 0 : 1);
+
+/**
+ * @return array{exitCode:int,output:string}
+ */
+function runCommand(string $command): array
+{
+    $output = [];
+    $exitCode = 0;
+    exec($command . ' 2>&1', $output, $exitCode);
+    return [
+        'exitCode' => $exitCode,
+        'output' => implode(PHP_EOL, $output),
+    ];
+}
+
+function buildPhpCommand(string $scriptPath): string
+{
+    return escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($scriptPath);
+}

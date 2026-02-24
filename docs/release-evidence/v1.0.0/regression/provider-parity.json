@@ -1,0 +1,13 @@
+{
+    "ok": true,
+    "google": {
+        "ok": true,
+        "exitCode": 0,
+        "output": "[PASS] metadata_schema_roundtrip\n[PASS] mapper_weekly_recurrence_and_metadata\n[PASS] mapper_subject_timezone_description_fallbacks\n[PASS] translator_recurrence_and_metadata_normalization\nGoogle regression checks passed."
+    },
+    "outlook": {
+        "ok": true,
+        "exitCode": 0,
+        "output": "[PASS] metadata_schema_roundtrip\n[PASS] mapper_weekly_recurrence_and_metadata\n[PASS] mapper_subject_timezone_description_fallbacks\n[PASS] translator_recurrence_and_metadata_normalization\nOutlook regression checks passed."
+    }
+}

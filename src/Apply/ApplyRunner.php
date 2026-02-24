@@ -14,6 +14,8 @@ namespace CalendarScheduler\Apply;
 use CalendarScheduler\Diff\ReconciliationAction;
 use CalendarScheduler\Diff\ReconciliationResult;
 use CalendarScheduler\Apply\ApplyOptions;
+use CalendarScheduler\Adapter\Calendar\CalendarApplyRuntime;
+use CalendarScheduler\Adapter\Calendar\CalendarMutationLink;
 use CalendarScheduler\Adapter\FppScheduleAdapter;
 use CalendarScheduler\Apply\FppScheduleWriter;
 
@@ -29,7 +31,7 @@ final class ApplyRunner
         private readonly ManifestWriter $manifestWriter,
         private readonly ?FppScheduleAdapter $fppAdapter = null,
         private readonly ?FppScheduleWriter $fppWriter = null,
-        private readonly ?\CalendarScheduler\Adapter\Calendar\Google\GoogleApplyExecutor $googleExecutor = null
+        private readonly ?CalendarApplyRuntime $calendarRuntime = null
     ) {}
 
     public function apply(
@@ -159,15 +161,19 @@ final class ApplyRunner
             }
 
             if ($calendarActions !== []) {
-                if ($this->googleExecutor === null) {
-                    throw new \RuntimeException(
-                        'Calendar actions present but no GoogleApplyExecutor configured'
-                    );
-                }
-
                 if (!$options->isPlan() && !$options->isDryRun()) {
-                    $googleResults = $this->googleExecutor->applyActions($calendarActions);
-                    $targetManifest = $this->applyGoogleMutationResultsToManifest($targetManifest, $googleResults);
+                    if ($this->calendarRuntime === null) {
+                        throw new \RuntimeException(
+                            'Calendar actions present but no CalendarApplyRuntime configured'
+                        );
+                    }
+                    $links = $this->calendarRuntime->applyActions($calendarActions);
+                    $targetManifest = $this->applyCalendarMutationLinksToManifest(
+                        $targetManifest,
+                        $links,
+                        $this->calendarRuntime->payloadEventIdField(),
+                        $this->calendarRuntime->correlationEventIdsField()
+                    );
                     $calendarApplied = true;
                 }
             }
@@ -182,37 +188,30 @@ final class ApplyRunner
     }
 
     /**
-     * Persist Google provider linkage into manifest subEvent payloads so subsequent
-     * update/delete operations can resolve concrete googleEventId values.
+     * Persist provider linkage into manifest subEvent payloads so subsequent
+     * update/delete operations can resolve concrete provider event ids.
      *
      * @param array<string,mixed> $manifest
-     * @param array<int,\CalendarScheduler\Adapter\Calendar\Google\GoogleMutationResult> $results
+     * @param array<int,CalendarMutationLink> $links
      * @return array<string,mixed>
      */
-    private function applyGoogleMutationResultsToManifest(array $manifest, array $results): array
+    private function applyCalendarMutationLinksToManifest(
+        array $manifest,
+        array $links,
+        string $payloadEventIdField,
+        string $correlationEventIdsField
+    ): array
     {
         $events = $manifest['events'] ?? [];
-        if (!is_array($events) || $results === []) {
+        if (!is_array($events) || $links === []) {
             return $manifest;
         }
 
-        foreach ($results as $result) {
-            if (!($result instanceof \CalendarScheduler\Adapter\Calendar\Google\GoogleMutationResult)) {
+        foreach ($links as $link) {
+            if (!($link instanceof CalendarMutationLink)) {
                 continue;
             }
-
-            if (
-                $result->op !== \CalendarScheduler\Adapter\Calendar\Google\GoogleMutation::OP_CREATE
-                && $result->op !== \CalendarScheduler\Adapter\Calendar\Google\GoogleMutation::OP_UPDATE
-            ) {
-                continue;
-            }
-
-            if (!is_string($result->googleEventId) || $result->googleEventId === '') {
-                continue;
-            }
-
-            $id = $result->manifestEventId;
+            $id = $link->manifestEventId;
             if (!is_array($events[$id] ?? null)) {
                 continue;
             }
@@ -233,21 +232,23 @@ final class ApplyRunner
                     continue;
                 }
 
-                if ($stateHash !== $result->subEventHash) {
+                if ($stateHash !== $link->subEventHash) {
                     continue;
                 }
 
                 $payload = is_array($sub['payload'] ?? null) ? $sub['payload'] : [];
-                $payload['googleEventId'] = $result->googleEventId;
+                $payload[$payloadEventIdField] = $link->providerEventId;
                 $sub['payload'] = $payload;
                 $subEvents[$i] = $sub;
                 break;
             }
 
             $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
-            $googleEventIds = is_array($correlation['googleEventIds'] ?? null) ? $correlation['googleEventIds'] : [];
-            $googleEventIds[$result->subEventHash] = $result->googleEventId;
-            $correlation['googleEventIds'] = $googleEventIds;
+            $providerEventIds = is_array($correlation[$correlationEventIdsField] ?? null)
+                ? $correlation[$correlationEventIdsField]
+                : [];
+            $providerEventIds[$link->subEventHash] = $link->providerEventId;
+            $correlation[$correlationEventIdsField] = $providerEventIds;
             $event['correlation'] = $correlation;
             $event['subEvents'] = array_values($subEvents);
             $events[$id] = $event;

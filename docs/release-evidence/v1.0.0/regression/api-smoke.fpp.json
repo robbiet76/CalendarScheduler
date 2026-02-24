@@ -1,0 +1,33 @@
+{
+    "ok": true,
+    "endpoint": "http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=ui-api.php&nopage=1",
+    "syncMode": "both",
+    "includeAuthStart": false,
+    "includeAuthPoll": false,
+    "includeAuthDisconnect": false,
+    "includeApplyNoop": false,
+    "checks": [
+        {
+            "name": "status",
+            "ok": true,
+            "httpCode": 200,
+            "error": null,
+            "requiredFields": [
+                "provider",
+                "google",
+                "syncMode"
+            ]
+        },
+        {
+            "name": "preview",
+            "ok": true,
+            "httpCode": 200,
+            "error": null,
+            "requiredFields": [
+                "preview.counts",
+                "preview.actions",
+                "preview.syncMode"
+            ]
+        }
+    ]
+}

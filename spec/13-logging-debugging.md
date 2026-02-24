@@ -25,6 +25,7 @@ Current production diagnostic surfaces are:
 ## Diagnostics Payload Contract
 
 `diagnostics` action returns a stable object with:
+- `provider`
 - `syncMode`
 - `selectedCalendarId`
 - `counts`
