@@ -125,10 +125,9 @@ if (!in_array($format, ['text', 'json'], true)) {
 // -------------------------------------------------------------------------
 
 
-$envPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 $runtimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
 
-$readEnvEpoch = static function (string $path): int {
+$readRuntimeEpoch = static function (string $path): int {
     if (!file_exists($path)) {
         return 0;
     }
@@ -140,50 +139,13 @@ $readEnvEpoch = static function (string $path): int {
     return is_int($epoch) ? $epoch : (int) $epoch;
 };
 
-$beforeEpoch = $readEnvEpoch($envPath);
+$beforeEpoch = $readRuntimeEpoch($runtimePath);
 
-$envUrl = getenv('GCS_FPP_ENV_URL');
-if ($envUrl !== false && trim($envUrl) !== '') {
-    $envUrl = trim($envUrl);
-} else {
-    $envUrl = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-env-export.php&nopage=1';
-}
 $runtimeUrl = getenv('GCS_FPP_RUNTIME_URL');
 if ($runtimeUrl !== false && trim($runtimeUrl) !== '') {
     $runtimeUrl = trim($runtimeUrl);
 } else {
     $runtimeUrl = 'http://127.0.0.1/plugin.php?plugin=CalendarScheduler&page=fpp-runtime-export.php&nopage=1';
-}
-
-$cmd = 'curl --silent --show-error --fail --max-time 5 '
-    . '--output /dev/null '
-    . escapeshellarg($envUrl);
-exec($cmd, $out, $rc);
-
-if ($rc !== 0) {
-    throw new RuntimeException('Failed to invoke FPP environment exporter via web');
-}
-
-if (!file_exists($envPath)) {
-    throw new RuntimeException('fpp-env.json was not written by web exporter');
-}
-
-$env = json_decode(file_get_contents($envPath), true);
-if (!is_array($env)) {
-    throw new RuntimeException('fpp-env.json is not valid JSON');
-}
-
-if (($env['ok'] ?? false) !== true) {
-    $errors = $env['errors'] ?? [];
-    $msg = is_array($errors) ? implode('; ', $errors) : (string) $errors;
-    throw new RuntimeException('fpp-env.json export failed: ' . $msg);
-}
-
-$afterEpoch = $env['generatedAtEpoch'] ?? 0;
-$afterEpoch = is_int($afterEpoch) ? $afterEpoch : (int) $afterEpoch;
-
-if ($afterEpoch <= $beforeEpoch) {
-    throw new RuntimeException('fpp-env.json was not refreshed (generatedAtEpoch did not advance)');
 }
 
 // Refresh FPP runtime catalog snapshot (REST-sourced).
@@ -209,6 +171,12 @@ if (($runtime['ok'] ?? false) !== true) {
     $errors = $runtime['errors'] ?? [];
     $msg = is_array($errors) ? implode('; ', $errors) : (string)$errors;
     throw new RuntimeException('fpp-runtime.json export failed: ' . $msg);
+}
+
+$afterEpoch = $runtime['generatedAtEpoch'] ?? 0;
+$afterEpoch = is_int($afterEpoch) ? $afterEpoch : (int) $afterEpoch;
+if ($afterEpoch <= $beforeEpoch) {
+    throw new RuntimeException('fpp-runtime.json was not refreshed (generatedAtEpoch did not advance)');
 }
 
 try {

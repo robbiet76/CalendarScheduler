@@ -108,39 +108,37 @@ final class SchedulerEngine
         $tombstonesBySource = $this->loadTombstones($tombstonesPath, $calendarScope);
 
         // -----------------------------------------------------------------
-        // Build NormalizationContext (inject holidays from fpp-env.json)
+        // Build NormalizationContext from runtime snapshot (fallback to legacy env snapshot)
         // -----------------------------------------------------------------
 
+        $fppRuntimePath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
         $fppEnvPath = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
+        $fppContextRaw = $this->loadRuntimeContextSnapshot($fppRuntimePath, $fppEnvPath);
         $holidays = [];
         $contextTimezone = new \DateTimeZone('UTC');
 
-        if (is_file($fppEnvPath)) {
-            $fppEnvRaw = json_decode(
-                file_get_contents($fppEnvPath),
-                true
-            );
+        if (isset($fppContextRaw['holidays']) && is_array($fppContextRaw['holidays'])) {
+            $holidays = $fppContextRaw['holidays'];
+        } elseif (isset($fppContextRaw['rawLocale']['holidays']) && is_array($fppContextRaw['rawLocale']['holidays'])) {
+            $holidays = $fppContextRaw['rawLocale']['holidays'];
+        }
 
-            if (is_array($fppEnvRaw)
-                && isset($fppEnvRaw['rawLocale']['holidays'])
-                && is_array($fppEnvRaw['rawLocale']['holidays'])
-            ) {
-                $holidays = $fppEnvRaw['rawLocale']['holidays'];
-            }
-
-            $tzName = $fppEnvRaw['timezone'] ?? null;
-            if (is_string($tzName) && trim($tzName) !== '') {
-                try {
-                    $contextTimezone = new \DateTimeZone(trim($tzName));
-                } catch (\Throwable) {
-                    // Keep UTC fallback when fpp-env timezone is invalid.
-                }
+        $tzName = $this->extractRuntimeTimezoneName($fppContextRaw);
+        if (is_string($tzName) && trim($tzName) !== '') {
+            try {
+                $contextTimezone = new \DateTimeZone(trim($tzName));
+            } catch (\Throwable) {
+                // Keep UTC fallback when runtime timezone is invalid.
             }
         }
 
         // Symbolic ordering heuristics use the same environment context as FPP.
-        $this->orderingLatitude = $this->optionalFloat($fppEnvRaw['latitude'] ?? null);
-        $this->orderingLongitude = $this->optionalFloat($fppEnvRaw['longitude'] ?? null);
+        $this->orderingLatitude = $this->optionalFloat(
+            $fppContextRaw['latitude'] ?? ($fppContextRaw['settings']['Latitude'] ?? null)
+        );
+        $this->orderingLongitude = $this->optionalFloat(
+            $fppContextRaw['longitude'] ?? ($fppContextRaw['settings']['Longitude'] ?? null)
+        );
         $this->orderingTimezone = $contextTimezone->getName();
         $this->symbolicDisplaySecondsCache = [];
 
@@ -2327,6 +2325,48 @@ final class SchedulerEngine
             'sequences' => $sequences,
             'commands' => $commands,
         ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function loadRuntimeContextSnapshot(string $runtimePath, string $legacyEnvPath): array
+    {
+        foreach ([$runtimePath, $legacyEnvPath] as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+
+            $raw = @file_get_contents($path);
+            if (!is_string($raw) || trim($raw) === '') {
+                continue;
+            }
+
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return [];
+    }
+
+    private function extractRuntimeTimezoneName(array $runtime): ?string
+    {
+        $candidates = [
+            $runtime['timezone'] ?? null,
+            $runtime['settings']['TimeZone'] ?? null,
+            $runtime['settings']['TimeZoneName'] ?? null,
+            $runtime['settings']['timezone'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return null;
     }
 
     /**

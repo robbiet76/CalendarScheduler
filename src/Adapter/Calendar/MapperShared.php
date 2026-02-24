@@ -8,6 +8,7 @@ use CalendarScheduler\Platform\SunTimeDisplayEstimator;
 
 final class MapperShared
 {
+    private const FPP_RUNTIME_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-runtime.json';
     private const FPP_ENV_PATH = '/home/fpp/media/config/calendar-scheduler/runtime/fpp-env.json';
 
     public static function extractExecutionOrder(array $subEvent): ?int
@@ -54,7 +55,7 @@ final class MapperShared
     public static function resolveLocalTimezone(): \DateTimeZone
     {
         $json = self::readEnvJson();
-        $tzName = is_array($json) ? ($json['timezone'] ?? null) : null;
+        $tzName = self::extractTimezoneName($json);
         if (is_string($tzName) && trim($tzName) !== '') {
             try {
                 return new \DateTimeZone(trim($tzName));
@@ -77,7 +78,7 @@ final class MapperShared
             return null;
         }
 
-        $holidays = $json['rawLocale']['holidays'] ?? null;
+        $holidays = $json['holidays'] ?? ($json['rawLocale']['holidays'] ?? null);
         if (!is_array($holidays)) {
             return null;
         }
@@ -95,8 +96,8 @@ final class MapperShared
             return [null, null];
         }
 
-        $lat = $json['latitude'] ?? null;
-        $lon = $json['longitude'] ?? null;
+        $lat = $json['latitude'] ?? ($json['settings']['Latitude'] ?? null);
+        $lon = $json['longitude'] ?? ($json['settings']['Longitude'] ?? null);
         if (!is_numeric($lat) || !is_numeric($lon)) {
             return [null, null];
         }
@@ -298,16 +299,43 @@ final class MapperShared
      */
     private static function readEnvJson(): ?array
     {
-        if (!is_file(self::FPP_ENV_PATH)) {
+        foreach ([self::FPP_RUNTIME_PATH, self::FPP_ENV_PATH] as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+
+            $raw = @file_get_contents($path);
+            if (!is_string($raw) || $raw === '') {
+                continue;
+            }
+
+            $json = @json_decode($raw, true);
+            if (is_array($json)) {
+                return $json;
+            }
+        }
+
+        return null;
+    }
+
+    private static function extractTimezoneName(?array $json): ?string
+    {
+        if (!is_array($json)) {
             return null;
         }
 
-        $raw = @file_get_contents(self::FPP_ENV_PATH);
-        if (!is_string($raw) || $raw === '') {
-            return null;
+        $candidates = [
+            $json['timezone'] ?? null,
+            $json['settings']['TimeZone'] ?? null,
+            $json['settings']['TimeZoneName'] ?? null,
+            $json['settings']['timezone'] ?? null,
+        ];
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
         }
 
-        $json = @json_decode($raw, true);
-        return is_array($json) ? $json : null;
+        return null;
     }
 }
