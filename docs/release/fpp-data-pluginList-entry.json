@@ -1,0 +1,8 @@
+{
+  "pluginList": [
+    [
+      "CalendarScheduler",
+      "https://raw.githubusercontent.com/robbiet76/CalendarScheduler/master/pluginInfo.json"
+    ]
+  ]
+}
