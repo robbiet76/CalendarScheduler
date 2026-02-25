@@ -3,6 +3,7 @@
 .vscode/*
 docs/*
 fpp/*
+fpp-fork/*
 packaging/*
 spec/*
 www/*
