@@ -1,5 +1,6 @@
 # Development and reference-only content that must never ship
 .git/*
+.github/*
 .vscode/*
 docs/*
 fpp/*
