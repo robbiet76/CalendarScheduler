@@ -231,6 +231,82 @@ $tests = [
         }
     },
 
+    'mapper_monthly_recurrence' => static function (): void {
+        $tmp = sys_get_temp_dir() . '/cs-outlook-regression-' . bin2hex(random_bytes(4));
+        if (!mkdir($tmp, 0775, true) && !is_dir($tmp)) {
+            throw new RuntimeException('failed to create temp config dir');
+        }
+
+        try {
+            $configPath = $tmp . '/config.json';
+            $configJson = json_encode([
+                'calendar_id' => 'primary',
+                'oauth' => [
+                    'client_id' => 'x',
+                    'client_secret' => 'y',
+                    'redirect_uri' => 'http://localhost:8765/oauth2callback',
+                    'scopes' => ['offline_access'],
+                ],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            if (!is_string($configJson)) {
+                throw new RuntimeException('failed to encode config JSON');
+            }
+            file_put_contents($configPath, $configJson . PHP_EOL);
+
+            $config = new OutlookConfig($configPath);
+            $mapper = new OutlookEventMapper();
+
+            $subEvent = [
+                'stateHash' => 'sub-hash-003',
+                'timing' => [
+                    'all_day' => false,
+                    'start_date' => ['hard' => '2026-01-15'],
+                    'end_date' => ['hard' => '2026-12-15'],
+                    'start_time' => ['hard' => '18:00:00'],
+                    'end_time' => ['hard' => '19:00:00'],
+                    'days' => ['type' => 'monthly', 'value' => 15],
+                ],
+                'behavior' => [
+                    'enabled' => true,
+                    'repeat' => 'none',
+                    'stopType' => 'graceful',
+                ],
+                'payload' => [
+                    'summary' => 'Regression Monthly Event',
+                ],
+            ];
+
+            $event = [
+                'identity' => [
+                    'type' => 'playlist',
+                    'target' => 'Regression Playlist',
+                ],
+                'subEvents' => [$subEvent],
+                'correlation' => [],
+            ];
+
+            $action = new ReconciliationAction(
+                ReconciliationAction::TYPE_CREATE,
+                ReconciliationAction::TARGET_CALENDAR,
+                ReconciliationAction::AUTHORITY_CALENDAR,
+                'identity-hash-003',
+                'test',
+                $event
+            );
+
+            $mutations = $mapper->mapAction($action, $config);
+            assert_same(1, count($mutations), 'expected one create mutation');
+            $payload = $mutations[0]->payload;
+            $recurrence = $payload['recurrence'] ?? null;
+            assert_true(is_array($recurrence), 'recurrence should be present for monthly range');
+            assert_same('absoluteMonthly', $recurrence['pattern']['type'] ?? null, 'pattern type should be absoluteMonthly');
+            assert_same(15, $recurrence['pattern']['dayOfMonth'] ?? null, 'dayOfMonth should map from monthly day');
+        } finally {
+            @unlink($tmp . '/config.json');
+            @rmdir($tmp);
+        }
+    },
+
     'translator_recurrence_and_metadata_normalization' => static function (): void {
         $description = implode("\n", [
             '# notes above',
@@ -301,6 +377,30 @@ $tests = [
         assert_same(-5, $settings['start_offset'] ?? null, 'description symbolic start offset should normalize');
         assert_same('Dusk', $settings['end'] ?? null, 'description symbolic end should normalize');
         assert_same(8, $settings['end_offset'] ?? null, 'description symbolic end offset should normalize');
+
+        $monthlyRows = $translator->translateOutlookEvents([
+            [
+                'id' => 'evt-2',
+                'type' => 'seriesMaster',
+                'subject' => 'Translator Monthly Event',
+                'start' => ['dateTime' => '2026-01-15T18:00:00', 'timeZone' => 'America/New_York'],
+                'end' => ['dateTime' => '2026-01-15T19:00:00', 'timeZone' => 'America/New_York'],
+                'recurrence' => [
+                    'pattern' => [
+                        'type' => 'absoluteMonthly',
+                        'interval' => 1,
+                        'dayOfMonth' => 15,
+                    ],
+                    'range' => [
+                        'type' => 'endDate',
+                        'startDate' => '2026-01-15',
+                        'endDate' => '2026-12-15',
+                    ],
+                ],
+            ],
+        ], 'primary');
+        assert_same('MONTHLY', $monthlyRows[0]['rrule']['freq'] ?? null, 'rrule freq should map monthly recurrence');
+        assert_same([15], $monthlyRows[0]['rrule']['bymonthday'] ?? null, 'rrule bymonthday should map from dayOfMonth');
     },
 ];
 

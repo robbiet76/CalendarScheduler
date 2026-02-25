@@ -128,6 +128,24 @@ final class ManifestPlanner
                     'value' => array_values($sub['payload']['rrule']['byday']),
                 ];
             }
+            if (
+                (!isset($timing['days']) || $timing['days'] === null || $timing['days'] === []) &&
+                strtoupper((string)($sub['payload']['rrule']['freq'] ?? '')) === 'MONTHLY' &&
+                isset($sub['payload']['rrule']['bymonthday']) &&
+                is_array($sub['payload']['rrule']['bymonthday']) &&
+                $sub['payload']['rrule']['bymonthday'] !== []
+            ) {
+                $monthDays = array_values(array_filter(array_map(
+                    static fn($d): int => (int)$d,
+                    $sub['payload']['rrule']['bymonthday']
+                ), static fn(int $d): bool => $d >= 1 && $d <= 31));
+                if (count($monthDays) === 1) {
+                    $timing['days'] = [
+                        'type'  => 'monthly',
+                        'value' => $monthDays[0],
+                    ];
+                }
+            }
 
             // Enforce canonical timing rule:
             // If symbolic time exists, hard time must be null.

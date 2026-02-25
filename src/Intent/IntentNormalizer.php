@@ -295,13 +295,23 @@ final class IntentNormalizer
             if ($v === null || !is_array($v)) {
                 return null;
             }
-            if (($v['type'] ?? null) !== 'weekly' || !is_array($v['value'] ?? null)) {
-                return null;
+            $type = is_string($v['type'] ?? null) ? strtolower(trim((string)$v['type'])) : '';
+            if ($type === 'weekly' && is_array($v['value'] ?? null)) {
+                return [
+                    'type'  => 'weekly',
+                    'value' => $this->canonicalizeWeeklyDays($v['value']),
+                ];
             }
-            return [
-                'type'  => 'weekly',
-                'value' => $this->canonicalizeWeeklyDays($v['value']),
-            ];
+            if ($type === 'monthly') {
+                $day = (int)($v['value'] ?? 0);
+                if ($day >= 1 && $day <= 31) {
+                    return [
+                        'type'  => 'monthly',
+                        'value' => $day,
+                    ];
+                }
+            }
+            return null;
         };
 
         return [
@@ -401,13 +411,23 @@ final class IntentNormalizer
             if (!is_array($v)) {
                 return null;
             }
-            if (($v['type'] ?? null) !== 'weekly' || !is_array($v['value'] ?? null)) {
-                return null;
+            $type = is_string($v['type'] ?? null) ? strtolower(trim((string)$v['type'])) : '';
+            if ($type === 'weekly' && is_array($v['value'] ?? null)) {
+                return [
+                    'type'  => 'weekly',
+                    'value' => $this->canonicalizeWeeklyDays($v['value']),
+                ];
             }
-            return [
-                'type'  => 'weekly',
-                'value' => $this->canonicalizeWeeklyDays($v['value']),
-            ];
+            if ($type === 'monthly') {
+                $day = (int)($v['value'] ?? 0);
+                if ($day >= 1 && $day <= 31) {
+                    return [
+                        'type'  => 'monthly',
+                        'value' => $day,
+                    ];
+                }
+            }
+            return null;
         };
 
         // Execution behavior fields must be stable across sources.

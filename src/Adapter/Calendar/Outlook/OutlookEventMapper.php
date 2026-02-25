@@ -744,18 +744,24 @@ final class OutlookEventMapper
     ): ?array
     {
         $weeklyDays = $this->extractWeeklyDays($timing);
+        $monthlyDay = $this->extractMonthlyDay($timing);
         $isRange = strcmp($endDate, $startDate) > 0;
-        if ($weeklyDays === [] && !$isRange) {
+        if ($weeklyDays === [] && $monthlyDay === null && !$isRange) {
             return null;
         }
 
         $pattern = [
-            'type' => $weeklyDays !== [] ? 'weekly' : 'daily',
+            'type' => $weeklyDays !== []
+                ? 'weekly'
+                : ($monthlyDay !== null ? 'absoluteMonthly' : 'daily'),
             'interval' => 1,
         ];
         if ($weeklyDays !== []) {
             $pattern['daysOfWeek'] = $weeklyDays;
             $pattern['firstDayOfWeek'] = 'sunday';
+        }
+        if ($monthlyDay !== null) {
+            $pattern['dayOfMonth'] = $monthlyDay;
         }
 
         return [
@@ -793,6 +799,17 @@ final class OutlookEventMapper
 
         $out = array_values(array_unique($out));
         return $out;
+    }
+
+    private function extractMonthlyDay(array $timing): ?int
+    {
+        $days = is_array($timing['days'] ?? null) ? $timing['days'] : [];
+        if (($days['type'] ?? null) !== 'monthly') {
+            return null;
+        }
+
+        $value = (int)($days['value'] ?? 0);
+        return ($value >= 1 && $value <= 31) ? $value : null;
     }
 
     private function mapCanonicalWeekdayToOutlook(string $value): ?string
