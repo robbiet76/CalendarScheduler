@@ -10,17 +10,6 @@ declare(strict_types=1);
  */
 
 // -----------------------------------------------------------------------------
-// Global paths
-// -----------------------------------------------------------------------------
-
-define('GCS_VERSION', '2.0-dev');
-
-// -----------------------------------------------------------------------------
-// Core — unused currently
-// -----------------------------------------------------------------------------
-
-
-// -----------------------------------------------------------------------------
 // Platform
 // -----------------------------------------------------------------------------
 
@@ -55,7 +44,7 @@ require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMetadataSchema.p
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleEventMapper.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Google/GoogleApply.php';
 
-// Calendar — Outlook provider (scaffold)
+// Calendar — Outlook provider
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookConfig.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookApiClient.php';
 require_once __DIR__ . '/src/Adapter/Calendar/Outlook/OutlookCalendarTranslator.php';

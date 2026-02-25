@@ -103,7 +103,7 @@ $readRuntimeEpoch = static function (string $path): int {
 
 $beforeEpoch = $readRuntimeEpoch($runtimePath);
 
-$runtimeUrl = getenv('GCS_FPP_RUNTIME_URL');
+$runtimeUrl = getenv('CS_FPP_RUNTIME_URL');
 if ($runtimeUrl !== false && trim($runtimeUrl) !== '') {
     $runtimeUrl = trim($runtimeUrl);
 } else {
@@ -152,7 +152,7 @@ try {
 } catch (\Throwable $e) {
     fwrite(STDERR, "ERROR: {$e->getMessage()}\n");
 
-    if (getenv('GCS_DEBUG_TRACE') === '1') {
+    if (getenv('CS_DEBUG_TRACE') === '1') {
         fwrite(STDERR, "EXCEPTION: " . get_class($e) . "\n");
         fwrite(STDERR, "AT: " . $e->getFile() . ":" . $e->getLine() . "\n");
         fwrite(STDERR, "TRACE:\n" . $e->getTraceAsString() . "\n");
@@ -163,9 +163,9 @@ try {
 }
 
 // Optional diagnostics: dump reconciliation actions for triage.
-$debugActions = getenv('GCS_DEBUG_ACTIONS') === '1';
+$debugActions = getenv('CS_DEBUG_ACTIONS') === '1';
 if ($debugActions) {
-    $debugPath = getenv('GCS_DEBUG_ACTIONS_PATH');
+    $debugPath = getenv('CS_DEBUG_ACTIONS_PATH');
     if (!is_string($debugPath) || trim($debugPath) === '') {
         $debugPath = '/tmp/cs-actions.json';
     }

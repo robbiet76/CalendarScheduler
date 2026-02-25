@@ -33,7 +33,7 @@ final class OutlookEventMapper
 
     public function __construct()
     {
-        $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+        $this->debugCalendar = getenv('CS_DEBUG_CALENDAR') === '1';
         $this->localTimezone = $this->resolveLocalTimezone();
         $this->holidayResolver = $this->loadHolidayResolver();
         [$this->latitude, $this->longitude] = $this->loadCoordinates();

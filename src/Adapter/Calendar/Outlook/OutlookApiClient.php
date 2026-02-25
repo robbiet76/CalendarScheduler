@@ -21,7 +21,7 @@ final class OutlookApiClient
     public function __construct(OutlookConfig $config)
     {
         $this->config = $config;
-        $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+        $this->debugCalendar = getenv('CS_DEBUG_CALENDAR') === '1';
     }
 
     public function getConfig(): OutlookConfig

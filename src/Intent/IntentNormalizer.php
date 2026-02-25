@@ -100,7 +100,7 @@ final class IntentNormalizer
             }
 
             // Debug raw days before any normalization
-            if (getenv('GCS_DEBUG_INTENTS') === '1') {
+            if (getenv('CS_DEBUG_INTENTS') === '1') {
                 $rawDays = $timingArr['days'] ?? null;
                 fwrite(STDERR, "RAW DAYS [" . ($event['source'] ?? 'unknown') . "]: " . json_encode($rawDays) . "\n");
             }
@@ -775,7 +775,7 @@ final class IntentNormalizer
      */
     private function debugPreHash(string $source, array $data): void
     {
-        if (getenv('GCS_DEBUG_INTENTS') !== '1') {
+        if (getenv('CS_DEBUG_INTENTS') !== '1') {
             return;
         }
 

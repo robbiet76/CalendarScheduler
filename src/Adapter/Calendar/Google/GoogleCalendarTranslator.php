@@ -30,7 +30,7 @@ final class GoogleCalendarTranslator
 
     public function __construct()
     {
-        $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+        $this->debugCalendar = getenv('CS_DEBUG_CALENDAR') === '1';
         $this->localTimezone = $this->resolveLocalTimezone();
     }
 
