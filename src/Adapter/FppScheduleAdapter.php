@@ -113,20 +113,47 @@ final class FppScheduleAdapter
     }
 
     /**
-     * Load and convert all FPP schedule entries into canonical manifest-event arrays.
+     * Load and convert all FPP schedule entries into canonical manifest-event arrays
+     * from the live FPP schedule API.
      *
-     * @param \DateTimeZone $fppTz
-     * @param string $schedulePath Kept for call-site compatibility; live read is via /api/schedule
      * @return array<int,array<string,mixed>> manifest-events
      */
     public function loadManifestEvents(
         NormalizationContext $context,
         string $schedulePath
     ): array {
-        $fppTz = $context->timezone;
         $raw = $this->fetchLiveScheduleViaApi();
-        $updatedAt = time();
+        return $this->normalizeRawEntriesToManifestEvents($context, $raw, time());
+    }
 
+    /**
+     * Load and convert schedule entries from a specific schedule.json file path.
+     *
+     * Used by deterministic regression helpers and file-based rebuild paths that
+     * must not depend on live API state.
+     *
+     * @return array<int,array<string,mixed>> manifest-events
+     */
+    public function loadManifestEventsFromScheduleFile(
+        NormalizationContext $context,
+        string $schedulePath
+    ): array {
+        $raw = $this->loadScheduleEntriesFromFile($schedulePath);
+        $mtime = @filemtime($schedulePath);
+        $updatedAt = is_int($mtime) ? $mtime : time();
+        return $this->normalizeRawEntriesToManifestEvents($context, $raw, $updatedAt);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $raw
+     * @return array<int,array<string,mixed>>
+     */
+    private function normalizeRawEntriesToManifestEvents(
+        NormalizationContext $context,
+        array $raw,
+        int $updatedAt
+    ): array {
+        $fppTz = $context->timezone;
         $yearHints = [];
         $globalYearHint = null;
         foreach ($raw as $entry) {
@@ -200,6 +227,28 @@ final class FppScheduleAdapter
         unset($event);
 
         return array_values($aggregated);
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function loadScheduleEntriesFromFile(string $schedulePath): array
+    {
+        if (!is_file($schedulePath)) {
+            throw new \RuntimeException("FPP schedule file not found: {$schedulePath}");
+        }
+
+        $rawBody = @file_get_contents($schedulePath);
+        if (!is_string($rawBody)) {
+            throw new \RuntimeException("Failed to read FPP schedule file: {$schedulePath}");
+        }
+
+        $decoded = json_decode($rawBody, true);
+        if (!is_array($decoded) || !array_is_list($decoded)) {
+            throw new \RuntimeException('FPP schedule file has invalid payload shape');
+        }
+
+        return $decoded;
     }
 
     /**

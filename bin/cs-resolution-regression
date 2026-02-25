@@ -1446,7 +1446,7 @@ function manifestEventsToSourceFppEvents(array $events, NormalizationContext $co
 
     $tmp = '/tmp/cs-resolution-roundtrip-' . getmypid() . '-' . uniqid('', true) . '.json';
     file_put_contents($tmp, json_encode($scheduleEntries, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $sourceEvents = $adapter->loadManifestEvents($context, $tmp);
+    $sourceEvents = $adapter->loadManifestEventsFromScheduleFile($context, $tmp);
     @unlink($tmp);
 
     return $sourceEvents;
