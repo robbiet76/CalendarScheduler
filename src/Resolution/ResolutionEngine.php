@@ -217,13 +217,18 @@ final class ResolutionEngine implements ResolutionEngineInterface
         if ($until !== null) {
             $untilDt = $this->parseUntilToDateTime($until, $tz);
 
-            // Only handle DAILY and WEEKLY for now.
+            // Handle bounded recurrence frequencies that map to date-range semantics.
             $freq = null;
             if (is_array($event->rrule ?? null)) {
                 $freq = strtoupper((string)($event->rrule['freq'] ?? ''));
             }
 
-            if ($freq === 'DAILY' || $freq === 'WEEKLY') {
+            if (
+                $freq === 'DAILY'
+                || $freq === 'WEEKLY'
+                || $freq === 'MONTHLY'
+                || $freq === 'YEARLY'
+            ) {
 
                 $untilDate = $untilDt->format('Y-m-d');
                 // UNTIL is inclusive of the final occurrence date for our date-range semantics.
@@ -240,7 +245,7 @@ final class ResolutionEngine implements ResolutionEngineInterface
                 }
             }
 
-            // Other frequencies (e.g., MONTHLY) are intentionally ignored for now.
+            // Other frequencies are intentionally ignored for now.
         }
 
         return [$start, $end];

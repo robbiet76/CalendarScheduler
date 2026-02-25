@@ -315,6 +315,12 @@ final class OutlookCalendarTranslator
                 $rrule['byday'] = array_values(array_unique($byday));
             }
         }
+        if ($freq === 'MONTHLY') {
+            $dayOfMonth = (int)($pattern['dayOfMonth'] ?? 0);
+            if ($dayOfMonth >= 1 && $dayOfMonth <= 31) {
+                $rrule['bymonthday'] = [$dayOfMonth];
+            }
+        }
 
         $rangeType = is_string($range['type'] ?? null) ? strtolower(trim((string)$range['type'])) : '';
         if ($rangeType === 'numbered') {

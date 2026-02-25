@@ -100,7 +100,7 @@ final class IntentNormalizer
             }
 
             // Debug raw days before any normalization
-            if (getenv('GCS_DEBUG_INTENTS') === '1') {
+            if (getenv('CS_DEBUG_INTENTS') === '1') {
                 $rawDays = $timingArr['days'] ?? null;
                 fwrite(STDERR, "RAW DAYS [" . ($event['source'] ?? 'unknown') . "]: " . json_encode($rawDays) . "\n");
             }
@@ -295,13 +295,23 @@ final class IntentNormalizer
             if ($v === null || !is_array($v)) {
                 return null;
             }
-            if (($v['type'] ?? null) !== 'weekly' || !is_array($v['value'] ?? null)) {
-                return null;
+            $type = is_string($v['type'] ?? null) ? strtolower(trim((string)$v['type'])) : '';
+            if ($type === 'weekly' && is_array($v['value'] ?? null)) {
+                return [
+                    'type'  => 'weekly',
+                    'value' => $this->canonicalizeWeeklyDays($v['value']),
+                ];
             }
-            return [
-                'type'  => 'weekly',
-                'value' => $this->canonicalizeWeeklyDays($v['value']),
-            ];
+            if ($type === 'monthly') {
+                $day = (int)($v['value'] ?? 0);
+                if ($day >= 1 && $day <= 31) {
+                    return [
+                        'type'  => 'monthly',
+                        'value' => $day,
+                    ];
+                }
+            }
+            return null;
         };
 
         return [
@@ -401,13 +411,23 @@ final class IntentNormalizer
             if (!is_array($v)) {
                 return null;
             }
-            if (($v['type'] ?? null) !== 'weekly' || !is_array($v['value'] ?? null)) {
-                return null;
+            $type = is_string($v['type'] ?? null) ? strtolower(trim((string)$v['type'])) : '';
+            if ($type === 'weekly' && is_array($v['value'] ?? null)) {
+                return [
+                    'type'  => 'weekly',
+                    'value' => $this->canonicalizeWeeklyDays($v['value']),
+                ];
             }
-            return [
-                'type'  => 'weekly',
-                'value' => $this->canonicalizeWeeklyDays($v['value']),
-            ];
+            if ($type === 'monthly') {
+                $day = (int)($v['value'] ?? 0);
+                if ($day >= 1 && $day <= 31) {
+                    return [
+                        'type'  => 'monthly',
+                        'value' => $day,
+                    ];
+                }
+            }
+            return null;
         };
 
         // Execution behavior fields must be stable across sources.
@@ -775,7 +795,7 @@ final class IntentNormalizer
      */
     private function debugPreHash(string $source, array $data): void
     {
-        if (getenv('GCS_DEBUG_INTENTS') !== '1') {
+        if (getenv('CS_DEBUG_INTENTS') !== '1') {
             return;
         }
 

@@ -30,7 +30,7 @@ final class GoogleCalendarTranslator
 
     public function __construct()
     {
-        $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+        $this->debugCalendar = getenv('CS_DEBUG_CALENDAR') === '1';
         $this->localTimezone = $this->resolveLocalTimezone();
     }
 
@@ -393,6 +393,19 @@ final class GoogleCalendarTranslator
                 case 'BYDAY':
                     $days = array_values(array_filter(array_map('trim', explode(',', $v))));
                     $out['byday'] = $days;
+                    break;
+                case 'BYMONTHDAY':
+                    $monthDays = array_values(array_filter(array_map(
+                        static function (string $part): int {
+                            return (int)trim($part);
+                        },
+                        explode(',', $v)
+                    ), static function (int $d): bool {
+                        return $d >= 1 && $d <= 31;
+                    }));
+                    if ($monthDays !== []) {
+                        $out['bymonthday'] = $monthDays;
+                    }
                     break;
                 case 'INTERVAL':
                     $out['interval'] = ctype_digit($v) ? (int)$v : $v;

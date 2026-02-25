@@ -47,7 +47,7 @@ final class GoogleEventMapper
 
     public function __construct()
     {
-        $this->debugCalendar = getenv('GCS_DEBUG_CALENDAR') === '1';
+        $this->debugCalendar = getenv('CS_DEBUG_CALENDAR') === '1';
         $this->localTimezone = $this->resolveLocalTimezone();
         $this->holidayResolver = $this->loadHolidayResolver();
         [$this->latitude, $this->longitude] = $this->loadCoordinates();
@@ -1095,23 +1095,33 @@ final class GoogleEventMapper
             ->setTimezone(new \DateTimeZone('UTC'))
             ->format('Ymd\THis\Z');
 
-        $days = null;
-        if (
-            is_array($timing['days'] ?? null)
-            && (($timing['days']['type'] ?? null) === 'weekly')
-            && is_array($timing['days']['value'] ?? null)
-        ) {
-            $rawDays = array_values(array_filter(
-                $timing['days']['value'],
-                static fn($d): bool => is_string($d) && trim($d) !== ''
-            ));
-            $days = array_map(static fn($d): string => strtoupper(trim((string)$d)), $rawDays);
+        $weeklyDays = null;
+        $monthlyDay = null;
+        if (is_array($timing['days'] ?? null)) {
+            $daysType = is_string($timing['days']['type'] ?? null)
+                ? strtolower(trim((string)$timing['days']['type']))
+                : '';
+            if ($daysType === 'weekly' && is_array($timing['days']['value'] ?? null)) {
+                $rawDays = array_values(array_filter(
+                    $timing['days']['value'],
+                    static fn($d): bool => is_string($d) && trim($d) !== ''
+                ));
+                $weeklyDays = array_map(static fn($d): string => strtoupper(trim((string)$d)), $rawDays);
+            } elseif ($daysType === 'monthly') {
+                $candidate = (int)($timing['days']['value'] ?? 0);
+                if ($candidate >= 1 && $candidate <= 31) {
+                    $monthlyDay = $candidate;
+                }
+            }
         }
 
         $parts = [];
-        if (is_array($days) && $days !== []) {
+        if ($monthlyDay !== null) {
+            $parts[] = 'FREQ=MONTHLY';
+            $parts[] = 'BYMONTHDAY=' . (string)$monthlyDay;
+        } elseif (is_array($weeklyDays) && $weeklyDays !== []) {
             $parts[] = 'FREQ=WEEKLY';
-            $parts[] = 'BYDAY=' . implode(',', $days);
+            $parts[] = 'BYDAY=' . implode(',', $weeklyDays);
         } else {
             $parts[] = 'FREQ=DAILY';
         }

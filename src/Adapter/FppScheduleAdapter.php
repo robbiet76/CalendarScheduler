@@ -328,6 +328,13 @@ final class FppScheduleAdapter
                 ],
             'timezone' => $fppTz->getName(),
         ];
+        $monthlyDay = $this->extractMonthlyDayFromDateMask($startDateParts, $endDateParts);
+        if ($monthlyDay !== null) {
+            $timing['days'] = [
+                'type'  => 'monthly',
+                'value' => $monthlyDay,
+            ];
+        }
 
         // --- Payload ---
         $repeatNumeric = FPPSemantics::normalizeRepeat($entry['repeat'] ?? null);
@@ -819,6 +826,18 @@ final class FppScheduleAdapter
         $entry['endDate'] =
             ($endDate['symbolic'] ?? null)
                 ?: ($endDate['hard'] ?? null);
+        if (
+            is_array($timing['days'] ?? null)
+            && (($timing['days']['type'] ?? null) === 'monthly')
+        ) {
+            $monthDay = (int)($timing['days']['value'] ?? 0);
+            if ($monthDay >= 1 && $monthDay <= 31) {
+                $day = sprintf('%02d', $monthDay);
+                // FPP runtime treats 0000-00-DD as day-of-month recurrence.
+                $entry['startDate'] = '0000-00-' . $day;
+                $entry['endDate'] = '0000-00-' . $day;
+            }
+        }
 
         $correlation = is_array($event['correlation'] ?? null) ? $event['correlation'] : [];
         $manifestEventId = is_string($event['identityHash'] ?? null)
@@ -840,5 +859,31 @@ final class FppScheduleAdapter
         }
 
         return $entry;
+    }
+
+    /**
+     * @param array{hard:?string,symbolic:?string} $startDate
+     * @param array{hard:?string,symbolic:?string} $endDate
+     */
+    private function extractMonthlyDayFromDateMask(array $startDate, array $endDate): ?int
+    {
+        $startHard = is_string($startDate['hard'] ?? null) ? trim((string)$startDate['hard']) : '';
+        $endHard = is_string($endDate['hard'] ?? null) ? trim((string)$endDate['hard']) : '';
+        if ($startHard === '' || $endHard === '') {
+            return null;
+        }
+
+        if (!preg_match('/^0000-00-(\d{2})$/', $startHard, $sm)) {
+            return null;
+        }
+        if (!preg_match('/^0000-00-(\d{2})$/', $endHard, $em)) {
+            return null;
+        }
+        if ($sm[1] !== $em[1]) {
+            return null;
+        }
+
+        $day = (int)$sm[1];
+        return ($day >= 1 && $day <= 31) ? $day : null;
     }
 }
